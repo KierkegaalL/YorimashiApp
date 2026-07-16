@@ -1,2 +1,1 @@
-# YorimashiApp
-よしまり.App
+# よしまり.App
