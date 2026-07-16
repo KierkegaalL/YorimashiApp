@@ -1,0 +1,2 @@
+# YorimashiApp
+よしまり.App
