@@ -1,0 +1,272 @@
+# ヨリマシ.app 基本設計書
+
+> 本ファイルはNotionの基本設計書のミラーです。**Notionが正本**。要件定義書(WHAT)と詳細設計書(HOW: 実装レベル)の間を橋渡しする文書。
+> 作成日: 2026-07-16 / 対象: FR-1〜FR-14全て、非機能要件・セキュリティ要件を含む
+
+## 1. 本書の位置づけ・対象範囲
+
+- 要件定義書(何を作るか)と詳細設計書(どう実装するか)の間を埋める、システム構成・画面構成・データ構造・外部IFの設計書。
+- 本書で扱う: システム全体構成、画面設計、主要コンポーネント設計、データ設計、外部インターフェース設計、セキュリティ設計。
+- 本書で扱わない: 具体的なコード実装、テストケース、パラメータの具体値(詳細設計書へ)。
+
+## 2. システム全体構成
+
+```
+│ Electron アプリ (メインプロセス)
+│  ┌──────────────────────────────────┐
+│  │ ローカルサーバー (Node.js http+ws)     │
+│  │  127.0.0.1:8765 ・トークン認証必須      │
+│  │  config.json (Zodバリデーション)        │
+│  └──────┬───────────────────────────┘
+│       │ IPC / HTTP
+│  ┌────┴───────(Renderer)  ┌──────────────(Renderer)
+│  │ キャラクター表示ウィンドウ  │  Control Panel
+│  │ CharacterRenderer(FR-5)  │  6タブ構成(FR-7)
+│  │ 透過・最前面・クリックスルー │  └──────────────────
+│  └──────────────────────────
+│           │ WebSocket(viewer:hello/claim, トークン認証)
+┌──────────────────┐   ┌──────────────────────────┐
+│ Claude Code(別プロセス)  │   │ Chrome拡張機能(別プロセス)      │
+│ hooks → dispatch.sh    │   │ /panel, /character をiframe表示 │
+│ (FR-2)                  │   │ (薄い殻、Manifest V3, FR-8)     │
+└──────────────────┘   └──────────────────────────┘
+│ 外部動画生成AIサービス(ブラウザ・別プロセス) ─ Pika/Canva等、スプライトセットの生成のみに使用(FR-5)
+```
+
+## 3. プロセス構成
+
+| プロセス | 実行環境 | 役割 |
+|---|---|---|
+| Electron Main | Node.js | ウィンドウ生成、ローカルサーバー、config.json管理 |
+| キャラクター表示ウィンドウ | Chromium(Renderer) | CharacterRendererによるLive2D/スプライトセット描画 |
+| Control Panelウィンドウ | Chromium(Renderer) | 6タブUI、config編集 |
+| Claude Code hooks | bash(dispatch.sh) | イベントをローカルサーバーへPOST |
+| Chrome拡張機能 | Chrome(別プロセス) | /panel, /characterをiframe表示するだけの薄い殻 |
+
+## 4. 画面設計
+
+### 4.1 画面一覧
+
+| 画面 | 種別 | 対応FR |
+|---|---|---|
+| キャラクター表示ウィンドウ | 常駐(透過・最前面) | FR-6 |
+| Control Panel・ホーム | タブ | FR-1, FR-2 |
+| Control Panel・モデル管理 | タブ | FR-5 |
+| Control Panel・モード設定 | タブ | FR-1, FR-3 |
+| Control Panel・全体設定 | タブ | FR-10, 配色テーマ |
+| Control Panel・ログ | タブ | FR-11 |
+| Control Panel・権利情報 | タブ | FR-12 |
+| オンボーディング(4画面) | 初回起動のみ | FR-14(各画面詳細は詳細設計で確定) |
+
+### 4.2 Control Panelタブ構成(モックアップ済み)
+
+- **ホーム**: 現在のアダプタ切替、Code Adapter接続状態、表示中モデルを一目で確認。
+- **モデル管理**: セット中モデル一覧(形式バッジ付き)、モード連動自動切替、追加形式選択(スプライトセットを既定)、画像アップロード→AI生成アシストフロー、全10状態マッピング、削除(インライン確認付き)。
+- **モード設定**: Code Adapter(監視パス・ポート・連続失敗閾値)、Chat Adapter(mock/real切替、real選択時の警告表示)。
+- **全体設定**: 配色テーマ(light/dark/system 3選択)、表示サイズ・クリックスルー・自動起動、EmotionEngineパラメータ。
+- **ログ**: hooksイベントログ一覧、エクスポート(パス仮名化)、消去。
+- **権利情報**: Live2D利用区分、外部動画生成AIサービスのToS注意、OSSライセンス一覧、フォント、持ち込みモデルの著作権注意、Anthropic API利用に関する注記。
+
+### 4.3 デザインシステム
+
+- **配色**: `THEMES`オブジェクト(light=白望/dark=漆黒)を単一の情報源とし、React Context(`ThemeCtx`)で各コンポーネントに供給。system選択時は`window.matchMedia('(prefers-color-scheme: dark)')`でOS設定を検知・追従。
+- **タイプ**: 見出し=Zen Antique、本文/操作要素=M PLUS 1 Code、数値系=JetBrains Mono。
+- **シグネチャモーション**: 呪紋(魔法陣)リングの二重回転 + HUD四隅ブラケット。Moodに応じて色・回転速度が変化。
+
+## 5. 主要コンポーネント設計
+
+### 5.1 CharacterRenderer抽象化 (FR-5, FR-6)
+
+```typescript
+interface CharacterRenderer {
+  mount(container: HTMLElement): void;
+  setState(stateKey: string, opts?: { crossfadeMs?: number }): void;
+  destroy(): void;
+}
+class Live2DRenderer implements CharacterRenderer { /* pixi-live2d-display */ }
+class SpriteSetRenderer implements CharacterRenderer { /* WebPクロスフェード再生 */ }
+function createRenderer(model: ModelSlot): CharacterRenderer {
+  return model.renderType === 'live2d' ? new Live2DRenderer(model) : new SpriteSetRenderer(model);
+}
+```
+
+EmotionEngineは`renderer.setState(key)`を呼ぶだけで、形式を意識しない。透過はLive2DはWebGLネイティブアルファ、スプライトセットは色キー抜き後のWebPアルファで実現(どちらもFR-6を満たす)。
+
+### 5.2 EmotionEngine (FR-4)
+
+- Mood(idle/confident/tired)とReaction(thinking/happy/proud/worried/panic/curious/sleepy)の2層。全10状態。
+- 優先度: panic > proud > worried > happy > curious > thinking > idle系。クールダウン(1.5秒目安)で連発を抑制。
+- Reactionはタイマー(3秒目安)でMoodに自動復帰。successStreak/failStreakによりMood自体も遷移(confident/tired)。
+
+### 5.3 Adapter層 (FR-1〜FR-3)
+
+- Code Adapter: hooksイベント → `engine.trigger()` / `engine.onToolResult()`。
+- Chat Adapter: mock(キーワード判定) / real(Anthropic API + Haiku分類候補)。
+- どちらも同一のEmotionEngineインスタンスを共有し、切替方式はホーム画面のトグルで行う。
+
+### 5.4 表示排他制御 (FR-9)
+
+- WSメッセージ: `viewer:hello`(接続時自己申告) / `viewer:claim`(手動で表示権を取得) / `viewer:visibility`(サーバー→クライアントの表示/非表示通知)。
+- サーバーは`activeViewer`を保持し、後から`hello`/`claim`した方を優先。切断時は残った方へ自動復帰。
+- 非表示側: Electronは`hide()`(ウィンドウは保持)、拡張機能は`pixiApp.ticker.stop()`で描画を止めてプレースホルダー+「こちらに表示する」ボタンを表示。
+
+## 6. データ設計
+
+### 6.1 config.json スキーマ(集約)
+
+```typescript
+const ModelSlotSchema = z.object({
+  id: z.string(), name: z.string(),
+  renderType: z.enum(['live2d', 'spriteset']),
+  cubismVersion: z.enum(['cubism2', 'cubism4']).optional(),
+  baseResolution: z.object({ width: z.number(), height: z.number() }).optional(), // spritesetのみ
+  installedDir: z.string(), mappingFile: z.string().default('manifest.json'),
+  assignedAdapter: z.enum(['code', 'chat']).nullable().default(null),
+});
+// 注: 感情↔クリップ(clips)の実体はここには持たせず、モデルごとのmanifest.jsonを正本とする(6.2参照)。
+const AppConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  activeAdapter: z.enum(['code', 'chat']),
+  chatAdapter: z.object({
+    mode: z.enum(['mock', 'real']).default('mock'),
+    anthropicApiKey: z.string().default(''),
+    model: z.string().default('claude-sonnet-5'),
+  }),
+  codeAdapter: z.object({
+    serverPort: z.number().default(8765),
+    watchedProjectPaths: z.array(z.string()).default([]),
+    failStreakThreshold: z.number().default(3),
+    successStreakThreshold: z.number().default(3),
+  }),
+  model: z.object({
+    slots: z.array(ModelSlotSchema).max(2).default([]),
+    autoSwitchByMode: z.boolean().default(false),
+    manualActiveId: z.string().nullable().default(null),
+  }),
+  emotionEngine: z.object({
+    reactionDurationMs: z.number().default(3000),
+    cooldownMs: z.number().default(1500),
+    idleTimeoutMs: z.number().default(300000),
+  }),
+  general: z.object({
+    themeMode: z.enum(['light', 'dark', 'system']).default('system'),
+    displaySize: z.number().default(0.5),
+    clickThrough: z.boolean().default(true),
+    autostart: z.boolean().default(true),
+  }),
+  notion: z.object({
+    connected: z.boolean().default(false),
+    requirementsPageId: z.string().nullable().default(null),
+  }),
+  obsidian: z.object({
+    vaultPath: z.string().nullable().default(null),
+    syncMode: z.enum(['none', 'icloud', 'git', 'obsidian-sync']).default('none'),
+  }),
+  logging: z.object({
+    level: z.enum(['debug','info','warn','error']).default('debug'),
+    hookEventLogPath: z.string().default('logs/hook-events.jsonl'),
+    retentionDays: z.number().default(7),
+    maskOnExport: z.boolean().default(true),
+  }),
+  distribution: z.object({
+    macSigningIdentity: z.string().nullable().default(null),
+    macNotarize: z.boolean().default(false),
+    chromeExtensionId: z.string().nullable().default(null),
+    chromeStorePublished: z.boolean().default(false),
+    live2dCommercialLicense: z.boolean().default(false),
+  }),
+});
+```
+
+### 6.2 モデルディレクトリ構成
+
+```
+userData/models/<uuid>/
+ ├─ manifest.json         # renderType, baseResolution, clips定義等(スプライトセットの正本)
+ ├─ model3.json / *.moc3  # Live2D形式のみ
+ └─ idle.webp, happy.webp 等  # スプライトセット形式のみ(全10状態分、idle以外は欠落可)
+```
+
+config.jsonの`ModelSlotSchema`は形式共通の最小限のメタデータ(renderType, cubismVersion, baseResolution等)のみを保持し、感情↔クリップの実際の対応(clips)はモデルごとのmanifest.jsonが正本となる。
+
+### 6.3 hooksイベントログ
+
+- 形式: JSONL(1行1イベント)、パーミッション0600。
+- フィールド: `hookEventName, tool_name, exit_code, filePath, timestamp`。ファイルパス・プロジェクト名も含めて保存(7日で自動削除)。
+
+## 7. 外部インターフェース設計
+
+### 7.1 Claude Code hooks連携 (FR-2)
+
+| イベント | トリガー |
+|---|---|
+| PreToolUse | engine.trigger('thinking') |
+| PostToolUse | engine.onToolResult(true) |
+| PostToolUseFailure | engine.onToolResult(false) |
+| Notification | engine.trigger('curious') |
+| Stop | Moodのみ idle寄りに重心移動 |
+| UserPromptSubmit | engine.trigger('curious', クールダウン短め) |
+
+`dispatch.sh`はexit 0固定、curlは2秒タイムアウトで非ブロッキング。
+
+### 7.2 ローカルサーバーAPI一覧
+
+| エンドポイント | 用途 | 認証 |
+|---|---|---|
+| POST /hook | hooksイベント受信 | 必須 |
+| GET /panel | Control PanelのHTML配信 | 不要(トークンはHTML内に埋め込み) |
+| GET /character | キャラ表示用HTML配信 | 同上 |
+| GET /models/* | モデルアセット配信 | 必須 + パス検証 |
+| WS /ws | Mood/Reaction配信、viewer制御 | 必須(クエリ付与) |
+
+### 7.3 ブラウザ拡張機能連携 (FR-8)
+
+- Manifest V3、`chrome.sidePanel`。claude.aiタブでのみ有効化(`chrome.tabs.onUpdated`/`onActivated`で判定)。
+- サイドパネルは`<iframe src="http://localhost:8765/panel">`を表示するだけの薄い殻。
+
+### 7.4 外部動画生成AIサービス連携 (FR-5)
+
+| 工程 | 担当 |
+|---|---|
+| 元画像の準備 | ユーザー |
+| クロマグリーン合成 | アプリ(自動) |
+| 動画生成 | ユーザー(外部サービス) |
+| 色キー抜き+WebP変換 | アプリ(自動) |
+
+APIを直接叩かず、プロンプト提示→ユーザーが外部サービスで実行→結果を取り込む、の半自動フロー(特定ベンダー非依存)。
+
+## 8. セキュリティ設計
+
+- 認証: 起動時にランダムトークンを生成しuserData配下に0600で保存。hooksはファイルから読んでヘッダ付与、/panel,/characterはHTML内にJS変数として埋め込み(別オリジンなので取得不可)。
+- CSP: `frame-ancestors 'self' chrome-extension://<固定ID>`。
+- Electron: 全レンダラーで`contextIsolation: true, nodeIntegration: false, sandbox: true`。
+- パストラバーサル対策: zip展開・`/models/*`配信ともに、解決後パスがベースディレクトリ内に収まることを検証。
+
+## 9. スプライトセット生成パイプライン設計 (FR-5)
+
+1. 静止画アップロード(透過PNG推奨)
+2. アプリがクロマグリーン背景に合成した画像を生成(background_key.png)
+3. ユーザーが外部AIで感情ごとの動画(mp4/webm)を生成・ダウンロード
+4. 取り込み時: 色キー抜き(背景色に近い画素のうち、画像の縁に連結した領域のみを背景と判定する境界連結判定を採用し、内部の白(髪飾り等)を保護) → 背景マスクを1px膨張(エッジの中間色除去) → アニメーションWebPへエンコード
+5. `idle`のみ必須。他は欠落時`idle`にフォールバック
+
+具体的な画像処理ライブラリの選定は詳細設計で行う(要件定義書の未確定事項参照)。
+
+## 10. 非機能要件への対応方針
+
+- **パフォーマンス**: キャラクター描画は無操作時にfpsを落とす(60→15fps目安)。
+- **可用性**: ローカルサーバーは起動時にポート使用中を検知した場合、順次別ポートを試行(実際の値はconfig.jsonに保存)。
+- **保守性**: 新規連携先はCharacterRenderer/Adapterの実装クラスを追加するだけで拡張可能。
+
+## 11. 詳細設計へ引き継ぐ事項
+
+- キャラクター表示ウィンドウのマルチモニタ挙動・初期配置ロジック・右クリックメニュー項目一覧(FR-6)
+- モデルマッピング編集画面の実際の挙動(プレビュー再生等)
+- オンボーディング各画面の詳細
+- リップシンクとstreaming表示の同期方式
+- Chat Adapterのエラーハンドリング
+- キーワードベース感情分類の具体的な辞書/ロジック
+- スプライトセットの色キー抜きに使用する具体的な画像処理ライブラリ選定
+
+---
+本書は要件定義書の内容をベースに作成している。要件側に変更が入った場合は、本書も合わせて更新すること。

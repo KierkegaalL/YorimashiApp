@@ -1,0 +1,12 @@
+node_modules/
+out/
+dist/
+release/
+
+# 開発・検証専用モデル(ちびキャラメーカー出力等)。配布物に絶対に含めない(CLAUDE.md参照)
+dev-assets/
+
+.DS_Store
+*.log
+.env
+.env.*
