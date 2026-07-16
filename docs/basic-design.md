@@ -50,6 +50,7 @@
 | 画面 | 種別 | 対応FR |
 |---|---|---|
 | キャラクター表示ウィンドウ | 常駐(透過・最前面) | FR-6 |
+| メニューバーアイコン | 常駐(メニューバー) | FR-6(クリックスルー時の常設操作面) |
 | Control Panel・ホーム | タブ | FR-1, FR-2 |
 | Control Panel・モデル管理 | タブ | FR-5 |
 | Control Panel・モード設定 | タブ | FR-1, FR-3 |
@@ -151,6 +152,7 @@ const AppConfigSchema = z.object({
   general: z.object({
     themeMode: z.enum(['light', 'dark', 'system']).default('system'),
     displaySize: z.number().default(0.5),
+    windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null), // null=初回起動時。初期配置を計算する
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
   }),
