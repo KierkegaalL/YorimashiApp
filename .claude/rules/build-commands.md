@@ -44,7 +44,7 @@ GUIを開けないだけで、**多くの検証は実行できる**。詳細設�
 | フック | イベント | 内容 |
 |---|---|---|
 | `post-edit-check.sh` | PostToolUse（Edit/Write/MultiEdit） | `.ts`/`.tsx`/`.js`/`.jsx` 編集後に `npm run lint`・`npm run typecheck`（存在するもののみ）。失敗時は非0で停止させる |
-| `symmetry-reminder.sh` | 同上 | Live2D/スプライトセットの対称性をリマインド（**補助であり判断はしない**。誤検知あり） |
+| `symmetry-reminder.sh` | 同上 | **`git diff HEAD`の変更行**が Live2D/スプライトセットの片側にだけ触れていたら注意喚起（**補助であり判断はしない**。constraints.md参照） |
 | `model-advisor.sh` | UserPromptSubmit | 依頼文から推奨モデルを助言。不一致時は警告（下記「使用モデルの自動化」） |
 | `session-start-reminder.sh` | SessionStart | 正本確認・対称性チェックの注意喚起 |
 
