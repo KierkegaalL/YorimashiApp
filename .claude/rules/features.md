@@ -58,7 +58,7 @@
 - `src/preload/index.ts` — contextBridge
 - `src/renderer/{character,control-panel}/` — プレースホルダ
 
-**次の作業**: 未決事項（14件）の解消 → 実装着手。一覧と優先度は [Memory.md](../../Memory.md) を参照。
+**次の作業**: 未決事項（15件）の解消 → 実装着手。一覧と優先度は [Memory.md](../../Memory.md) を参照。
 
 ## 参照ドキュメント
 

@@ -10,7 +10,7 @@
 
 - 詳細設計7件すべて確定（`docs/detailed-design/`）
 - スキャフォールドのみ実装済み（Electron + TS + React + Vite）
-- **未決事項が14件**残っており、うち2件は実装着手をブロックする（下記）
+- **未決事項が15件**残っており、うち2件は実装着手をブロックする（下記）
 
 ## 完了済み作業
 
@@ -35,7 +35,16 @@
 - **`navigator.onLine`はElectron Mainで`undefined`**（`navigator`自体は存在するのでガードを通過してしまう）
 - **感情分類は否定表現の打ち消しが必須**。ただし「申し訳ありません」は語自体が「ません」を含むため除外指定が要る
 
-## 未決事項（14件）
+## Obsidian Vault（ハーネスの知識置き場）
+
+`~/Documents/Obsidian Vault/開発/` に**実測の生データ・越境知識・セッションの経緯**を置いている（`.claude/rules/constraints.md` 参照）。
+
+- **Vaultは正本ではない。** 境界は「cloneした他人が実装に必要か」。必要ならrepo、無くても実装できるならVault
+- `開発/計測/` に本セッションの実測8件（下記「実測して確定した主な事項」の生データと再現手順）
+- Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
+- **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
+
+## 未決事項（15件）
 
 ### 優先度A — 実装着手をブロックする
 
@@ -61,6 +70,7 @@
 
 | # | 内容 | 契機 |
 |---|---|---|
+| C0 | **`config.obsidian`（`vaultPath`/`syncMode`）と `config.notion` に対応するFRが無い**。configにだけ存在し、FR-1〜FR-14のどれにも紐づいていない。要件側の定義が要る | 要Notion確認 |
 | C1 | 権利情報タブのOSS一覧に`sharp`/`libvips`追加（libvipsはLGPL-3.0で既存のMIT/ISCと種別が違う） | FR-12 |
 | C2 | フォントをGoogle Fontsの`@import`からローカル同梱へ（CSP・オフライン・外部リクエスト） | ローカルサーバー |
 | C3 | Rendererの読み込み元を`http://localhost:8765`へ移行（security.md 7章。**WebCodecsの有効化条件**） | 同上 |
