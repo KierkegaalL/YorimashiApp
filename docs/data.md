@@ -124,7 +124,7 @@ export type AppConfig = z.infer<typeof AppConfigSchema>;
     "idle":      { "file": "idle.webp",      "loop": true },
     "confident": { "file": "confident.webp", "loop": true },
     "tired":     { "file": "tired.webp",      "loop": true },
-    "thinking":  { "file": "thinking.webp",   "loop": false, "returnTo": "idle" },
+    "thinking":  { "file": "thinking.webp",   "loop": true },
     "happy":     { "file": "happy.webp",      "loop": false, "returnTo": "idle" },
     "proud":     { "file": "proud.webp",      "loop": false, "returnTo": "idle" },
     "worried":   { "file": "worried.webp",    "loop": false, "returnTo": "idle" },
@@ -135,7 +135,22 @@ export type AppConfig = z.infer<typeof AppConfigSchema>;
 }
 ```
 
-Mood(idle/confident/tired)は`loop: true`、Reaction(thinking/happy/proud/worried/curious)は`loop: false`+`returnTo: "idle"`が基本パターン。panic/sleepyはReactionだが継続性のある状態なのでループ扱いとする(実装時に要再検証、詳細設計で確定)。
+**`loop`と「状態の寿命」は直交する別概念**(detailed-design/lipsync.mdで確定)。
+
+- **`loop`(manifest.jsonの責務)**: 素材の再生方法。クリップが状態の継続時間より短いとき、つなぎ直すか最終フレームで止めるか。
+- **状態の寿命(EmotionEngineの責務)**: いつMoodへ戻るか。タイマー(`reactionDurationMs`)で戻るか、条件が解除されるまで持続するか。
+
+| 状態 | `loop` | 寿命 | 備考 |
+|---|---|---|---|
+| idle / confident / tired | true | Mood(戻り先そのもの) | — |
+| happy / proud / worried / curious | false + `returnTo: "idle"` | タイマー | イベントへの一過性の反応 |
+| panic | true | タイマー | クリップが短ければループさせたいが、状態自体は一過性 |
+| sleepy | true | **持続** | 無操作という条件が続く限り眠い。操作の検知で解除 |
+| thinking | true | Code=タイマー / **Chat=持続** | 応答を待つ間ずっと考えている。応答完了で解除 |
+
+panic と sleepy はどちらも`loop: true`だが寿命は正反対である。両者を「継続性のある状態」と一括りにできないのは、`loop`と寿命が別の軸だから。
+
+持続する状態(sleepy / Chat中のthinking)はタイマーではなく明示的な解除で戻る。この仕組みはEmotionEngine側のAPI追加を伴う(lipsync.md参照、要Notion更新)。
 
 ## 3. ディレクトリ構成(userData配下全体)
 
