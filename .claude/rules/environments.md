@@ -58,10 +58,25 @@
 
 ## 開発用アセット
 
-- `dev-assets/` — 開発・検証専用のモデル置き場。**`.gitignore`対象**。配布物に絶対に含めない（constraints.md）。
+- `dev-assets/` — 開発・検証専用のモデル置き場。**`.gitignore`対象**。配布物に絶対に含めない（constraints.md）。`dev-assets/live2d/` にモデル一式を配置する（`dev-assets/README.md` に期待するディレクトリ構成を記載）。
 - `docs/mockups/` — デザインモックアップ。gitで追跡する（実装の土台であり使い捨ての開発用資材ではない）。`src/`の外に置くことでビルド・`tsc`の対象外にしている。
 
-> **現状**: `dev-assets/`は未作成、Live2Dモデル資材も未配置。このためLive2D側の実測が一切できず、detailed-design 側に「未検証」の項目が残っている（constraints.md「既知の非対称」）。
+> **現状**: `dev-assets/live2d/`は準備済みだがモデル資材は未配置。配置され次第、Live2D側の実測（Cubism 2/4の列挙構造、持続中にモーションが尽きたときの挙動）を行う（constraints.md「既知の非対称」）。
+
+## PixiJSのバージョン方針（確定・重要）
+
+**PixiJS v6系で統一する。v8（npm最新）は使わない。**
+
+`pixi-live2d-display`（Live2D描画に使う唯一のライブラリ）の安定版(0.4.0)は`peerDependencies`で`pixi.js: ^6`を要求する。実測で確認した重大な非対称:
+
+- `pixi-live2d-display`の`Live2DModel`は`@pixi/display`(v6)の`Container`を継承しており、`pixi.js`(v8)の`Container`とは**別クラス**（`instanceof`で不一致）
+- `npm install pixi.js@^8 pixi-live2d-display`は依存解決自体は通るが、**v6系サブパッケージ(`@pixi/core`等)とv8本体が別々に共存インストールされる**だけで統合されない
+- beta版(0.5.0-beta)は`pixi.js: ^7`だが**2023-12-07以降更新なし**。事実上メンテナンス終了
+- Cubism 2/4はそれぞれ`live2d.min.js`/`live2dcubismcore.js`という**外部ランタイム**（Live2D公式サイトから別途取得、npmには無い）を`window`にロードしないと、importした瞬間に例外を投げる
+
+**この方針が拘束するのはLive2D側の実装のみ。** basic-design.md 5.1は`SpriteSetRenderer`を「WebPクロスフェード再生」としか記述しておらず、PixiJSの使用を前提としていない（アニメーションWebPは`<img>`やCanvas 2Dでも再生できる）。`CharacterRenderer`の抽象化自体には影響しないが、**Live2DRendererの実装は終始v6のAPIで書く**（v8のドキュメント・型を参照しない）。SpriteSetRendererの描画手段は別途、実装時にPixiJS(v6)を使うか`<img>`/Canvas 2Dで完結させるかを決める。
+
+> **要注意**: `pixi-live2d-display`のpackage.jsonは`gh-pages`(prototype pollutionの既知critical脆弱性)を`dependencies`に誤って含む。distバンドルには痕跡がなくランタイムには使われないが、`node_modules`には物理的に入る。配布時にelectron-builderのファイル選定で確実に除外されるか確認が必要（実装時のTODO）。
 
 ## Chat Adapterのモード
 

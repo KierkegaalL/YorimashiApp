@@ -100,6 +100,7 @@ Control Panel内に常設タブ。Live2D利用区分(Live2D形式のみ対象)�
 - **ブラウザ拡張機能**: Chrome Manifest V3、`chrome.sidePanel`。
 - **設定バリデーション**: Zod。
 - **ローカルサーバー**: Node.js(http + ws)、127.0.0.1:8765。
+- **Chat Adapter実装**: `@anthropic-ai/sdk`(公式SDK)をMainプロセスで使用。リトライはSDK標準機構に任せ、冷えた(進行が止まった)streamの検知は無通信ウォッチドッグ(`AbortSignal`)を別途実装する(SDKの`timeout`は応答ヘッダ受信までしかカバーしないため)。
 - **モデル描画抽象化**: `CharacterRenderer`インターフェースでLive2D/スプライトセットを共通の呼び出し形に統一。
 - **スプライトセット処理**: クロマキー合成・色キー抜き(境界連結判定)・アニメーションWebPエンコードをローカルで実行(具体的な画像処理ライブラリは詳細設計で選定)。
 - **配色テーマ**: `THEMES`オブジェクトによるトークン管理。light(白望)/dark(漆黒)/system(OS連動、`prefers-color-scheme`検知)の3モード。

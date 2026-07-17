@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-16
+**最終更新**: 2026-07-17
 
 ## 現在地
 
@@ -10,7 +10,12 @@
 
 - 詳細設計7件すべて確定（`docs/detailed-design/`）
 - スキャフォールドのみ実装済み（Electron + TS + React + Vite）
-- **未決事項が15件**残っており、うち2件は実装着手をブロックする（下記）
+- **未決事項は13件**（A1・A2・B1〜B6を解消。残りはA2の完了（モデル配置自体）とC0〜C6）
+- A2（Live2Dモデル受け入れ準備）着手済み。`dev-assets/live2d/`作成、`pixi.js@^6`+`pixi-live2d-display@^0.4.0`導入。**実際のモデル配置はユーザー作業として残っている**
+  - **非対称は正当**: `dev-assets/`はLive2D専用（`spriteset/`は無い）。Live2Dは完成済みモデルを**配置**する形式（フォルダ/zipドロップ）だが、スプライトセットは静止画1枚から**アプリ内で生成**する形式（要件定義書4.5・C-17）で、事前配置するモデル資材という概念自体が存在しない。character-window.mdで確認済みの非対称と同じ構造
+  - **PixiJSはv6系で固定**。`pixi-live2d-display`安定版のpeerが`^6`。v8（npm最新）とは別クラス（`instanceof`不一致を実測）。beta(0.5.0-beta)はv7対応だが2023-12以降更新なし。Cubism 2/4はそれぞれ外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`）が必須で、無いとimport時に例外。詳細は`.claude/rules/environments.md`「PixiJSのバージョン方針」
+- **A1+B（B1〜B6）をNotion正本に反映済み**（基本設計書・要件定義書 両方 + docs/data.md・config-schema.ts）。`baseResolution`を形式共通必須化、EmotionEngineに`sustain`/`release`、`chatAdapter`にclassifier等追加、streakしきい値を`emotionEngine`へ移動、Anthropic SDKを技術スタックへ、`cubismVersion`にコメント明示、9章の記述誤り修正
+- **副次的に発見した既存バグを修正**: `config-schema.ts`の`createDefaultConfig()`が実際には空値しか返さなかった。Zod v4は`.default(v)`だと入力undefined時に`v`をバリデーションなしで採用し、ネストしたフィールドの`.default()`が補完されない。`.prefault(v)`に変更して解決（実行時に全フィールド正しく補完されることを確認済み）
 
 ## 完了済み作業
 
@@ -44,27 +49,15 @@
 - Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
 - **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
 
-## 未決事項（15件）
+## 未決事項（13件）
 
-### 優先度A — 実装着手をブロックする
+A1・A2（受け入れ準備）・B1〜B6は解消済み。残るのはA2の完了（実モデルの配置自体）とC0〜C6。
 
-| # | 内容 | 出典 |
-|---|---|---|
-| A1 | **`baseResolution`の形式間非対称**。spriteset専用のためLive2Dはモデルをロードするまでウィンドウサイズが確定しない。形式共通の必須フィールドへ変更する案を推奨（Notion 6.1変更） | character-window.md |
-| A2 | **開発用Live2Dモデルが無い**。`dev-assets/`未作成、`pixi-live2d-display`未導入。Live2D側を一切実測できず、下記2件の未検証の根本原因 — ①Cubism 2/4の列挙構造 ②持続中にモーションが尽きたときの挙動 | model-mapping-ui.md / lipsync.md |
+### 実装着手前に残るもの
 
-### 優先度B — Notion正本の変更（1回のセッションで一括推奨）
-
-| # | 内容 | 変更先 |
-|---|---|---|
-| B1 | EmotionEngineに`sustain`/`release`を追加（持続する状態＝Chat中のthinking・sleepy） | basic-design 5.2 |
-| B2 | `chatAdapter`に`classifier`/分類用モデルID/無通信しきい値/`maxRetries`/`timeout` | basic-design 6.1 |
-| B3 | `failStreakThreshold`/`successStreakThreshold`を`codeAdapter`→`emotionEngine`へ（**現状Chat AdapterがMoodを動かせない**） | basic-design 6.1 |
-| B4 | Anthropic SDKを技術スタックへ追記 | requirements 5章 |
-| B5 | `cubismVersion` enumに`cubism5`（要件は3箇所で2/4/5対応）or `cubism4`が5を兼ねる旨を明示 | basic-design 6.1 |
-| B6 | 9章「内部の白（髪飾り等）を保護」→ 背景はグリーンなので記述誤り | basic-design 9章 |
-
-> A1もNotion 6.1の変更のため、この一括更新の先頭に置くのが効率的。
+| # | 内容 |
+|---|---|
+| A2完了 | **開発用Live2Dモデルの実配置**（ユーザー作業）。`dev-assets/live2d/`に配置後、Cubism 2/4の列挙構造・持続中にモーションが尽きたときの挙動を実測する（model-mapping-ui.md / lipsync.md） |
 
 ### 優先度C — 該当機能の実装時に併せて
 
@@ -80,10 +73,11 @@
 
 ## 次の一手
 
-1. A2（Live2Dモデル配置）→ A1+B一括Notion更新 → 実装着手
+1. **A2完了**（実モデル配置。ユーザー作業） → 実装着手
 2. Cは各機能の実装時に回収
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
+A1+B一括Notion更新も完了。**残る実装ブロッカーはA2（実モデル配置）のみ。**
 
 ## 技術情報
 

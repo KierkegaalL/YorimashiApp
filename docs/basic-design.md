@@ -97,7 +97,8 @@ EmotionEngineは`renderer.setState(key)`を呼ぶだけで、形式を意識し�
 
 - Mood(idle/confident/tired)とReaction(thinking/happy/proud/worried/panic/curious/sleepy)の2層。全10状態。
 - 優先度: panic > proud > worried > happy > curious > thinking > idle系。クールダウン(1.5秒目安)で連発を抑制。
-- Reactionはタイマー(3秒目安)でMoodに自動復帰。successStreak/failStreakによりMood自体も遷移(confident/tired)。
+- Reactionは既定でタイマー(3秒目安)でMoodに自動復帰する。ただし`sustain`付きで発火したReaction(Chat Adapter使用中の`thinking`、無操作中の`sleepy`)はタイマーで戻らず、明示的な`release()`が呼ばれるまで持続する。
+- successStreak/failStreakによりMood自体も遷移(confident/tired)。しきい値は`emotionEngine`設定に持つ(Code/Chat両Adapterで共有するため)。
 
 ### 5.3 Adapter層 (FR-1〜FR-3)
 
@@ -119,8 +120,8 @@ EmotionEngineは`renderer.setState(key)`を呼ぶだけで、形式を意識し�
 const ModelSlotSchema = z.object({
   id: z.string(), name: z.string(),
   renderType: z.enum(['live2d', 'spriteset']),
-  cubismVersion: z.enum(['cubism2', 'cubism4']).optional(),
-  baseResolution: z.object({ width: z.number(), height: z.number() }).optional(), // spritesetのみ
+  cubismVersion: z.enum(['cubism2', 'cubism4']).optional(), // live2dのみ。'cubism4'はCubism 5モデル(model3.json形式)も含む
+  baseResolution: z.object({ width: z.number(), height: z.number() }), // 形式共通・必須。spritesetはmanifest.jsonから、live2dはmodel3.json/model.jsonのロード時に読み取って書き込む
   installedDir: z.string(), mappingFile: z.string().default('manifest.json'),
   assignedAdapter: z.enum(['code', 'chat']).nullable().default(null),
 });
@@ -132,12 +133,15 @@ const AppConfigSchema = z.object({
     mode: z.enum(['mock', 'real']).default('mock'),
     anthropicApiKey: z.string().default(''),
     model: z.string().default('claude-sonnet-5'),
+    classifier: z.enum(['keyword', 'haiku']).default('keyword'), // mockでは常にkeyword(課金しない)
+    classifierModel: z.string().default('claude-haiku-4-5'),
+    idleTimeoutMs: z.number().default(30000), // streaming無通信ウォッチドッグのしきい値
+    maxRetries: z.number().default(2),
+    timeout: z.number().default(60000),
   }),
   codeAdapter: z.object({
     serverPort: z.number().default(8765),
     watchedProjectPaths: z.array(z.string()).default([]),
-    failStreakThreshold: z.number().default(3),
-    successStreakThreshold: z.number().default(3),
   }),
   model: z.object({
     slots: z.array(ModelSlotSchema).max(2).default([]),
@@ -147,7 +151,9 @@ const AppConfigSchema = z.object({
   emotionEngine: z.object({
     reactionDurationMs: z.number().default(3000),
     cooldownMs: z.number().default(1500),
-    idleTimeoutMs: z.number().default(300000),
+    idleTimeoutMs: z.number().default(300000), // 無操作でsleepyへ移行するまでの時間
+    failStreakThreshold: z.number().default(3), // Code/Chat両Adapterで共有
+    successStreakThreshold: z.number().default(3),
   }),
   general: z.object({
     themeMode: z.enum(['light', 'dark', 'system']).default('system'),
@@ -249,7 +255,7 @@ APIを直接叩かず、プロンプト提示→ユーザーが外部サービ�
 1. 静止画アップロード(透過PNG推奨)
 2. アプリがクロマグリーン背景に合成した画像を生成(background_key.png)
 3. ユーザーが外部AIで感情ごとの動画(mp4/webm)を生成・ダウンロード
-4. 取り込み時: 色キー抜き(背景色に近い画素のうち、画像の縁に連結した領域のみを背景と判定する境界連結判定を採用し、内部の白(髪飾り等)を保護) → 背景マスクを1px膨張(エッジの中間色除去) → アニメーションWebPへエンコード
+4. 取り込み時: 色キー抜き(背景色に近い画素のうち、画像の縁に連結した領域のみを背景と判定する境界連結判定を採用し、内部のグリーン系の画素(緑の髪飾り・瞳のハイライト等)を保護) → 背景マスクを1px膨張(エッジの中間色除去) → アニメーションWebPへエンコード
 5. `idle`のみ必須。他は欠落時`idle`にフォールバック
 
 具体的な画像処理ライブラリの選定は詳細設計で行う(要件定義書の未確定事項参照)。

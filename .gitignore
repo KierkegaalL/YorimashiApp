@@ -4,7 +4,9 @@ dist/
 release/
 
 # 開発・検証専用モデル(ちびキャラメーカー出力等)。配布物に絶対に含めない(CLAUDE.md参照)
-dev-assets/
+# README.mdは配置ガイドなので追跡する(モデル本体だけ除外)
+dev-assets/*
+!dev-assets/README.md
 
 .DS_Store
 *.log

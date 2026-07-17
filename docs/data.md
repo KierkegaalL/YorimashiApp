@@ -13,8 +13,8 @@ const ModelSlotSchema = z.object({
   id: z.string(),
   name: z.string(),
   renderType: z.enum(['live2d', 'spriteset']),
-  cubismVersion: z.enum(['cubism2', 'cubism4']).optional(),      // live2dのみ
-  baseResolution: z.object({ width: z.number(), height: z.number() }).optional(), // spritesetのみ
+  cubismVersion: z.enum(['cubism2', 'cubism4']).optional(),      // live2dのみ。'cubism4'はCubism 5モデル(model3.json形式)も含む
+  baseResolution: z.object({ width: z.number(), height: z.number() }), // 形式共通・必須。spritesetはmanifest.jsonから、live2dはmodel3.json/model.jsonのロード時に読み取って書き込む
   installedDir: z.string(),                                       // userData/models/<uuid> の相対パス
   mappingFile: z.string().default('manifest.json'),
   assignedAdapter: z.enum(['code', 'chat']).nullable().default(null),
@@ -28,13 +28,16 @@ const AppConfigSchema = z.object({
     mode: z.enum(['mock', 'real']).default('mock'),
     anthropicApiKey: z.string().default(''),
     model: z.string().default('claude-sonnet-5'),
+    classifier: z.enum(['keyword', 'haiku']).default('keyword'), // mockでは常にkeyword(課金しない)
+    classifierModel: z.string().default('claude-haiku-4-5'),
+    idleTimeoutMs: z.number().default(30000),                    // streaming無通信ウォッチドッグのしきい値
+    maxRetries: z.number().default(2),
+    timeout: z.number().default(60000),
   }),
 
   codeAdapter: z.object({
     serverPort: z.number().default(8765),
     watchedProjectPaths: z.array(z.string()).default([]),
-    failStreakThreshold: z.number().default(3),
-    successStreakThreshold: z.number().default(3),
   }),
 
   model: z.object({
@@ -46,7 +49,9 @@ const AppConfigSchema = z.object({
   emotionEngine: z.object({
     reactionDurationMs: z.number().default(3000),
     cooldownMs: z.number().default(1500),
-    idleTimeoutMs: z.number().default(300000),
+    idleTimeoutMs: z.number().default(300000),   // 無操作でsleepyへ移行するまでの時間
+    failStreakThreshold: z.number().default(3),  // Code/Chat両Adapterで共有
+    successStreakThreshold: z.number().default(3),
   }),
 
   general: z.object({
