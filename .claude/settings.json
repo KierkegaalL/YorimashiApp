@@ -1,11 +1,24 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-reminder.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start-reminder.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/model-advisor.sh\"",
+            "timeout": 10
           }
         ]
       }
@@ -16,12 +29,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/verify-syntax.sh",
-            "timeout": 30
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/post-edit-check.sh\"",
+            "timeout": 120
           },
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/symmetry-reminder.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/symmetry-reminder.sh\"",
             "timeout": 10
           }
         ]
