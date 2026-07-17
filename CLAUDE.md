@@ -6,7 +6,7 @@
 
 **ヨリマシ.app** は、Claude Codeでの作業実況とClaudeとのチャット対話を、憑坐(よりまし)キャラクター「**常世灯里**(とこよ あかり)」が感情豊かに反応しながら伴走するデスクトップ常駐アプリ。開発者自身のClaude Code活用基盤(ハーネスエンジニアリング)の一環。
 
-- **技術スタック**: Electron + TypeScript + React + Vite / PixiJS + pixi-live2d-display(Live2D描画、Cubism 2/4/5両対応) / Zod(設定バリデーション) / Node.js http+ws(ローカルサーバー) / Chrome Manifest V3(拡張機能)
+- **技術スタック**: Electron + TypeScript + React + Vite / PixiJS + pixi-live2d-display(Live2D描画、Cubism 2/4/5両対応、v6系固定) / Zod(設定バリデーション) / Node.js http+ws(ローカルサーバー)
 - **デザイン方向性**: 電脳オカルト×HUD(和風オカルト+ターミナルUI)
 - **対応OS**: macOSのみ(v1)
 - **中心構造**:
@@ -20,14 +20,14 @@
 ```
 YorimashiApp/
 ├── CLAUDE.md                  # 本ファイル(ルールの入口)
-├── Memory.md                  # セッション間の状況記録(完了/未決事項13件/技術情報)
+├── Memory.md                  # セッション間の状況記録(完了/未決事項10件/技術情報)
 ├── docs/
 │   ├── requirements.md        # 要件定義書(Notionのミラー)
 │   ├── basic-design.md        # 基本設計書(Notionのミラー)
 │   ├── data.md                # config.json / manifest.json / ディレクトリ構成
 │   ├── api.md                 # ローカルサーバーAPI / hooks連携
 │   ├── security.md            # トークン認証・CSP・パストラバーサル対策
-│   ├── detailed-design/       # 詳細設計7件(すべて確定済み)
+│   ├── detailed-design/       # 詳細設計8件(すべて確定済み)
 │   └── mockups/
 │       └── control-panel.jsx  # UIモックアップ(UIの正)
 ├── .claude/
@@ -53,7 +53,7 @@ YorimashiApp/
    要件の追加・変更は必ず Notion を先に更新し、その後 `docs/requirements.md`・`docs/basic-design.md` へ反映すること。Notion ページへのリンクは [.claude/rules/features.md](.claude/rules/features.md)。**正本自体が古くなることがある**ため、差分を見つけたらどちらが正しいか判断してから直す(過去に `windowPosition` の記載漏れが実際に発生した)。
 
 3. **詳細設計は `docs/detailed-design/` を正とする**
-   7件すべて確定済み。**実測に基づく決定**を含むため、実装で覆さないこと(主な実測事項は [Memory.md](Memory.md))。UIの正は `docs/mockups/control-panel.jsx`、感情↔クリップ対応(`clips`)の正は各モデルの `manifest.json`(config.jsonには複製しない)。
+   8件すべて確定済み。**実測に基づく決定**を含むため、実装で覆さないこと(主な実測事項は [Memory.md](Memory.md))。UIの正は `docs/mockups/control-panel.jsx`、感情↔クリップ対応(`clips`)の正は各モデルの `manifest.json`(config.jsonには複製しない)。
 
 4. **対称性チェック(このプロジェクト最重要ルール)**
    Live2D/スプライトセットのどちらかに関わる変更をしたら、**必ずもう一方の分岐も同時に確認・修正する**。実際に「片方だけ直す」事故が2度発生している。`grep`で機械的に確認してから完了とすること。非対称が正当な場合は**その理由を明記する**(黙って片方だけ書くと実装漏れと誤読される)。詳細・既知の非対称は [.claude/rules/constraints.md](.claude/rules/constraints.md)。
@@ -85,7 +85,7 @@ YorimashiApp/
 
 | ファイル | 内容 |
 |---|---|
-| [features.md](.claude/rules/features.md) | 機能一覧(FR-1〜FR-14)、全10状態の定義、**Notion正本リンク**、現在のフェーズ |
+| [features.md](.claude/rules/features.md) | 機能一覧(FR-1〜FR-15。FR-8/FR-9は欠番)、全10状態の定義、**Notion正本リンク**、現在のフェーズ |
 | [build-commands.md](.claude/rules/build-commands.md) | ビルド・型チェックコマンド、**サンドボックスで可能な検証**、実装後チェックループ、モデル方針、チェックポイント方式 |
 | [environments.md](.claude/rules/environments.md) | プロセス構成、ローカルサーバー(127.0.0.1:8765)、userData配下のデータ配置、mock/real |
 | [git-workflow.md](.claude/rules/git-workflow.md) | ブランチ戦略(**実装着手時にdevelop化**)、コミットルール・粒度 |
@@ -93,6 +93,6 @@ YorimashiApp/
 
 ## 現在のフェーズ
 
-**設計フェーズ完了。実装は未着手**(スキャフォールドのみ)。詳細設計7件はすべて確定済みで、Notion正本の一括更新(A1+B)も完了。**未決事項が13件**残っており、うち実装着手をブロックするのは開発用Live2Dモデルの実配置(A2)のみ。
+**設計フェーズ完了。実装は未着手**(スキャフォールドのみ)。詳細設計8件はすべて確定済みで、Notion正本の一括更新(A1+B)、FR-8/FR-9の削除・FR-15(会話ペイン)の追加も完了。**未決事項が10件**残っており、うち実装着手をブロックするのは開発用Live2Dモデルの実配置(A2)のみ。
 
 一覧・優先度・次の一手は [Memory.md](Memory.md) を参照。

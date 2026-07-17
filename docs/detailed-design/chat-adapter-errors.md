@@ -31,7 +31,6 @@ api.md 6章は「Messages APIを**直叩き**」と記述しているが、**公
 
 - APIキーは`config.chatAdapter.anthropicApiKey`にあり、config.jsonを所有するのはMain。
 - security.md は全レンダラーに`contextIsolation: true` / `sandbox: true`を課している。Rendererから直接APIを叩くとキーをRendererへ渡すことになり、この前提が崩れる。
-- キャラクターウィンドウはブラウザ拡張のiframeからも読まれる(FR-8)。Renderer側にキーを置く設計は、その経路にもキーを晒す。
 
 > **要決着**: `@anthropic-ai/sdk`は`package.json`に未追加で、**要件定義書5章(技術スタック)にも記載がない**(Electron / PixiJS / Zod等は列挙されているが、Anthropic SDKだけ無い)。追加はスタック変更にあたるためNotion正本の更新が要る。
 

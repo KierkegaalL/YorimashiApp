@@ -1,6 +1,6 @@
 # api.md — API・外部連携リファレンス
 
-> 基本設計書 7章の詳細版。ローカルサーバーのエンドポイント実装、hooks連携、拡張機能連携の実装時に参照する。
+> 基本設計書 7章の詳細版。ローカルサーバーのエンドポイント実装、hooks連携の実装時に参照する。
 
 ## 1. Claude Code hooks連携 (FR-2)
 
@@ -71,46 +71,13 @@ function isAuthorized(req: http.IncomingMessage): boolean {
 
 `/panel`・`/character`はHTMLの入れ物を返すだけなので認証不要。ただしHTML内に埋め込むトークンは、別オリジンの悪意あるサイトがiframeで埋め込んでも同一オリジンポリシーにより読み取れない(security.md参照)。
 
-## 3. WebSocketメッセージ仕様(表示排他制御・状態配信)
+## 3. WebSocketメッセージ仕様(状態配信)
 
 | メッセージ | 方向 | 用途 |
 |---|---|---|
-| `viewer:hello` | クライアント→サーバー | 接続時に自己申告(`{ viewer: 'desktop' \| 'extension' }`) |
-| `viewer:claim` | クライアント→サーバー | 手動で表示権を取得 |
-| `viewer:visibility` | サーバー→クライアント | 表示/非表示の通知(`{ visible: boolean }`) |
 | Mood/Reaction配信 | サーバー→クライアント | EmotionEngineの状態変化をブロードキャスト |
 
-サーバーは`activeViewer`を保持し、後から`hello`/`claim`した方を優先する。切断時は残った方へ自動復帰する。
-
-## 4. ブラウザ拡張機能連携 (FR-8)
-
-### 4.1 マニフェスト(Manifest V3)
-
-```json
-{
-  "manifest_version": 3,
-  "name": "ヨリマシ.app Panel",
-  "version": "0.1.0",
-  "permissions": ["sidePanel", "tabs"],
-  "host_permissions": ["http://localhost:8765/*", "https://claude.ai/*"],
-  "background": { "service_worker": "background.js" },
-  "action": {}
-}
-```
-
-### 4.2 claude.aiタブでのみ有効化するロジック
-
-```javascript
-function isClaudeAi(url) {
-  try { return new URL(url).hostname === 'claude.ai'; } catch { return false; }
-}
-async function syncPanel(tabId, url) {
-  await chrome.sidePanel.setOptions({ tabId, path: 'panel.html', enabled: isClaudeAi(url ?? '') });
-}
-chrome.tabs.onUpdated.addListener((tabId, info, tab) => { if (info.url) syncPanel(tabId, info.url); });
-```
-
-## 5. 外部動画生成AIサービス連携 (FR-5)
+## 4. 外部動画生成AIサービス連携 (FR-5)
 
 APIを直接叩かず、以下の半自動フローで完結する(特定ベンダー非依存)。
 
@@ -123,7 +90,7 @@ APIを直接叩かず、以下の半自動フローで完結する(特定ベン�
 
 推奨サービス(Pika・Canva等)はアプリ内で固定リンクとして案内するか、完全にツール非依存の説明に留めるかは詳細設計で確定する。
 
-## 6. Anthropic API連携(Chat Adapter real時)
+## 5. Anthropic API連携(Chat Adapter real時)
 
 - Messages APIをstreamingで直叩き。`chatAdapter.mode === 'real'`の場合のみ。
 - APIキーは`config.chatAdapter.anthropicApiKey`から取得。

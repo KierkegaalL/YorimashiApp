@@ -19,17 +19,19 @@
 │  │  config.json (Zodバリデーション)        │
 │  └──────┬───────────────────────────┘
 │       │ IPC / HTTP
-│  ┌────┴───────(Renderer)  ┌──────────────(Renderer)
-│  │ キャラクター表示ウィンドウ  │  Control Panel
-│  │ CharacterRenderer(FR-5)  │  6タブ構成(FR-7)
-│  │ 透過・最前面・クリックスルー │  └──────────────────
-│  └──────────────────────────
-│           │ WebSocket(viewer:hello/claim, トークン認証)
-┌──────────────────┐   ┌──────────────────────────┐
-│ Claude Code(別プロセス)  │   │ Chrome拡張機能(別プロセス)      │
-│ hooks → dispatch.sh    │   │ /panel, /character をiframe表示 │
-│ (FR-2)                  │   │ (薄い殻、Manifest V3, FR-8)     │
-└──────────────────┘   └──────────────────────────┘
+│  ┌────┴───────(Renderer)  ┌──────────────────────────(Renderer)
+│  │ キャラクター表示ウィンドウ  │  Control Panel ウィンドウ(1つ)
+│  │ CharacterRenderer(FR-5)  │  ┌──────────┐┌────────────┐
+│  │ 透過・最前面・クリックスルー │  │会話ペイン  │◀│ 6タブ(FR-7) │
+│  └────────────────────────  │  │(FR-15)   │↑│            │
+│                             │  └──────────┘│└────────────┘
+│                             │    タブで折りたたみ─┘
+│                             └────────────────────────────
+┌──────────────────┐
+│ Claude Code(別プロセス)  │
+│ hooks → dispatch.sh    │
+│ (FR-2)                  │
+└──────────────────┘
 │ 外部動画生成AIサービス(ブラウザ・別プロセス) ─ Pika/Canva等、スプライトセットの生成のみに使用(FR-5)
 ```
 
@@ -39,9 +41,8 @@
 |---|---|---|
 | Electron Main | Node.js | ウィンドウ生成、ローカルサーバー、config.json管理 |
 | キャラクター表示ウィンドウ | Chromium(Renderer) | CharacterRendererによるLive2D/スプライトセット描画 |
-| Control Panelウィンドウ | Chromium(Renderer) | 6タブUI、config編集 |
+| Control Panelウィンドウ | Chromium(Renderer) | 左に会話ペイン(FR-15)、右に6タブUI(FR-7)。config編集 |
 | Claude Code hooks | bash(dispatch.sh) | イベントをローカルサーバーへPOST |
-| Chrome拡張機能 | Chrome(別プロセス) | /panel, /characterをiframe表示するだけの薄い殻 |
 
 ## 4. 画面設計
 
@@ -51,6 +52,7 @@
 |---|---|---|
 | キャラクター表示ウィンドウ | 常駐(透過・最前面) | FR-6 |
 | メニューバーアイコン | 常駐(メニューバー) | FR-6(クリックスルー時の常設操作面) |
+| 会話ペイン | Control Panelウィンドウ内の左ペイン(タブで折りたたみ可) | FR-15(既定は展開) |
 | Control Panel・ホーム | タブ | FR-1, FR-2 |
 | Control Panel・モデル管理 | タブ | FR-5 |
 | Control Panel・モード設定 | タブ | FR-1, FR-3 |
@@ -105,12 +107,6 @@ EmotionEngineは`renderer.setState(key)`を呼ぶだけで、形式を意識し�
 - Code Adapter: hooksイベント → `engine.trigger()` / `engine.onToolResult()`。
 - Chat Adapter: mock(キーワード判定) / real(Anthropic API + Haiku分類候補)。
 - どちらも同一のEmotionEngineインスタンスを共有し、切替方式はホーム画面のトグルで行う。
-
-### 5.4 表示排他制御 (FR-9)
-
-- WSメッセージ: `viewer:hello`(接続時自己申告) / `viewer:claim`(手動で表示権を取得) / `viewer:visibility`(サーバー→クライアントの表示/非表示通知)。
-- サーバーは`activeViewer`を保持し、後から`hello`/`claim`した方を優先。切断時は残った方へ自動復帰。
-- 非表示側: Electronは`hide()`(ウィンドウは保持)、拡張機能は`pixiApp.ticker.stop()`で描画を止めてプレースホルダー+「こちらに表示する」ボタンを表示。
 
 ## 6. データ設計
 
@@ -179,8 +175,6 @@ const AppConfigSchema = z.object({
   distribution: z.object({
     macSigningIdentity: z.string().nullable().default(null),
     macNotarize: z.boolean().default(false),
-    chromeExtensionId: z.string().nullable().default(null),
-    chromeStorePublished: z.boolean().default(false),
     live2dCommercialLicense: z.boolean().default(false),
   }),
 });
@@ -227,12 +221,7 @@ config.jsonの`ModelSlotSchema`は形式共通の最小限のメタデータ(ren
 | GET /models/* | モデルアセット配信 | 必須 + パス検証 |
 | WS /ws | Mood/Reaction配信、viewer制御 | 必須(クエリ付与) |
 
-### 7.3 ブラウザ拡張機能連携 (FR-8)
-
-- Manifest V3、`chrome.sidePanel`。claude.aiタブでのみ有効化(`chrome.tabs.onUpdated`/`onActivated`で判定)。
-- サイドパネルは`<iframe src="http://localhost:8765/panel">`を表示するだけの薄い殻。
-
-### 7.4 外部動画生成AIサービス連携 (FR-5)
+### 7.3 外部動画生成AIサービス連携 (FR-5)
 
 | 工程 | 担当 |
 |---|---|
@@ -246,7 +235,7 @@ APIを直接叩かず、プロンプト提示→ユーザーが外部サービ�
 ## 8. セキュリティ設計
 
 - 認証: 起動時にランダムトークンを生成しuserData配下に0600で保存。hooksはファイルから読んでヘッダ付与、/panel,/characterはHTML内にJS変数として埋め込み(別オリジンなので取得不可)。
-- CSP: `frame-ancestors 'self' chrome-extension://<固定ID>`。
+- CSP: `frame-ancestors 'self'`。
 - Electron: 全レンダラーで`contextIsolation: true, nodeIntegration: false, sandbox: true`。
 - パストラバーサル対策: zip展開・`/models/*`配信ともに、解決後パスがベースディレクトリ内に収まることを検証。
 
@@ -268,6 +257,7 @@ APIを直接叩かず、プロンプト提示→ユーザーが外部サービ�
 
 ## 11. 詳細設計へ引き継ぐ事項
 
+- 会話ペインのUI構成(入力欄・履歴表示・streaming表示)、折りたたみタブの振る舞い、ウィンドウ幅の配分(FR-15)
 - キャラクター表示ウィンドウのマルチモニタ挙動・初期配置ロジック・右クリックメニュー項目一覧(FR-6)
 - モデルマッピング編集画面の実際の挙動(プレビュー再生等)
 - オンボーディング各画面の詳細

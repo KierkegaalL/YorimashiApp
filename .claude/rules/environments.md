@@ -12,9 +12,8 @@
 |---|---|---|
 | Electron Main | Node.js | ウィンドウ生成、ローカルサーバー、config.json管理、Chat AdapterのAPI呼び出し |
 | キャラクター表示ウィンドウ | Chromium（Renderer） | `CharacterRenderer`によるLive2D/スプライトセット描画 |
-| Control Panelウィンドウ | Chromium（Renderer） | 6タブUI、config編集 |
+| Control Panelウィンドウ | Chromium（Renderer） | **左に会話ペイン（FR-15）、右に6タブUI（FR-7）** の1ウィンドウ。config編集 |
 | Claude Code hooks | bash（`dispatch.sh`） | **アプリ利用者側**からローカルサーバーへPOST |
-| Chrome拡張機能 | Chrome（別プロセス） | `/panel`・`/character`をiframe表示する薄い殻 |
 
 **APIキーを扱うのはMainのみ。** Rendererは`contextIsolation: true` / `sandbox: true` / `nodeIntegration: false` で、キーを渡さない（detailed-design/chat-adapter-errors.md）。
 
@@ -37,7 +36,7 @@
 | `GET /models/*` | 必須 + パス検証 |
 | `WS /ws?token=...` | 必須（クエリ） |
 
-**Rendererもこのサーバーから読み込む**（`loadURL('http://localhost:8765/character')`）。Electron専用のカスタムプロトコルは使わない（security.md 7章）。これは拡張機能から読めるようにするための決定だが、**副次的にWebCodecsの有効化条件でもある**（`file://`や`data:`はsecure contextでないためWebCodecsが使えない。detailed-design/spriteset-pipeline.md）。
+**Rendererもこのサーバーから読み込む**（`loadURL('http://localhost:8765/character')`）。Electron専用のカスタムプロトコルは使わない（security.md 7章）。**カスタムプロトコルはsecure contextとして扱われずWebCodecsが使えなくなるため**（`file://`や`data:`も同様。detailed-design/spriteset-pipeline.md）。
 
 > **現状**: ローカルサーバーは未実装。スキャフォールドは暫定的にVite dev server / `loadFile` 経由で読み込んでおり、サーバー実装時に移行が必要（`src/main/index.ts`にコメントで明記）。
 

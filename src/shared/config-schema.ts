@@ -85,8 +85,6 @@ export const AppConfigSchema = z.object({
   distribution: z.object({
     macSigningIdentity: z.string().nullable().default(null),
     macNotarize: z.boolean().default(false),
-    chromeExtensionId: z.string().nullable().default(null),
-    chromeStorePublished: z.boolean().default(false),
     live2dCommercialLicense: z.boolean().default(false),
   }).prefault({}),
 });
