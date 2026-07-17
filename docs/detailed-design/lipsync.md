@@ -30,7 +30,11 @@ Chat Adapterのstreaming応答表示と、キャラクターの口パクアニ�
 
 これは`CharacterRenderer`の抽象化では吸収できない**根本的な非対称**である。インターフェースは`setState(stateKey)`しか持たず、口の開閉度を渡す口がそもそもない。仮に`setMouthOpen(v)`を足しても、`SpriteSetRenderer`側は**何もできないので空実装になる**。
 
-> **未検証**: Live2D側の`ParamMouthOpenY`による駆動は、**実際には確認していない**。`pixi-live2d-display`は`package.json`に未導入で、リポジトリにLive2Dモデル資材も存在しないため実測できなかった。上記は公開仕様に基づく想定である。
+> **一部確認済み(A2) / 駆動自体はv1で不要**: `pixi-live2d-display`は導入済み、開発用モデルも`dev-assets/live2d/`に配置済みになった。開発用モデルの定義ファイルを実測したところ:
+> - Cubism4(Haru)は`model3.json`の`Groups`で`{"Name":"LipSync","Target":"Parameter","Ids":["ParamMouthOpenY"]}`を**自己宣言**しており、口駆動パラメータが`ParamMouthOpenY`であることは確認できた。
+> - Cubism2(Shizuku)には`Groups`宣言が**無い**(lipSync対象パラメータの宣言方式がCubism4と異なる。Cubism2は`.model.json`側にlipSync宣言を持たず、パラメータIDを別途決め打つ必要がある)。**これも形式間の非対称の一つ**。
+>
+> ただし`ParamMouthOpenY`を実際に**駆動して口が動くか**はWebGL描画を要するためGUI無しでは実測できていない。もっとも、後述のとおりv1ではリップシンクを実装しないため、この駆動確認は不要のまま据え置く。
 
 #### Live2Dだけ実装する案を退ける
 
@@ -128,11 +132,18 @@ engine.trigger('thinking');
 
 つまり**スプライトセット側だけ`loop: true`にして満足すると、Live2D側では持続中に灯里が固まる**可能性がある。これはCLAUDE.mdが警告する「片方だけ直して満足する」失敗そのものである。
 
-> **未検証・要確認**: `pixi-live2d-display`が未導入、かつリポジトリにLive2Dモデル資材が存在しないため**実測できなかった**。実装着手前に実モデルで以下を確認すること。
-> - 持続中にモーションが尽きたときの挙動(固まる / ループする / フェードする)
-> - 自動でループしない場合、`emotionMap`に`loop`相当のフィールドを足すのか、EmotionEngine側で再発火させるのか
+> **コード実測で判明(A2) / 実描画での最終確認は実装時**: `pixi-live2d-display`(v0.4.0)のバンドルソースを読解し、開発用モデル(`dev-assets/live2d/`)の定義ファイルと突き合わせて、以下を確定した。**WebGL描画を伴う最終確認は実装時に行う**が、挙動はライブラリ実装から一意に決まる。
 >
-> 前者なら**data.md 2.1(Live2Dのmanifest)の変更**、すなわち形式間で`loop`の扱いを揃える設計判断が必要になる。
+> **① 尽きたときの挙動 = idleグループへ自動フォールバック(固まらない)。**
+> 基底`MotionManager.update()`(Cubism2/4共通)は、再生中モーションが`isFinished()`になり他に予約が無いとき(`shouldRequestIdleMotion()`)、`startRandomMotion(this.groups.idle, MotionPriority.IDLE)`で**idleグループのモーションを自動再生する**。`groups.idle`はCubism4が`"Idle"`、Cubism2が`"idle"`(いずれもManagerがハードコード)。dev-assetsの両モデルとも該当グループを持つ(Haru: `"Idle"` 3件 / Shizuku: `"idle"` 3件)。
+> → **最終フレームで固まることはない。idleへフェードして戻る。**
+> → ただし**idleグループを持たないモデルはフォールバック先が無く固まりうる**。モデル取り込み時にidleグループの存在を検証すべき(model-mapping-ui.mdの自動検出に条件を足す)。
+>
+> **② 個々のモーションはループしない(Cubism4で確認)。** **Cubism4**の`createMotion`はfade時間のみ設定し`setIsLoop`を呼ばないため、`model3.json`のmotionが`Meta.Loop:true`(Haru idleは実際にtrue)でも`_isLoop`は既定`false`のまま。idleが継続して見えるのは、終了ごとにidleグループから**別モーションを再抽選**するため。
+> なお**Cubism2**の`createMotion`(`index.es.js` L1638-1644)は`setFadeIn`/`setFadeOut`のみで、モーション実体`Live2DMotion`は外部ランタイム`live2d.min.js`のクラス(`node_modules`に実体が無い)であるため、`setIsLoop`相当の有無はコードから直接確認できていない。ただし①のidleフォールバックはCubism2/4共通の基底`MotionManager.update()`で確認済みのため、仮にCubism2側に何らかのループ挙動があっても③の結論は揺らがない。
+>
+> **③ 帰結: 非idleのReaction(thinking等)の持続はモデル任せにできない。** モーションが尽きると①でidleへ戻ってしまうため、寿命ぶん同じ表出を続けたいなら**EmotionEngine側で寿命の間モーションを再発火する**必要がある。②のとおりライブラリのstartMotionはループ属性を持たないので、`emotionMap`に`loop`相当を足しても効かない。
+> → したがって当初想定した「**data.md 2.1(Live2Dのmanifest)に`loop`を足す**」対応は**不要**。持続の管理はEmotionEngineの責務に寄せる(スプライトセットの`loop`はあくまで素材の再生方法であり、Live2Dに対応物を持たせない = この非対称は正当)。
 
 ### 論点1・論点2について
 
@@ -162,7 +173,8 @@ realに切り替えて初めて経路が動く、という状態を作らない�
 ## 実装時のTODO
 
 - [ ] **(要決着)** EmotionEngineに`sustain`/`release`を追加(basic-design.md 5.2 = Notion正本)
-- [ ] **(要確認・実装前)** Live2Dで持続中にモーションが尽きたときの挙動を実モデルで確認する。自動ループしないなら`emotionMap`側にも`loop`相当が要る(data.md 2.1の変更)。**スプライトセット側だけ`loop: true`にして終わらせない**
+- [ ] **持続中の再発火メカニズムを`sustain`/`release`とあわせて設計する**(③の帰結)。`sustain`はMoodへの復帰タイマーを止めるだけで、Live2Dのモーションは①で寿命前にidleへ戻ってしまう。**持続中に同じReactionのモーションを尽きるたび再トリガーする仕組み**(再発火の間隔・実装主体がEmotionEngineか`Live2DRenderer`か・スプライトセットの`loop`との責務分担)を決める必要がある。本文③に埋もれさせず独立項目として決着させる
+- [x] **(コード実測で判明・A2)** Live2Dで持続中にモーションが尽きたときの挙動を確定した。**尽きるとidleグループへ自動フォールバックし固まらない/個々のモーションはループしない**(上記のコード実測ブロック①②参照)。結論: `emotionMap`に`loop`相当は**足さない**。持続はEmotionEngine側の再発火で管理する(③)。**スプライトセット側だけ`loop: true`にして終わらせない**という警告は引き続き有効(Live2D側はEmotionEngineの再発火で担保する)。実描画での最終確認のみ実装時に残る
 - [x] data.md 2.2の`clips.thinking`を`loop: true`へ変更し、`loop`と寿命が直交する旨の説明に差し替える(本ドキュメントの決定に含む・反映済み)
 - [ ] `release()`が成功・失敗・中断・無通信タイムアウトの全経路で呼ばれることを実装時に確認する(呼び忘れ=`thinking`の永久固着)
 - [ ] mockの固定返答を擬似streamingで流す実装

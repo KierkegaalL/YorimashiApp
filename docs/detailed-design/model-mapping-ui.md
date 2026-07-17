@@ -80,7 +80,14 @@ security.md 7章によりモデルアセットは`http://localhost:8765/models/<
 
 **Cubism 2と4でファイル名もキー構造も異なる**ため、列挙処理はバージョン分岐が必須。要件定義書はCubism 2/4/5両対応を掲げており、モックアップのデモモデルも「ちびキャラ(開発用) / Cubism 2」であるため、cubism2は主要経路であって後回しにできない。
 
-> **未検証**: 上表の構造はCubismの公開仕様に基づく想定であり、**実モデルが手元に無いため実測していない**(リポジトリに`model3.json`/`.exp3.json`/`.moc3`が1つも存在しない)。実装前に実モデルで確認すること。
+> **実測確認済み(A2)**: 上表の構造を開発用モデル(`dev-assets/live2d/`、Cubism2=Shizuku / Cubism4=Haru)で実測し、想定どおりであることを確認した。
+> - Cubism4(Haru `haru_greeter_t03.model3.json`, `Version:3`): モーションは`FileReferences.Motions`のキー(実データ: `"Idle"`(3件)・`"Tap"`(2件))、表情は`FileReferences.Expressions[].Name`(実データ: `f00`〜`f07`)。
+> - Cubism2(Shizuku `shizuku.model.json`): モーションは`motions`のキー(実データ: `idle`・`tap_body`・`pinch_in`・`pinch_out`・`shake`・`flick_head`)、表情は`expressions[].name`(実データ: `f01`〜`f04`)。
+>
+> 実装時に注意すべき実測差分:
+> - **表情の`Name`はファイル名と一致しない**。Cubism4 Haruは`Name:"f00"→File:"F01.exp3.json"`と1つずれる。列挙・保存には必ず`Name`(cubism2は`name`)を使い、ファイル名から導出しない。
+> - **モーションのグループ名の命名規則は一定でない**。公式サンプル2体の実測ではCubism4 Haruが`Idle`/`Tap`(PascalCase)、Cubism2 Shizukuが`idle`/`tap_body`等(snake_case)だったが、これは**モデル作者の命名慣習**であり、Cubism仕様がバージョンごとに規則を強制しているわけではない(n=1×2)。「cubism4なら常にPascalCase」とハードコードしない。自動マッピング(下記SYNONYMS/`normalize()`)は特定の命名規則に依存せず、大文字小文字・区切り差を吸収する実装にする。
+>   - なお`tap_body`の`body`は`hit_areas`の当たり判定名(`head`/`mouth`/`body`)に由来する反応モーションだが、**全モーショングループが`hit_areas`と1:1対応するわけではない**(`pinch_in`/`shake`等は対応する当たり判定を持たない)。
 
 #### UI: 行タップでインライン展開
 
@@ -226,6 +233,8 @@ function score(state: EmotionState, candidate: string): number {
 
 - [ ] `lucide-react`を依存に追加する
 - [ ] モックアップの`EMOTION_STATES`を`src/shared/emotions.ts`へ寄せ、プロンプト文言は別テーブルへ分離する
-- [ ] Cubism 2 / 4 の列挙処理を**実モデルで検証**してから実装する(現在リポジトリにモデル資材が無い)
+- [x] Cubism 2 / 4 の列挙処理を**実モデルで検証**した(A2、`dev-assets/live2d/` Shizuku/Haru)。上記「論点2/列挙元」の表を実測確認済み。表情の`Name`はファイル名と不一致・グループ名の命名規則が一定でない(作者慣習)点に注意(同節参照)
+- [ ] 自動検出時に**idleグループの存在を検証する**(Cubism4=`"Idle"` / Cubism2=`"idle"`)。無い場合、モーション終了後にフォールバック先が無く固まりうる(lipsync.md「尽きたときの挙動」①)。取り込み時に警告するか代替挙動を用意する
+- [ ] 取り込み時、**モデル定義ファイルが参照するパスが自身のモデルフォルダ内に閉じていることを検証する**(`../`等での逸脱を拒否)。security.md の`GET /models/*`パス検証と対になる入口側の検証。**公式サンプルHaru(`haru_greeter_t03.model3.json`)自体が`Sound`で兄弟フォルダ`../shizuku/sounds/`を相対参照する実例があり**、机上の懸念ではない(A2で発見)。**スプライトセットには対応物不要**(`clips`はアプリ自身が生成し、第三者が作成した定義ファイルのパス文字列を一切パースしないため。spriteset-pipeline.md)
 - [ ] プレビューの遅延マウント/destroyがメモリ目安(200MB前後)に収まるか実測する
 - [ ] 上記「検出した不整合」1〜4の決着

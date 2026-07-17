@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-17
+**最終更新**: 2026-07-18
 
 ## 現在地
 
@@ -14,10 +14,16 @@
   - 影響範囲: Notion(要件定義書・基本設計書)、docs/requirements.md・basic-design.md・data.md・api.md・security.md、detailed-design(chat-adapter-errors.md・model-mapping-ui.md)、config-schema.ts(`distribution.chromeExtensionId`/`chromeStorePublished`削除)、CLAUDE.md・environments.md・features.md、すべて反映済み
 - **新規FR-15（会話ペイン）を追加**（要件定義書C-21・C-22）。「取り込んだモデルと会話する画面」が要件レベルで一切存在しなかった欠落への対応。**Control Panelと同一ウィンドウ内の左ペイン**（別ウィンドウにしない）。既定で両方展開、縁のタブで会話ペインのみ折りたたみ可。**会話履歴はv1では永続化しない**（メモリのみ。保持期間・パーミッション・削除UIが未定義のため）
   - ⚠️ **経緯**: 当初「独立ウィンドウ・独立して開閉可能」としてNotionに書いたが誤りで、ユーザーの意図は「一体化・タブで折りたたみ」だった。Notion・docs・rules すべて訂正済み
-- **未決事項は10件**（A1・A2・B1〜B6は解消済み。残りはA2の完了（モデル配置自体）とC0〜C8）
-- A2（Live2Dモデル受け入れ準備）着手済み。`dev-assets/live2d/`作成、`pixi.js@^6`+`pixi-live2d-display@^0.4.0`導入。**実際のモデル配置はユーザー作業として残っている**
-  - **非対称は正当**: `dev-assets/`はLive2D専用（`spriteset/`は無い）。Live2Dは完成済みモデルを**配置**する形式（フォルダ/zipドロップ）だが、スプライトセットは静止画1枚から**アプリ内で生成**する形式（要件定義書4.5・C-17）で、事前配置するモデル資材という概念自体が存在しない。character-window.mdで確認済みの非対称と同じ構造
+- **未決事項は9件**（A1・A2・B1〜B6は解消済み。**A2は完了**。残りはC0〜C8）
+- **A2完了（2026-07-18）**: `dev-assets/live2d/` に pixi-live2d-display 公式サンプルを配置した（`shizuku/`=Cubism2.1 / `haru/`=Cubism4、公式サンプルDLをユーザー承認済み）。整合を確認（moc/moc3マジックバイト、**列挙構造の検証に必要な**定義ファイル＝model3.json/model.json・moc/moc3・motion・expression・texture の実在）。ただし**音声(`Sound`/`sounds/*.mp3`)と`DisplayInfo`(`haru...cdi3.json`)は欠落**（公式サンプル自体が参照だけ持ち実体を同梱せず、Haruは`Sound`が兄弟フォルダ`../shizuku/sounds/`を相対参照する箇所すらある）。**v1は音声機能を使わず、`pixi-live2d-display`も音声失敗を`logger.warn`で握りつぶす**ため実害なし。`dev-assets/`は`.gitignore`対象（`git ls-files`はREADME.mdのみ）
+  - **GUI不要の実測を実施し、2つの詳細設計の「未検証」マーカーを解消**（reviewer チェックループ指摘0件で完了）:
+    - **model-mapping-ui.md 論点2/列挙元**: Cubism2/4の列挙構造の表を実モデルで確認済みに更新。**実装差分**: 表情の`Name`(cubism2は`name`)はファイル名と不一致（Haru `Name:"f00"→F01.exp3.json`）／モーショングループ名の命名規則は一定でない（公式サンプルはHaru=PascalCase `Idle`・Shizuku=snake_case `tap_body`だったが、これはモデル作者の慣習でCubism仕様がバージョンごとに強制するものではない。n=1×2。ハードコードせず`normalize()`で吸収）
+    - **lipsync.md 尽きたときの挙動**: `pixi-live2d-display`バンドルソース読解で確定。①モーション終了時は基底`MotionManager.update()`が**idleグループへ自動フォールバック**（固まらない。要idleグループ）②個々のモーションはループしない（Cubism4は`Meta.Loop:true`無視。Cubism2は外部ランタイムのため未確認）③**帰結: 非idleのReaction持続はEmotionEngine側の再発火で管理。`data.md 2.1`に`loop`を足す必要はない**（スプライトセットの`loop`に対応物をLive2Dへ持たせない=非対称は正当）
+    - 派生TODO: モデル取り込み時に**idleグループの存在を検証**する（無いと固まる）。model-mapping-ui.md TODOへ追記済み
+  - 生データはVault `開発/計測/` に2件記録（`pixi-live2d-displayはモーション終了時にidleへ自動フォールバックする`・`Cubism2と4で列挙構造とファイル形式が異なる`）
+  - **残る実測は2種類（別種の検証）**: (a) ①②の最終確認＝実装時のWebGL実描画で目視。(b) Cubism2の`setIsLoop`相当の有無＝外部ランタイム`live2d.min.js`（Cubism公式サイト取得、npmに無い）の**ソース読解**で判明する話でWebGL描画とは別物。混同しない
   - **PixiJSはv6系で固定**。`pixi-live2d-display`安定版のpeerが`^6`。v8（npm最新）とは別クラス（`instanceof`不一致を実測）。beta(0.5.0-beta)はv7対応だが2023-12以降更新なし。Cubism 2/4はそれぞれ外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`）が必須で、無いとimport時に例外。詳細は`.claude/rules/environments.md`「PixiJSのバージョン方針」
+  - **非対称は正当**: `dev-assets/`はLive2D専用（`spriteset/`は無い）。Live2Dは完成済みモデルを**配置**する形式（フォルダ/zipドロップ）だが、スプライトセットは静止画1枚から**アプリ内で生成**する形式（要件定義書4.5・C-17）で、事前配置するモデル資材という概念自体が存在しない。character-window.mdで確認済みの非対称と同じ構造
 - **A1+B（B1〜B6）をNotion正本に反映済み**（基本設計書・要件定義書 両方 + docs/data.md・config-schema.ts）。`baseResolution`を形式共通必須化、EmotionEngineに`sustain`/`release`、`chatAdapter`にclassifier等追加、streakしきい値を`emotionEngine`へ移動、Anthropic SDKを技術スタックへ、`cubismVersion`にコメント明示、9章の記述誤り修正
 - **副次的に発見した既存バグを修正**: `config-schema.ts`の`createDefaultConfig()`が実際には空値しか返さなかった。Zod v4は`.default(v)`だと入力undefined時に`v`をバリデーションなしで採用し、ネストしたフィールドの`.default()`が補完されない。`.prefault(v)`に変更して解決（実行時に全フィールド正しく補完されることを確認済み）
 
@@ -53,15 +59,9 @@
 - Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
 - **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
 
-## 未決事項（10件）
+## 未決事項（9件）
 
-A1・A2（受け入れ準備）・B1〜B6は解消済み。残るのはA2の完了（実モデルの配置自体）とC0〜C8。
-
-### 実装着手前に残るもの
-
-| # | 内容 |
-|---|---|
-| A2完了 | **開発用Live2Dモデルの実配置**（ユーザー作業）。`dev-assets/live2d/`に配置後、Cubism 2/4の列挙構造・持続中にモーションが尽きたときの挙動を実測する（model-mapping-ui.md / lipsync.md） |
+A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0〜C8。**実装着手をブロックする未決事項は無くなった**。
 
 ### 優先度C — 該当機能の実装時に併せて
 
@@ -83,17 +83,18 @@ A1・A2（受け入れ準備）・B1〜B6は解消済み。残るのはA2の完�
 
 ## 次の一手
 
-1. **A2完了**（実モデル配置。ユーザー作業） → 実装着手
+1. **実装着手が可能**（A2完了で実装ブロッカーは解消）。実装フェーズへ移る時点で `develop` を切る（git-workflow.md、決定済み）
 2. **C7の決着**（会話ペインと`activeAdapter`の関係・折りたたみ状態の保存先）。どちらもNotion正本の変更を伴う
-3. Cは各機能の実装時に回収
+3. Cは各機能の実装時に回収。A2派生の**idleグループ存在検証**（model-mapping-ui.md TODO）はモデル取り込み実装時に対応
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
-A1+B一括Notion更新も完了。**残る実装ブロッカーはA2（実モデル配置）のみ。**
+A1+B一括Notion更新・A2も完了。**実装着手をブロックする未決事項は無い。**
 
 ## 技術情報
 
 - **スタック**: Electron 43 / TypeScript 7 / React 19 / Vite 7 / electron-vite 5 / Zod 4
 - **Viteは7系に固定**（electron-vite 5のpeerが`^5||^6||^7`。最新のVite 8とは非互換。`--legacy-peer-deps`で潰さない）
 - **tsconfigは3分割**: `tsconfig.node.json`（Main/Preload/shared）・`tsconfig.web.json`（Renderer/shared）・`tsconfig.json`（references）
-- **未導入**: `@anthropic-ai/sdk`・`sharp`・`lucide-react`・`pixi-live2d-display`（すべて実装時に追加）
+- **導入済み**: `pixi.js@^6.5.10`・`pixi-live2d-display@^0.4.0`（A2）
+- **未導入**: `@anthropic-ai/sdk`・`sharp`・`lucide-react`（すべて実装時に追加）。Cubism外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`、npmに無い）も実装時に用意
 - **scratchpad**での検証実績: sharp・Anthropic SDK・Electronオフスクリーン。リポジトリには置かない
