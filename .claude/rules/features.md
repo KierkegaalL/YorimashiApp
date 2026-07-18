@@ -66,7 +66,7 @@
 
 | ファイル | 内容 |
 |---|---|
-| `docs/requirements.md` | 要件定義書のミラー（FR-1〜FR-15（FR-8/9欠番）、非機能、セキュリティ、権利、確定事項C-01〜C-22） |
+| `docs/requirements.md` | 要件定義書のミラー（FR-1〜FR-15（FR-8/9欠番）、非機能、セキュリティ、権利、確定事項C-01〜C-24） |
 | `docs/basic-design.md` | 基本設計書のミラー（システム構成、コンポーネント、データ、外部IF） |
 | `docs/data.md` | config.jsonスキーマ全体、manifest.json、ディレクトリ構成 |
 | `docs/api.md` | ローカルサーバーAPI、hooks連携イベント対応表 |

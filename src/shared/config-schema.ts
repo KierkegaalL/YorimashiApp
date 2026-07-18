@@ -29,6 +29,7 @@ export const AppConfigSchema = z.object({
     // 既定値は必ずmock。realへの切替はAPI課金が発生する(CLAUDE.md参照)
     mode: z.enum(['mock', 'real']).default('mock'),
     anthropicApiKey: z.string().default(''),
+    // real時にユーザーが会話ペインから選択する応答モデル(Opus 4.8/Sonnet 5/Haiku 4.5)。mockでは未使用(FR-3/C-23)
     model: z.string().default('claude-sonnet-5'),
     classifier: z.enum(['keyword', 'haiku']).default('keyword'), // mockでは常にkeyword(課金しない)
     classifierModel: z.string().default('claude-haiku-4-5'),
@@ -63,6 +64,7 @@ export const AppConfigSchema = z.object({
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
+    chatPaneCollapsed: z.boolean().default(false), // 会話ペインの折りたたみ状態(FR-15/C-23)。既定は展開(false)=C-21
   }).prefault({}),
 
   notion: z.object({

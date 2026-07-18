@@ -14,7 +14,8 @@
   - 影響範囲: Notion(要件定義書・基本設計書)、docs/requirements.md・basic-design.md・data.md・api.md・security.md、detailed-design(chat-adapter-errors.md・model-mapping-ui.md)、config-schema.ts(`distribution.chromeExtensionId`/`chromeStorePublished`削除)、CLAUDE.md・environments.md・features.md、すべて反映済み
 - **新規FR-15（会話ペイン）を追加**（要件定義書C-21・C-22）。「取り込んだモデルと会話する画面」が要件レベルで一切存在しなかった欠落への対応。**Control Panelと同一ウィンドウ内の左ペイン**（別ウィンドウにしない）。既定で両方展開、縁のタブで会話ペインのみ折りたたみ可。**会話履歴はv1では永続化しない**（メモリのみ。保持期間・パーミッション・削除UIが未定義のため）
   - ⚠️ **経緯**: 当初「独立ウィンドウ・独立して開閉可能」としてNotionに書いたが誤りで、ユーザーの意図は「一体化・タブで折りたたみ」だった。Notion・docs・rules すべて訂正済み
-- **未決事項は9件**（A1・A2・B1〜B6は解消済み。**A2は完了**。残りはC0〜C8）
+- **FR-15に入力欄まわりの機能を追加（2026-07-18・デザイン承認済み、要件定義書C-23/C-24）**。Claude/Claude Code相当の操作: スラッシュコマンド・**@参照（ユーザー明示選択の限定的文脈参照）**・添付(real)・応答モデル選択(real)・停止・メッセージ操作・コンテキスト表示・入力ヒント。**論点5決着=案1**（送信時に`activeAdapter`をChatへ自動切替+明示=C-24）、**折りたたみ状態の保存先決定**（`config.general.chatPaneCollapsed` default false）。Notion（要件定義書・基本設計書）+ docs（requirements/basic-design/data/security）+ detailed-design（chat-pane.md 論点7）+ config-schema.ts に反映済み（reviewer 0件）。**「作業状況を参照＝Code文脈の自動取り込み」はv1不採用（将来検討）**。視覚モックはArtifactで確認、`control-panel.jsx`への2ペイン+入力欄統合は実装フェーズTODOのまま
+- **未決事項は8件**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7も2026-07-18に決着**。残りはC0〜C6・C8）
 - **A2完了（2026-07-18）**: `dev-assets/live2d/` に pixi-live2d-display 公式サンプルを配置した（`shizuku/`=Cubism2.1 / `haru/`=Cubism4、公式サンプルDLをユーザー承認済み）。整合を確認（moc/moc3マジックバイト、**列挙構造の検証に必要な**定義ファイル＝model3.json/model.json・moc/moc3・motion・expression・texture の実在）。ただし**音声(`Sound`/`sounds/*.mp3`)と`DisplayInfo`(`haru...cdi3.json`)は欠落**（公式サンプル自体が参照だけ持ち実体を同梱せず、Haruは`Sound`が兄弟フォルダ`../shizuku/sounds/`を相対参照する箇所すらある）。**v1は音声機能を使わず、`pixi-live2d-display`も音声失敗を`logger.warn`で握りつぶす**ため実害なし。`dev-assets/`は`.gitignore`対象（`git ls-files`はREADME.mdのみ）
   - **GUI不要の実測を実施し、2つの詳細設計の「未検証」マーカーを解消**（reviewer チェックループ指摘0件で完了）:
     - **model-mapping-ui.md 論点2/列挙元**: Cubism2/4の列挙構造の表を実モデルで確認済みに更新。**実装差分**: 表情の`Name`(cubism2は`name`)はファイル名と不一致（Haru `Name:"f00"→F01.exp3.json`）／モーショングループ名の命名規則は一定でない（公式サンプルはHaru=PascalCase `Idle`・Shizuku=snake_case `tap_body`だったが、これはモデル作者の慣習でCubism仕様がバージョンごとに強制するものではない。n=1×2。ハードコードせず`normalize()`で吸収）
@@ -59,9 +60,9 @@
 - Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
 - **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
 
-## 未決事項（9件）
+## 未決事項（8件）
 
-A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0〜C8。**実装着手をブロックする未決事項は無くなった**。
+A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0〜C6・C8（**C7は2026-07-18に決着**＝C-24採用・`chatPaneCollapsed`追加、上記参照）。**実装着手をブロックする未決事項は無くなった**。
 
 ### 優先度C — 該当機能の実装時に併せて
 
@@ -74,7 +75,6 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 | C4 | api.md 6章「直叩き」→ SDK採用に記述更新 | Chat Adapter |
 | C5 | オンボーディング完了フラグの保存先（config未定義） | FR-14 |
 | C6 | `displaySize`の範囲（モックアップ20-100% vs スキーマ0.1-2.0）。**UIから届かない範囲がスキーマ側にある** | FR-7 |
-| C7 | **会話ペイン(FR-15)の`activeAdapter`との関係が未決着**。`activeAdapter==='code'`のまま会話ペインから送信すると、Code実況とChat応答が同一のEmotionEngineに流れ込み、灯里の表情がどちら由来か区別できなくなる。送信時に`'chat'`へ自動切替+明示する案を推奨するが**FR-1「手動で切替」の変更にあたる**。あわせて**折りたたみ状態の保存先**(`config.general`に`chatPaneCollapsed`相当が無い)も要決着 | **FR-15実装前**。chat-pane.md 論点5 |
 | C8 | モックアップの`maxWidth: 400`(model-mapping-ui.md論点2の結論根拠)は**元々「Chrome拡張のサイドパネルに収まるため」という理由だった**。FR-8削除でこの理由は無効化。値自体は変えず事実ベースの記述に差し替えたが、**左に会話ペインが並ぶ構成でこの幅・この中央寄せが適切かは未検討**。関連して**Control Panelのウィンドウは1000×720なのにモックアップは`maxWidth:400`を中央寄せしており、600px分が空白**という不整合もある(会話ペインが左に入るなら1000pxは辻褄が合う) | FR-15/FR-7実装時 |
 
 ### 次回セッションで棚卸しすべきこと
@@ -84,11 +84,11 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 ## 次の一手
 
 1. **実装着手が可能**（A2完了で実装ブロッカーは解消）。実装フェーズへ移る時点で `develop` を切る（git-workflow.md、決定済み）
-2. **C7の決着**（会話ペインと`activeAdapter`の関係・折りたたみ状態の保存先）。どちらもNotion正本の変更を伴う
+2. **FR-15の実装**。入力欄機能（C-23）・論点5案1（C-24）・`chatPaneCollapsed` は仕様反映済み。chat-pane.md 論点7/実装TODO に沿って実装する（`control-panel.jsx` の2ペイン+入力欄統合を含む）
 3. Cは各機能の実装時に回収。A2派生の**idleグループ存在検証**（model-mapping-ui.md TODO）はモデル取り込み実装時に対応
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
-A1+B一括Notion更新・A2も完了。**実装着手をブロックする未決事項は無い。**
+A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**
 
 ## 技術情報
 
