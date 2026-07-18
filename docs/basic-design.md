@@ -1,7 +1,7 @@
 # ヨリマシ.app 基本設計書
 
 > 本ファイルはNotionの基本設計書のミラーです。**Notionが正本**。要件定義書(WHAT)と詳細設計書(HOW: 実装レベル)の間を橋渡しする文書。
-> 作成日: 2026-07-16 / 更新日: 2026-07-18(会話ペイン入力欄機能・config chatPaneCollapsed 追加) / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
+> 作成日: 2026-07-16 / 更新日: 2026-07-18(会話ペイン入力欄機能・config controlPanelCollapsed 追加。折りたたみ対象を会話ペインからControl Panel側に変更) / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
 
 ## 1. 本書の位置づけ・対象範囲
 
@@ -52,7 +52,7 @@
 |---|---|---|
 | キャラクター表示ウィンドウ | 常駐(透過・最前面) | FR-6 |
 | メニューバーアイコン | 常駐(メニューバー) | FR-6(クリックスルー時の常設操作面) |
-| 会話ペイン | Control Panelウィンドウ内の左ペイン(タブで折りたたみ可) | FR-15(既定は展開) |
+| 会話ペイン | Control Panelウィンドウ内の左ペイン(常時表示、折りたためない) | FR-15(既定は展開) |
 | Control Panel・ホーム | タブ | FR-1, FR-2 |
 | Control Panel・モデル管理 | タブ | FR-5 |
 | Control Panel・モード設定 | タブ | FR-1, FR-3 |
@@ -78,7 +78,7 @@
 
 ### 4.4 会話ペイン (FR-15)
 
-Control Panelウィンドウの左ペイン。既定で展開、縁のタブで折りたたみ可(状態はconfigに保存)。憑坐状態帯(呪紋リング+Mood)・会話履歴(メモリのみ・streaming)・入力欄で構成する。
+Control Panelウィンドウの左ペイン。既定で展開、常時表示で折りたためない。縁のタブでControl Panel(6タブ)側を折りたたむと会話ペインが全幅表示になる(状態はconfigに保存)。憑坐状態帯(呪紋リング+Mood)・会話履歴(メモリのみ・streaming)・入力欄で構成する。
 
 **入力欄まわりの機能(C-23)**: スラッシュコマンド(`/clear`・`/mock`・`/real`・`/code`・`/panel`・`/model`)、@参照(作業ログ・表示中のモデル・設定をユーザーが明示選択して文脈に含める限定的参照。agentic機能ではない)、添付・応答モデル選択(いずれもreal時)、停止(中断時も`release`)、メッセージ操作(コピー・再生成)、コンテキスト使用量表示(real時のみ実測)、入力ヒント。送信時は`activeAdapter`をChatへ自動切替し明示する(C-24)。UI詳細は詳細設計(detailed-design/chat-pane.md)。
 
@@ -163,7 +163,7 @@ const AppConfigSchema = z.object({
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null), // null=初回起動時。初期配置を計算する
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
-    chatPaneCollapsed: z.boolean().default(false), // 会話ペインの折りたたみ状態(FR-15/C-23)
+    controlPanelCollapsed: z.boolean().default(false), // Control Panel(設定画面)側の折りたたみ状態(FR-15/C-23)
   }),
   notion: z.object({
     connected: z.boolean().default(false),

@@ -60,7 +60,7 @@ const AppConfigSchema = z.object({
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
-    chatPaneCollapsed: z.boolean().default(false),          // 会話ペインの折りたたみ状態(FR-15/C-23)。既定は展開(false)=C-21
+    controlPanelCollapsed: z.boolean().default(false),       // Control Panel(設定画面)側の折りたたみ状態(FR-15/C-23)。既定は展開(false)=C-21
   }),
 
   notion: z.object({
