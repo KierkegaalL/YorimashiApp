@@ -3,7 +3,7 @@ import {
   Home, UserRound, ArrowLeftRight, Settings, ScrollText,
   Plus, ChevronRight, ChevronLeft, Circle, AlertTriangle, Scale, Check, Monitor,
   Layers, Image, Upload, ImagePlus, Copy, CheckCircle2, Sparkles, Trash2,
-  Terminal, AtSign, Paperclip, Send, Square, RotateCcw
+  Terminal, AtSign, Paperclip, Send, Square, RotateCcw, ExternalLink
 } from 'lucide-react';
 
 /* ============================================================
@@ -122,6 +122,15 @@ const RESPONSE_MODELS = [
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
+];
+
+// APIキーの手動取得手順(FR-3。chat-adapter-errors.md 論点5)。
+// realへ切替えて初めてAPIキーが必要になるユーザー向けの事前案内(401等の失敗を待たずに示す)。
+const API_KEY_STEPS = [
+  'Anthropicアカウントでログイン(未登録ならこの画面から新規登録)',
+  '左メニューの「API Keys」→「Create Key」を選ぶ',
+  '発行された sk-ant- から始まるキーをコピーする',
+  '上の「APIキー」欄に貼り付ける',
 ];
 
 const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Zen+Antique&family=M+PLUS+1+Code:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');`;
@@ -287,18 +296,22 @@ export default function ControlPanel() {
   // 中断時も成功・失敗と同様に感情の後始末(release('thinking'))を行う想定のデモ(chat-pane.md 論点3)。
   const handleChatStop = () => setChatSending(false);
 
+  // 応答モデルを次の候補へ循環させる(real時のみ意味を持つ。C-23)。
+  // スラッシュコマンド(/model)と入力欄フッターのモデルチップの両方から呼ぶ。
+  const cycleResponseModel = () => {
+    setResponseModel(prev => {
+      const i = RESPONSE_MODELS.findIndex(mm => mm.id === prev);
+      return RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id;
+    });
+  };
+
   const runSlashCommand = (cmd) => {
     if (cmd === '/clear') setChatMessages([]);
     if (cmd === '/mock') setChatMode('mock');
     if (cmd === '/real') setChatMode('real');
     if (cmd === '/code') setAdapterMode('code');
     if (cmd === '/panel') setControlPanelCollapsed(false);
-    if (cmd === '/model' && chatMode === 'real') {
-      setResponseModel(prev => {
-        const i = RESPONSE_MODELS.findIndex(mm => mm.id === prev);
-        return RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id;
-      });
-    }
+    if (cmd === '/model' && chatMode === 'real') cycleResponseModel();
     setSlashMenuOpen(false);
   };
 
@@ -668,10 +681,7 @@ export default function ControlPanel() {
               </button>
               <button
                 disabled={chatMode !== 'real'}
-                onClick={() => setResponseModel(prev => {
-                  const i = RESPONSE_MODELS.findIndex(mm => mm.id === prev);
-                  return RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id;
-                })}
+                onClick={cycleResponseModel}
                 title={chatMode !== 'real' ? 'real接続時のみ選択できます(mockは固定返答・C-08)' : '応答モデルを切替'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 3, background: 'transparent',
@@ -1189,6 +1199,44 @@ export default function ControlPanel() {
                 <Row label="APIキー" last={chatMode !== 'real'}>
                   <TextInput value="" onChange={() => {}} placeholder={chatMode === 'real' ? 'sk-ant-...' : 'モックでは不要'} disabled={chatMode !== 'real'} mono />
                 </Row>
+                {chatMode === 'real' && (
+                  <div style={{
+                    display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 16px',
+                    background: theme.bgRaised, borderTop: `1px solid ${theme.line}`,
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{
+                        fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 11.5, fontWeight: 700,
+                        color: theme.inkDim, letterSpacing: '0.02em',
+                      }}>
+                        APIキーの取得方法
+                      </span>
+                      <button style={{
+                        display: 'flex', alignItems: 'center', gap: 4, background: 'transparent',
+                        border: `1px solid ${theme.accent}`, borderRadius: 999, padding: '4px 10px',
+                        color: theme.accent, fontFamily: "'M PLUS 1 Code', sans-serif",
+                        fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}>
+                        <ExternalLink size={11} /> console.anthropic.com を開く
+                      </button>
+                    </div>
+                    {API_KEY_STEPS.map((step, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{
+                          flexShrink: 0, width: 16, height: 16, borderRadius: '50%',
+                          border: `1px solid ${theme.accent}`, color: theme.accent,
+                          fontFamily: "'JetBrains Mono', monospace", fontSize: 9.5, fontWeight: 700,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 1,
+                        }}>
+                          {i + 1}
+                        </span>
+                        <span style={{ fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 12, color: theme.ink, lineHeight: 1.6 }}>
+                          {step}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {chatMode === 'real' && (
                   <div style={{
                     display: 'flex', gap: 8, alignItems: 'flex-start', padding: '12px 16px',
