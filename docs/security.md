@@ -91,6 +91,8 @@ function safeExtractPath(baseDir: string, entryName: string): string {
 
 `../../`のようなパスを含むエントリでうっかりuserDataの外にファイルを書かれることを防ぐ。`GET /models/*`配信時のパス検証にも同じ考え方を適用する。
 
+会話ペイン(FR-15)の**@参照**(作業ログ・設定等のアプリ管理ファイルを文脈に含める)と**添付**(real時)も、読み出すファイルパスが意図した領域内に収まることを同じ考え方で検証する。@参照が指すのはアプリが管理する固定の対象(作業ログ・表示中のモデル・設定)に限り、**メッセージ本文の文字列から任意パスを解決しない**。添付はユーザーがダイアログで選んだファイルに限定する。
+
 ## 7. 対策6: モデルアセット配信の統一
 
 `app-model://`のようなElectron専用カスタムプロトコルは使わない。カスタムプロトコルは`file://`や`data:`と同様secure contextとして扱われず、動画デコード(WebCodecs)が使えなくなる(実測で確認済み、detailed-design/spriteset-pipeline.md参照)。モデルアセットは最初から`http://localhost:8765/models/<uuid>/...`という通常のHTTPルートで、トークン認証+パス検証つきで配信する。Electron側のキャラクターウィンドウも`BrowserWindow.loadURL('http://localhost:8765/character')`でこのローカルサーバーから読み込む形に統一する。

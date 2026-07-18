@@ -1,7 +1,7 @@
 # ヨリマシ.app 基本設計書
 
 > 本ファイルはNotionの基本設計書のミラーです。**Notionが正本**。要件定義書(WHAT)と詳細設計書(HOW: 実装レベル)の間を橋渡しする文書。
-> 作成日: 2026-07-16 / 対象: FR-1〜FR-14全て、非機能要件・セキュリティ要件を含む
+> 作成日: 2026-07-16 / 更新日: 2026-07-18(会話ペイン入力欄機能・config chatPaneCollapsed 追加) / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
 
 ## 1. 本書の位置づけ・対象範囲
 
@@ -65,7 +65,7 @@
 
 - **ホーム**: 現在のアダプタ切替、Code Adapter接続状態、表示中モデルを一目で確認。
 - **モデル管理**: セット中モデル一覧(形式バッジ付き)、モード連動自動切替、追加形式選択(スプライトセットを既定)、画像アップロード→AI生成アシストフロー、全10状態マッピング、削除(インライン確認付き)。
-- **モード設定**: Code Adapter(監視パス・ポート・連続失敗閾値)、Chat Adapter(mock/real切替、real選択時の警告表示)。
+- **モード設定**: Code Adapter(監視パス・ポート・連続失敗閾値)、Chat Adapter(mock/real切替、real選択時の警告表示、real時の応答モデル選択=Opus 4.8/Sonnet 5/Haiku 4.5)。
 - **全体設定**: 配色テーマ(light/dark/system 3選択)、表示サイズ・クリックスルー・自動起動、EmotionEngineパラメータ。
 - **ログ**: hooksイベントログ一覧、エクスポート(パス仮名化)、消去。
 - **権利情報**: Live2D利用区分、外部動画生成AIサービスのToS注意、OSSライセンス一覧、フォント、持ち込みモデルの著作権注意、Anthropic API利用に関する注記。
@@ -75,6 +75,12 @@
 - **配色**: `THEMES`オブジェクト(light=白望/dark=漆黒)を単一の情報源とし、React Context(`ThemeCtx`)で各コンポーネントに供給。system選択時は`window.matchMedia('(prefers-color-scheme: dark)')`でOS設定を検知・追従。
 - **タイプ**: 見出し=Zen Antique、本文/操作要素=M PLUS 1 Code、数値系=JetBrains Mono。
 - **シグネチャモーション**: 呪紋(魔法陣)リングの二重回転 + HUD四隅ブラケット。Moodに応じて色・回転速度が変化。
+
+### 4.4 会話ペイン (FR-15)
+
+Control Panelウィンドウの左ペイン。既定で展開、縁のタブで折りたたみ可(状態はconfigに保存)。憑坐状態帯(呪紋リング+Mood)・会話履歴(メモリのみ・streaming)・入力欄で構成する。
+
+**入力欄まわりの機能(C-23)**: スラッシュコマンド(`/clear`・`/mock`・`/real`・`/code`・`/panel`・`/model`)、@参照(作業ログ・表示中のモデル・設定をユーザーが明示選択して文脈に含める限定的参照。agentic機能ではない)、添付・応答モデル選択(いずれもreal時)、停止(中断時も`release`)、メッセージ操作(コピー・再生成)、コンテキスト使用量表示(real時のみ実測)、入力ヒント。送信時は`activeAdapter`をChatへ自動切替し明示する(C-24)。UI詳細は詳細設計(detailed-design/chat-pane.md)。
 
 ## 5. 主要コンポーネント設計
 
@@ -106,7 +112,7 @@ EmotionEngineは`renderer.setState(key)`を呼ぶだけで、形式を意識し�
 
 - Code Adapter: hooksイベント → `engine.trigger()` / `engine.onToolResult()`。
 - Chat Adapter: mock(キーワード判定) / real(Anthropic API + Haiku分類候補)。
-- どちらも同一のEmotionEngineインスタンスを共有し、切替方式はホーム画面のトグルで行う。
+- どちらも同一のEmotionEngineインスタンスを共有し、切替方式はホーム画面のトグルで行う。ただし会話ペイン(FR-15)からの送信時は、`activeAdapter`をChatへ自動切替しその旨を明示する(C-24。手動切替の唯一の例外)。
 
 ## 6. データ設計
 
@@ -128,7 +134,7 @@ const AppConfigSchema = z.object({
   chatAdapter: z.object({
     mode: z.enum(['mock', 'real']).default('mock'),
     anthropicApiKey: z.string().default(''),
-    model: z.string().default('claude-sonnet-5'),
+    model: z.string().default('claude-sonnet-5'), // real時にユーザーが選択(Opus 4.8/Sonnet 5/Haiku 4.5)。mockでは未使用
     classifier: z.enum(['keyword', 'haiku']).default('keyword'), // mockでは常にkeyword(課金しない)
     classifierModel: z.string().default('claude-haiku-4-5'),
     idleTimeoutMs: z.number().default(30000), // streaming無通信ウォッチドッグのしきい値
@@ -157,6 +163,7 @@ const AppConfigSchema = z.object({
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null), // null=初回起動時。初期配置を計算する
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
+    chatPaneCollapsed: z.boolean().default(false), // 会話ペインの折りたたみ状態(FR-15/C-23)
   }),
   notion: z.object({
     connected: z.boolean().default(false),

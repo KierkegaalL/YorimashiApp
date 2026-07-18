@@ -27,7 +27,7 @@ const AppConfigSchema = z.object({
   chatAdapter: z.object({
     mode: z.enum(['mock', 'real']).default('mock'),
     anthropicApiKey: z.string().default(''),
-    model: z.string().default('claude-sonnet-5'),
+    model: z.string().default('claude-sonnet-5'),           // real時にユーザーが選択(Opus 4.8/Sonnet 5/Haiku 4.5)。mockでは未使用(FR-3/C-23)
     classifier: z.enum(['keyword', 'haiku']).default('keyword'), // mockでは常にkeyword(課金しない)
     classifierModel: z.string().default('claude-haiku-4-5'),
     idleTimeoutMs: z.number().default(30000),                    // streaming無通信ウォッチドッグのしきい値
@@ -60,6 +60,7 @@ const AppConfigSchema = z.object({
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
+    chatPaneCollapsed: z.boolean().default(false),          // 会話ペインの折りたたみ状態(FR-15/C-23)。既定は展開(false)=C-21
   }),
 
   notion: z.object({
