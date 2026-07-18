@@ -6,7 +6,10 @@
 
 ## 現在地
 
-**設計フェーズ完了。実装は未着手。**
+**設計フェーズ完了。実装フェーズ開始（2026-07-18）。**
+
+- **`develop`ブランチを作成しpush済み**（`main`から分岐。git-workflow.md「決定済み」の移行手順どおり）。以降のマージ先は常に`develop`（CLAUDE.md原則9・git-workflow.md反映済み）
+- 作業ブランチ(`feature/<name>`等)は`develop`から分岐する
 
 - 詳細設計8件すべて確定（`docs/detailed-design/`）
 - スキャフォールドのみ実装済み（Electron + TS + React + Vite）
