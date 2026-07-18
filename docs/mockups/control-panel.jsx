@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useContext, createContext } from 'react';
 import {
   Home, UserRound, ArrowLeftRight, Settings, ScrollText,
-  Plus, ChevronRight, Circle, AlertTriangle, Scale, Check, Monitor,
-  Layers, Image, Upload, ImagePlus, Copy, CheckCircle2, Sparkles, Trash2
+  Plus, ChevronRight, ChevronLeft, Circle, AlertTriangle, Scale, Check, Monitor,
+  Layers, Image, Upload, ImagePlus, Copy, CheckCircle2, Sparkles, Trash2,
+  Terminal, AtSign, Paperclip, Send, Square, RotateCcw
 } from 'lucide-react';
 
 /* ============================================================
@@ -100,6 +101,27 @@ const TABS = [
   { id: 'general',  label: '設定',     icon: Settings },
   { id: 'logs',     label: 'ログ',     icon: ScrollText },
   { id: 'licenses', label: '権利',     icon: Scale },
+];
+
+// 会話ペイン(FR-15)の入力欄機能(C-23)。/コマンドは設定・アダプタ操作へのショートカット、
+// @参照はユーザーが明示選択する限定的な文脈参照(agenticではない。chat-pane.md 論点7)。
+const SLASH_COMMANDS = [
+  { cmd: '/clear', label: '会話をクリア' },
+  { cmd: '/mock', label: 'mockモードにする' },
+  { cmd: '/real', label: 'realモードにする' },
+  { cmd: '/code', label: 'Code Adapterへ切替' },
+  { cmd: '/panel', label: '設定を開く' },
+  { cmd: '/model', label: '応答モデル選択(real時のみ)' },
+];
+const AT_REFERENCES = [
+  { key: 'logs', label: '作業ログ(直近hooks)' },
+  { key: 'model', label: '表示中のモデル' },
+  { key: 'settings', label: '設定' },
+];
+const RESPONSE_MODELS = [
+  { id: 'claude-opus-4-8', label: 'Opus 4.8' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
 ];
 
 const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Zen+Antique&family=M+PLUS+1+Code:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');`;
@@ -225,6 +247,66 @@ export default function ControlPanel() {
   const [autostart, setAutostart] = useState(true);
   const [displaySize, setDisplaySize] = useState(50);
 
+  // 会話ペイン(FR-15)。折りたたみ対象はControl Panel側(config.general.controlPanelCollapsed。2026-07-18仕様変更)。
+  // 折りたたむとウィンドウ全体が会話ペインの幅まで縮小する(chat-pane.md 論点1)。
+  const [controlPanelCollapsed, setControlPanelCollapsed] = useState(false);
+  const [chatMessages, setChatMessages] = useState([
+    { id: 1, role: 'user', text: 'さっきのビルドエラー、直った?' },
+    { id: 2, role: 'assistant', text: 'はい、型エラーの原因だった設定項目の参照を直しました。typecheckも通っています。' },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [responseModel, setResponseModel] = useState('claude-sonnet-5');
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [atMenuOpen, setAtMenuOpen] = useState(false);
+
+  // mockは固定返答を返すだけ(C-08)。realはAnthropic APIのstreamingになるが、モックアップでは擬似的に1往復のみ再現する。
+  useEffect(() => {
+    if (!chatSending) return;
+    const timer = setTimeout(() => {
+      setChatMessages(prev => [...prev, {
+        id: Date.now() + 1,
+        role: 'assistant',
+        text: chatMode === 'real'
+          ? '(real接続のデモ表示: 実際の応答はAnthropic APIから届きます)'
+          : 'なるほど、了解です。今のところ順調に進んでいますよ。',
+      }]);
+      setChatSending(false);
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [chatSending, chatMode]);
+
+  const handleChatSend = () => {
+    const text = chatInput.trim();
+    if (!text || chatSending) return;
+    setChatMessages(prev => [...prev, { id: Date.now(), role: 'user', text }]);
+    setChatInput('');
+    setChatSending(true);
+  };
+
+  // 中断時も成功・失敗と同様に感情の後始末(release('thinking'))を行う想定のデモ(chat-pane.md 論点3)。
+  const handleChatStop = () => setChatSending(false);
+
+  const runSlashCommand = (cmd) => {
+    if (cmd === '/clear') setChatMessages([]);
+    if (cmd === '/mock') setChatMode('mock');
+    if (cmd === '/real') setChatMode('real');
+    if (cmd === '/code') setAdapterMode('code');
+    if (cmd === '/panel') setControlPanelCollapsed(false);
+    if (cmd === '/model' && chatMode === 'real') {
+      setResponseModel(prev => {
+        const i = RESPONSE_MODELS.findIndex(mm => mm.id === prev);
+        return RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id;
+      });
+    }
+    setSlashMenuOpen(false);
+  };
+
+  const insertAtReference = (ref) => {
+    setChatInput(prev => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}@${ref.label} `);
+    setAtMenuOpen(false);
+  };
+
   // モデルは最大2体。2体そろっている時だけ「モードで自動切替」を選べる。
   const [models, setModels] = useState([
     { id: 'chibi', name: 'ちびキャラ(開発用)', renderType: 'live2d', version: 'Cubism 2', assigned: 'code' },
@@ -283,7 +365,7 @@ export default function ControlPanel() {
     <ThemeCtx.Provider value={theme}>
     <div style={{
       width: '100%', minHeight: '100vh', background: theme.bgBase,
-      display: 'flex', justifyContent: 'center', transition: 'background 0.25s ease',
+      display: 'flex', justifyContent: 'center', alignItems: 'flex-start', transition: 'background 0.25s ease',
     }}>
       <style>{`
         ${FONT_IMPORT}
@@ -313,7 +395,19 @@ export default function ControlPanel() {
         }
       `}</style>
 
-      <div style={{ width: '100%', maxWidth: 400 }}>
+      {/* Control Panelウィンドウ本体(1つ)。折りたたみ時はウィンドウ全体が会話ペイン幅まで縮小する
+          (config.general.controlPanelCollapsed。2026-07-18仕様変更・chat-pane.md 論点1) */}
+      <div style={{
+        display: 'flex', width: controlPanelCollapsed ? 576 : 976,
+        marginTop: 24, background: theme.bgBase, border: `1px solid ${theme.line}`,
+        borderRadius: 16, overflow: 'hidden', transition: 'width 0.25s ease',
+      }}>
+
+        {/* ══ 会話ペイン(FR-15)。常時表示・折りたためない（2026-07-18仕様変更） ══ */}
+        <div style={{
+          flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column',
+          borderRight: `1px solid ${theme.line}`,
+        }}>
 
         {/* ── 憑坐状態帯 ───────────────────────────── */}
         <div style={{
@@ -395,6 +489,227 @@ export default function ControlPanel() {
             </div>
           </div>
         </div>
+
+        {/* ── 会話履歴(メモリのみ・streaming表示。C-22) ───────────────────────────── */}
+        <div style={{
+          flex: 1, minHeight: 0, overflowY: 'auto', padding: 16,
+          display: 'flex', flexDirection: 'column', gap: 12,
+        }}>
+          {chatMessages.map(msg => (
+            <div key={msg.id} style={{
+              display: 'flex', flexDirection: 'column', gap: 4,
+              alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+            }}>
+              <div style={{
+                maxWidth: '85%', padding: '9px 13px', borderRadius: 14,
+                background: msg.role === 'user' ? theme.accentTag : theme.bgRaised,
+                border: `1px solid ${msg.role === 'user' ? theme.accent : theme.line}`,
+                color: theme.ink, fontFamily: "'M PLUS 1 Code', sans-serif",
+                fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
+              }}>
+                {msg.text}
+              </div>
+              {msg.role === 'assistant' && (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button title="コピー" style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                    color: theme.iconInactive, display: 'flex',
+                  }}>
+                    <Copy size={12} />
+                  </button>
+                  <button title="再生成" style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: 2,
+                    color: theme.iconInactive, display: 'flex',
+                  }}>
+                    <RotateCcw size={12} />
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {chatSending && (
+            <div style={{
+              alignSelf: 'flex-start', fontFamily: "'M PLUS 1 Code', sans-serif",
+              fontSize: 12, color: theme.inkDim,
+            }}>
+              灯里が考えています…
+            </div>
+          )}
+        </div>
+
+        {/* ── 入力欄(C-23。スラッシュ/@参照/添付/応答モデル選択/停止/コンテキスト表示/入力ヒント) ── */}
+        <div style={{ position: 'relative', borderTop: `1px solid ${theme.line}`, padding: '10px 14px 14px' }}>
+
+          {/* コンテキスト使用量表示: real時のみ実測。mockは実測値を持たないため表示しない(嘘をつかない) */}
+          {chatMode === 'real' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <div style={{ flex: 1, height: 3, borderRadius: 2, background: theme.sliderTrack, overflow: 'hidden' }}>
+                <div style={{ width: '42%', height: '100%', background: theme.mint }} />
+              </div>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: theme.inkDim }}>
+                42%
+              </span>
+            </div>
+          )}
+
+          {slashMenuOpen && (
+            <div style={{
+              position: 'absolute', bottom: '100%', left: 14, right: 14, marginBottom: 6,
+              background: theme.bgPanel, border: `1px solid ${theme.line}`, borderRadius: 10,
+              overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.16)',
+            }}>
+              {SLASH_COMMANDS.map(c => {
+                const disabled = c.cmd === '/model' && chatMode !== 'real';
+                return (
+                  <button
+                    key={c.cmd}
+                    disabled={disabled}
+                    onClick={() => runSlashCommand(c.cmd)}
+                    style={{
+                      width: '100%', display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px',
+                      background: 'none', border: 'none', textAlign: 'left',
+                      cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
+                    }}
+                  >
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: theme.accent, minWidth: 52 }}>
+                      {c.cmd}
+                    </span>
+                    <span style={{ fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 12, color: theme.inkDim }}>
+                      {c.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {atMenuOpen && (
+            <div style={{
+              position: 'absolute', bottom: '100%', left: 14, marginBottom: 6, minWidth: 190,
+              background: theme.bgPanel, border: `1px solid ${theme.line}`, borderRadius: 10,
+              overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.16)',
+            }}>
+              {AT_REFERENCES.map(r => (
+                <button
+                  key={r.key}
+                  onClick={() => insertAtReference(r)}
+                  style={{
+                    width: '100%', padding: '8px 12px', background: 'none', border: 'none',
+                    textAlign: 'left', cursor: 'pointer', fontFamily: "'M PLUS 1 Code', sans-serif",
+                    fontSize: 12, color: theme.ink,
+                  }}
+                >
+                  @{r.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
+            <textarea
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatSend(); } }}
+              placeholder="灯里に話しかける…"
+              rows={1}
+              style={{
+                flex: 1, resize: 'none', background: theme.bgRaised, border: `1px solid ${theme.line}`,
+                borderRadius: 10, padding: '8px 10px', color: theme.ink,
+                fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 13, outline: 'none', maxHeight: 80,
+              }}
+            />
+            <button
+              onClick={chatSending ? handleChatStop : handleChatSend}
+              aria-label={chatSending ? '応答を中断' : '送信'}
+              style={{
+                width: 34, height: 34, borderRadius: '50%', flexShrink: 0, border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: chatSending ? theme.sealRed : theme.accent, color: theme.bgPanel,
+              }}
+            >
+              {chatSending ? <Square size={13} fill="currentColor" /> : <Send size={14} />}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => { setSlashMenuOpen(v => !v); setAtMenuOpen(false); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 3, background: 'transparent',
+                  border: `1px solid ${theme.line}`, borderRadius: 999, padding: '4px 8px',
+                  color: theme.inkDim, fontSize: 11, cursor: 'pointer',
+                }}
+              >
+                <Terminal size={12} /> /
+              </button>
+              <button
+                onClick={() => { setAtMenuOpen(v => !v); setSlashMenuOpen(false); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 3, background: 'transparent',
+                  border: `1px solid ${theme.line}`, borderRadius: 999, padding: '4px 8px',
+                  color: theme.inkDim, fontSize: 11, cursor: 'pointer',
+                }}
+              >
+                <AtSign size={12} /> 参照
+              </button>
+              <button
+                disabled={chatMode !== 'real'}
+                title={chatMode !== 'real' ? 'real接続時のみ使えます' : '画像・ファイルを添付'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 3, background: 'transparent',
+                  border: `1px solid ${theme.line}`, borderRadius: 999, padding: '4px 8px',
+                  color: theme.inkDim, fontSize: 11,
+                  cursor: chatMode !== 'real' ? 'not-allowed' : 'pointer',
+                  opacity: chatMode !== 'real' ? 0.45 : 1,
+                }}
+              >
+                <Paperclip size={12} />
+              </button>
+              <button
+                disabled={chatMode !== 'real'}
+                onClick={() => setResponseModel(prev => {
+                  const i = RESPONSE_MODELS.findIndex(mm => mm.id === prev);
+                  return RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id;
+                })}
+                title={chatMode !== 'real' ? 'real接続時のみ選択できます(mockは固定返答・C-08)' : '応答モデルを切替'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 3, background: 'transparent',
+                  border: `1px solid ${theme.line}`, borderRadius: 999, padding: '4px 8px',
+                  color: theme.inkDim, fontSize: 11,
+                  cursor: chatMode !== 'real' ? 'not-allowed' : 'pointer',
+                  opacity: chatMode !== 'real' ? 0.45 : 1,
+                }}
+              >
+                {RESPONSE_MODELS.find(mm => mm.id === responseModel)?.label}
+              </button>
+            </div>
+            <span style={{ fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 10, color: theme.iconInactive }}>
+              Enter送信 / Shift+Enter改行
+            </span>
+          </div>
+        </div>
+        </div>
+
+        {/* ══ 折りたたみタブ: Control Panel(設定画面)側のみ折りたたみ可能(2026-07-18仕様変更・chat-pane.md 論点1) ══ */}
+        <button
+          onClick={() => setControlPanelCollapsed(v => !v)}
+          aria-label={controlPanelCollapsed ? '設定画面を開く' : '設定画面を畳む'}
+          title={controlPanelCollapsed ? '設定画面を開く' : '設定画面を畳む'}
+          style={{
+            width: 16, flexShrink: 0, border: 'none', borderLeft: `1px solid ${theme.line}`,
+            background: theme.bgRaised, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          {controlPanelCollapsed
+            ? <ChevronLeft size={12} color={theme.iconInactive} />
+            : <ChevronRight size={12} color={theme.iconInactive} />}
+        </button>
+
+        {/* ══ Control Panel(6タブ)。既定で展開、縁のタブで折りたたみ可能 ══ */}
+        {!controlPanelCollapsed && (
+        <div style={{ width: 400, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
 
         {/* ── タブバー ───────────────────────────── */}
         <div style={{
@@ -1088,6 +1403,8 @@ export default function ControlPanel() {
             </>
           )}
         </div>
+        </div>
+        )}
       </div>
     </div>
     </ThemeCtx.Provider>
