@@ -160,7 +160,7 @@ panic と sleepy はどちらも`loop: true`だが寿命は正反対である。
 
 ```
 <userData>/
- ├─ config.json
+ ├─ config.json               # パーミッション0600(real時にchatAdapter.anthropicApiKeyを保持しうるため)
  ├─ .token                    # ローカルサーバー認証トークン、パーミッション0600
  ├─ models/
  │   └─ <uuid>/

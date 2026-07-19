@@ -101,6 +101,8 @@ function createRenderer(model: ModelSlot): CharacterRenderer {
 
 EmotionEngineは`renderer.setState(key)`を呼ぶだけで、形式を意識しない。透過はLive2DはWebGLネイティブアルファ、スプライトセットは色キー抜き後のWebPアルファで実現(どちらもFR-6を満たす)。
 
+> **実装メモ(#5)**: 上の`createRenderer`は概念図。実装では **`async createRenderer(manifest, ctx): Promise<CharacterRenderer>`**(引数は`Manifest`+`RendererContext`、戻り値はPromise)としている。理由は、`pixi-live2d-display`がCubism外部ランタイム未ロードだと**import時点で例外を投げる**ため、ランタイム存在を確認してから`Live2DRenderer`を**動的import**する必要があり、動的importが非同期だから(`src/renderer/character/renderer/createRenderer.ts`)。抽象(`mount`/`setState`/`destroy`)自体は上記のとおり。
+
 ### 5.2 EmotionEngine (FR-4)
 
 - Mood(idle/confident/tired)とReaction(thinking/happy/proud/worried/panic/curious/sleepy)の2層。全10状態。

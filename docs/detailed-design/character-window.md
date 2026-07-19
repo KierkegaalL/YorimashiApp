@@ -1,6 +1,6 @@
 # character-window.md — キャラクター表示ウィンドウ詳細設計
 
-**ステータス**: 確定(2026-07-16)。ただし「実装前に決着が必要な事項」を1件残す(末尾参照)
+**ステータス**: 確定(2026-07-16)。**実装済み(#4, 2026-07-19)**。「実装前に決着が必要」としていたウィンドウサイズ算出の非対称は**案2で決着済み**(下記論点2・TODO参照)
 **対応FR**: FR-6
 **関連**: basic-design.md 5.1(CharacterRenderer)、security.md 7章(モデルアセット配信)、要件定義書 C-19
 
@@ -119,9 +119,11 @@ function defaultPosition(size: Size): Point {
 
 `windowPosition`は**ドラッグ終了時に保存する**(`moved`イベントのたびに書くとconfig.jsonへの書き込みが頻発するため、ドラッグ完了時にデバウンスして保存する)。
 
-#### 未解決: ウィンドウサイズの算出元が形式間で非対称(**実装前に決着が必要**)
+#### 決着済み(案2採用・実装済み): ウィンドウサイズの算出元が形式間で非対称
 
-`defaultPosition`は`size`を引数に取るが、**その`size`をどう決めるかが形式間で揃っていない**。
+> **決着(2026-07-19, #4)**: 下記の案2を採用した。`ModelSlotSchema.baseResolution`を**形式共通の必須フィールド**に変更済み(`src/shared/config-schema.ts` / `docs/data.md` 1章 / `docs/basic-design.md` 6.1 / Notion正本すべて反映済み)。ウィンドウサイズは両形式とも`baseResolution × general.displaySize`で決まり(`character-window.ts` `resolveWindowSize`)、形式による分岐は不要になった。モデル未導入時は`FALLBACK_BASE_RESOLUTION`(400×400)を使う。以下は決着に至った検討の記録。
+
+`defaultPosition`は`size`を引数に取るが、**その`size`をどう決めるかが形式間で揃っていない**(という問題があった)。
 
 - **スプライトセット**: `ModelSlot.baseResolution`(config.jsonが保持)× `general.displaySize` で決まる。
 - **Live2D**: `ModelSlotSchema`に`baseResolution`が**存在しない**(basic-design.md 6.1でspriteset専用フィールドとして定義されている)。実際のキャンバスサイズはCubismモデル(`model3.json`)側が持っており、モデルをロードするまで確定しない。
@@ -133,7 +135,7 @@ function defaultPosition(size: Size): Point {
 1. `CharacterRenderer`に`getBaseSize(): Size`を追加し、両実装が自身の基準サイズを返す。ウィンドウは仮サイズで生成し、`mount()`後に`setSize()`で確定させる。
 2. `ModelSlotSchema.baseResolution`をspriteset専用ではなく**形式共通の必須フィールド**に変更し、Live2Dの取り込み時に`model3.json`から読んでconfigへ書き込む。ウィンドウ生成前にサイズが確定するため順序の問題が消える。
 
-**案2を推奨する**。ウィンドウ生成 → モデルロード → リサイズという流れは、透過ウィンドウのちらつき(生成直後に一瞬別サイズで描画される)を招きやすい。案2なら`baseResolution`が「形式を問わずモデルの基準解像度」という一貫した意味を持ち、6.1のコメント`// spritesetのみ`を削除するだけで済む。
+**案2を採用した(実装済み)**。ウィンドウ生成 → モデルロード → リサイズという流れは、透過ウィンドウのちらつき(生成直後に一瞬別サイズで描画される)を招きやすい。案2なら`baseResolution`が「形式を問わずモデルの基準解像度」という一貫した意味を持ち、6.1のコメント`// spritesetのみ`を削除するだけで済む(削除済み)。
 
 ### 論点3: 右クリックメニューとメニューバーアイコン
 
@@ -225,10 +227,11 @@ win.setIgnoreMouseEvents(false);                     // OFF
 
 ## 実装時のTODO
 
-- [ ] **(要決着・実装前)** ウィンドウサイズの算出元の非対称を解消する。案2(`baseResolution`を形式共通の必須フィールドへ)を推奨。Notion基本設計書 6.1 の変更が必要
-- [ ] `resolvePosition`をMain側に実装し、起動時と`display-*`イベント時に適用する
-- [ ] `windowPosition`のドラッグ終了時デバウンス保存
-- [ ] メニューバーアイコン(`Tray`)と右クリックメニューを共通ビルダーから生成
-- [ ] MIN_VISIBLE(暫定80px)の実使用でのチューニング
-- [ ] Rendererの読み込み元を`http://localhost:8765/character`へ移行(security.md 7章)。現在のスキャフォールドは暫定的にloadFile
+- [x] **(決着済み)** ウィンドウサイズの算出元の非対称を解消する。**案2を採用**(`baseResolution`を形式共通の必須フィールドへ)。config-schema.ts / data.md / basic-design.md 6.1 / Notion正本すべて反映済み。実装は`character-window.ts` `resolveWindowSize`/`resolveActiveModel`
+- [x] `resolvePosition`をMain側に実装し、起動時と`display-*`イベント時に適用する(`window-position.ts`(純粋関数・オフスクリーンで実測8ケース検証)+ `character-window.ts`)
+- [x] `windowPosition`のドラッグ終了時デバウンス保存(`character-window.ts` `schedulePositionSave`、500ms)
+- [x] メニューバーアイコン(`Tray`)と右クリックメニューを共通ビルダーから生成(`tray-menu.ts` `buildAppMenu`。Tray と右クリック(`onContextMenu`)が同一ビルダーを使用)
+- [ ] MIN_VISIBLE(暫定80px)の実使用でのチューニング(実機での使用感待ち)
+- [x] Rendererの読み込み元をローカルサーバー(`http://127.0.0.1:<port>/character`。実ポートを使用)へ移行(security.md 7章 / C3)。dev は electron-vite の Vite サーバー(これもsecure context)。**キャラクターウィンドウ描画本体(CharacterRenderer)は #5 で実装**(現在はプレースホルダーHTML)
 - [ ] 将来検討: 透過部分のアルファ判定(`CharacterRenderer.hitTest()`の追加を伴う)、`app.dock.hide()`
+- [ ] 将来検討: フォーカス中の Cmd+W を無効化する`close`ガードを入れたが、キャラクターを一時的に隠す/再表示するメニュー項目は未提供(常駐前提のため現状は閉じられない挙動で足りている)

@@ -22,6 +22,23 @@ export type MoodState = (typeof MOOD_STATES)[number];
 export type ReactionState = (typeof REACTION_STATES)[number];
 export type EmotionState = (typeof EMOTION_STATES)[number];
 
+/**
+ * EmotionEngineが算出する解決済みの状態スナップショット。
+ * Main(EmotionEngine)が生成し、ローカルサーバーのWS経由でRenderer
+ * (CharacterRenderer / 会話ペインの憑坐状態帯)へ配信される共有契約のため、
+ * shared に置く(Main/Renderer 双方が同じ型を参照する)。
+ */
+export interface EmotionSnapshot {
+  /** 現在のMood層。 */
+  mood: MoodState;
+  /** 現在アクティブなReaction。無ければnull。 */
+  reaction: ReactionState | null;
+  /** 実際に描画すべき解決状態。reaction ?? mood。 */
+  state: EmotionState;
+  /** 現在のReactionがsustain付き(明示release待ち)かどうか。 */
+  sustained: boolean;
+}
+
 /** マッピング未設定時のフォールバック先。idleのみ必須(要件定義書 C-18)。 */
 export const FALLBACK_STATE: EmotionState = 'idle';
 

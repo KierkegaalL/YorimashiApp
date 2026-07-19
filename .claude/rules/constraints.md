@@ -24,9 +24,10 @@ Live2D形式とスプライトセット形式は`CharacterRenderer`インター�
 
 | 内容 | 出典 |
 |---|---|
-| `baseResolution`がspriteset専用のため、Live2Dはモデルをロードするまでウィンドウサイズが確定しない | detailed-design/character-window.md |
 | `loop`がspriteset専用のため、Live2Dで持続中にモーションが尽きた際の挙動が未定義 | detailed-design/lipsync.md |
 | リップシンクはスプライトセットで原理的に不可能（事前レンダリング済みのため） | detailed-design/lipsync.md |
+
+> **決着済み（表から除外）**: `baseResolution`の非対称（Live2Dはモデルをロードするまでウィンドウサイズが確定しない問題）は、#4で**案2**を採用して解消した。`baseResolution`を形式共通・必須フィールドへ変更し（config-schema.ts / data.md / basic-design.md 6.1 / Notion正本すべて反映済み）、ウィンドウサイズは両形式とも`baseResolution × displaySize`で決まる。detailed-design/character-window.md 論点2参照。
 
 ## 検証ルール
 

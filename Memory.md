@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-18
+**最終更新**: 2026-07-19
 
 ## 現在地
 
@@ -92,11 +92,49 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 
 - **`chat-adapter-errors.md`・`emotion-classification.md`・`lipsync.md`の「要決着」マーカーが古いまま。** 3ファイルとも「Notion正本の変更が必要」とTODOに書かれているが、実際にはA1+B一括更新で全て解決・反映済み（`sustain`/`release`・`classifier`・streakしきい値の移動等）。実装者が二重に変更提案しないよう、次のチェックポイントで一括棚卸しする
 
-## 次の一手
+## 実装フェーズの進捗（タスク化・2026-07-18）
 
-1. **実装着手が可能**（A2完了で実装ブロッカーは解消）。実装フェーズへ移る時点で `develop` を切る（git-workflow.md、決定済み）
-2. **FR-15の実装**。入力欄機能（C-23）・論点5案1（C-24）・`controlPanelCollapsed`・折りたたみ時のウィンドウ縮小方式は仕様反映済み。**`docs/mockups/control-panel.jsx`(設計物)への2ペイン+入力欄統合・折りたたみUIは2026-07-18に実装済み**。残るのは`src/renderer/control-panel`(実プロダクトコード)への実装と、Main側`BrowserWindow.setBounds()`によるウィンドウ実リサイズ。chat-pane.md 論点7/実装TODO に沿って進める
-3. Cは各機能の実装時に回収。A2派生の**idleグループ存在検証**（model-mapping-ui.md TODO）はモデル取り込み実装時に対応
+実装優先度をPhase 0〜3(全14項目)に整理し`TaskCreate`でタスク化済み(セッション内の進捗はタスクリストを参照)。
+
+- **完了 #1: EmotionEngine本体(FR-4)** — `src/main/emotion-engine.ts`新規実装。basic-design.md 5.2・lipsync.md(sustain/release)・emotion-classification.md(cooldown/優先度の役割分担)に基づく。GUI不要のfake scheduler検証(42ケース)で優先度調停・cooldown・sustain/release・streak遷移・sleepy・emit抑制を実データ確認。reviewerチェックループ2周(1周目6件指摘→修正→2周目0件)で完了
+  - **1周目で検出した実バグ**: 無操作タイマー(sleepy用)が、sleepyより高優先なReactionにブロックされて`trigger('sleepy',...)`が失敗すると恒久的に再武装されない不具合。`settleToIdle()`ヘルパーに集約し、Reactionがnullへ戻る全経路(自然タイムアウト・release)で必ず`armIdleTimer()`を呼ぶよう修正
+  - **正本に無い判断を明記**: sleepyは優先度チェーン(basic-design.md 5.2)に無いため、Reaction内で最下位(idle系の直上)とコードコメントで明記
+  - **TODO化(Code Adapter実装#9へ持ち越し)**: `Stop`イベント(basic-design.md 7.1「Moodのみidle寄りに重心移動」)に対応する専用APIは未実装。`onToolResult()`のJSDocにTODO明記済み
+  - **実装時のGUI確認事項(reviewer2周目の参考コメント)**: `registerActivity()`がsleepy解除で`release('sleepy')`を呼んだ直後、新Reactionの`trigger()`が同一tick内で2回emitする経路がある(実害なしと判断、修正見送り)。Live2D/spriteset両形式のCharacterRenderer実装時、一瞬の中間遷移が視覚的に見えないかを確認する(対称性チェック対象ではなく両形式共通の挙動)
+  - `EmotionSnapshot`型は#2で`src/shared/emotions.ts`へ移動した(Main/Renderer共有契約。WS配信で両者が同じ型を参照するため)。`emotion-engine.ts`は`export type { EmotionSnapshot }`で再エクスポートのみ
+- **完了 #2: ローカルサーバー(FR-2/FR-13)** — `src/main/local-server/`(local-server.ts本体・auth-token.ts・safe-path.ts)+`src/shared/ws-messages.ts`を新規実装。security.md・api.md準拠: 127.0.0.1限定バインド、ポート8765競合時フォールバック(解決ポートは`start()`が返す)、X-App-Token認証(定数時間比較)、`/panel`・`/character`(認証不要+CSP`frame-ancestors 'self'`+トークンHTML埋め込み`window.__APP_TOKEN__`)、POST /hook(認証+ボディ上限+onHookEventコールバック)、GET /models/*(認証+パストラバーサル対策)、WS /ws?token=(トークン検証+EmotionEngineスナップショット配信)。`ws`パッケージ追加(main bundleで外部化確認)。`src/main/index.ts`でサーバー起動を配線(token生成・EmotionEngine生成・start)。GUI不要のオフスクリーン検証34ケース全通過(実サーバー起動しhttp/wsで叩く)。reviewerチェックループ2周(1周目5件→修正→2周目0件)で完了
+  - **スコープ判断**: Rendererの実ウィンドウ読み込み元をサーバー(`loadURL('http://127.0.0.1:<port>/panel')`)へ移す移行(C3)は、**キャラクターウィンドウ生成(#4)と対で行う**ため#2に含めず。サーバー本体(`/panel`・`/character`のHTML配信+トークン埋め込み+CSP)は完成済みで、window loadURL接続のみ#4送り。`index.ts`にTODO明記
+  - **#3へ持ち越したTODO**(index.tsに明記): (1)永続化config.jsonのロード(現状は`createDefaultConfig()`既定値で起動)、(2)競合フォールバックで解決したポートを`config.codeAdapter.serverPort`へ保存(dispatch.sh等が参照するため)
+  - **onHookEvent未接続**: POST /hook受信→EmotionEngineマッピング(api.md 1.1)はCode Adapter(#9)で接続する。サーバーは認証+パース+コールバック呼び出しまで
+  - ビルド出力確認: Renderer資産は`out/renderer/assets/`に配置され、`/panel`の相対参照`../assets/`はURL正規化で`/assets/`へ解決→静的配信で解決可能(reviewer実測)
+- **完了 #3: config.json永続化(FR-10)** — `src/main/config-store.ts`新規実装(`ConfigStore`)。userData/config.jsonのロード/保存を担う。正本は`src/shared/config-schema.ts`(=docs/data.md 1章)、本モジュールはディスク↔検証済みAppConfigの入出力のみ。`src/main/index.ts`で#2の持ち越しTODO2件を接続(起動時`ConfigStore.load()`、解決ポートを`config.codeAdapter.serverPort`へ書き戻し)。GUI不要のオフスクリーン検証29ケース全通過。reviewerチェックループ2周(1周目4件→修正→2周目0件)で完了
+  - **設計**: (1)ロードは`JSON.parse`→`migrate`→`Zod.parse`の順(欠けたフィールドはスキーマの`.prefault`/`.default`が補完)。(2)ファイル無し→既定値を書き出して起動。(3)破損(パース不能・検証不能・未知schemaVersion)→元ファイルを`config.json.corrupt-<ts>`へ退避し既定値で復旧+警告ログ(constraints.md「嘘をつかない」=黙ってフォールバックせず退避先を明示)。(4)書き込みはtmp+renameでアトミック。(5)パーミッション0600(real時`chatAdapter.anthropicApiKey`を保持しうるため。`.token`・logsと同格)
+  - **マイグレーション枠**: `CURRENT_SCHEMA_VERSION=1`(schema側`z.literal(1)`と手動同期。コメント明記)。段階migration配列は現状空(v1が最初)。未来バージョン(version>CURRENT)は破損扱いで退避=古いアプリが新configを黙って上書きしデータを失わせない
+  - **1周目で検出した実バグ(重大)**: `load()`の正規化書き戻し(persist)がparse/validateと同じtryブロック内にあり、**一過性のI/Oエラー(ENOSPC等)で書き戻しが失敗すると有効なconfigが「破損」誤判定→`.corrupt-*`退避+既定値リセットでAPIキー等が消失**する不具合。parse/validateだけをtryに閉じ込め、書き戻しはtry外の独立try(失敗してもログのみ・退避しない)へ分離して修正。回帰検証追加済み
+  - **同(中)**: `update()`がpersist前に`this.config`を確定させており、persist失敗でメモリ/ディスクが乖離。`previous`退避→失敗時ロールバック+再throwで修正。回帰検証追加済み
+  - **副次改善**: `tryChmod600`を`src/main/fs-permissions.ts`へ抽出し`config-store.ts`・`auth-token.ts`の重複を解消。`docs/data.md`のディレクトリツリーにconfig.jsonの0600注記を追記(実装判断を正本へ反映)
+  - **スコープ外(意図的)**: onboarding完了フラグ(onboarding.md未決)・windowPositionのデバウンス保存(#4/character-window.md)は含めない。`ConfigStore.update()`は用途非依存の汎用APIとして提供
+- **完了 #4: キャラクター表示ウィンドウ(FR-6)+ C3** — 透過・枠なし・最前面・クリックスルーのウィンドウ生成、位置解決/永続化、メニューバーアイコン(Tray)、Rendererのサーバー読込移行を実装。reviewerチェックループ2周(1周目3件→修正→2周目0件「問題なし」)で完了
+  - **新規**: `src/main/window-position.ts`(位置解決の純粋関数・Electron非依存)、`src/main/character-window.ts`(BrowserWindow統合)、`src/main/tray-menu.ts`(メニューバー+右クリック共通ビルダー)、`src/shared/ipc.ts`(IPCチャンネル定義)、`src/renderer/character/src/useCharacterWindowControls.ts`(ドラッグ/右クリックのRenderer側)。**変更**: `index.ts`(配線)、`preload/index.ts`(character IPCブリッジ)、`character/src/App.tsx`(フック呼び出し)
+  - **位置解決**(character-window.md 論点1・2): `screen`非依存の純粋関数に切り出し、DisplayEnvを引数注入。**doc の実測8ケース表をオフスクリーンで13/13再現**(逆算で実機2画面構成を再構成)。見失った時だけクランプ(MIN_VISIBLE=80)、初期配置はプライマリworkArea右下(マージン24)、windowPositionはドラッグ終了時500msデバウンス保存
+  - **FR-6機構**(実測どおり): `transparent/frame:false/hasShadow:false/resizable:false/skipTaskbar`、`setAlwaysOnTop(true,'floating')`(`'normal'`は最前面無効なので不可)、`setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true})`、クリックスルーは`setIgnoreMouseEvents(true,{forward:true})`(既定ON)
+  - **ウィンドウサイズ=案2決着の実装**: `resolveWindowSize`=アクティブモデルの`baseResolution × displaySize`。モデル未導入時は`FALLBACK_BASE_RESOLUTION`(400×400)。`resolveActiveModel`は暫定(manualActiveId一致→先頭→null。本格選択は#5)
+  - **Tray/メニュー**(論点3): 鳥居シルエットの単色テンプレート画像(16+@2x)を**手続き生成→nativeImageで読込検証→base64埋め込み**(scaleFactors=[1,2]/isTemplate=true)。メニューバーと右クリックは`buildAppMenu`共通ビルダー(項目: Control Panel/モード2/クリックスルー/位置リセット/終了)。表示のたびに再構築しradio・checkboxを現在config値と同期。ドラッグは`-webkit-app-region:drag`不採用でmousedown→mousemove→IPC(`win.setPosition`)。IPCは送信元webContents検証で他ウィンドウを弾く
+  - **C3**: キャラウィンドウはprod=`http://127.0.0.1:<実ポート>/character`、dev=`ELECTRON_RENDERER_URL`(Viteもsecure context)。`file://`回避=WebCodecs有効化(security.md 7章)。Control Panelもサーバー読込へ移行、ただしサーバー障害時は`loadFile`フォールバック(可用性NFR)。prodはサーバー必須のためcharacterウィンドウ生成はport確定時のみ
+  - **reviewer指摘3件と対応**: (重大)ドラッグ競合=`beginDrag()`Promise解決前にmouseupすると離した後もdragging残存で暴走→`buttonDown`フラグで解決時に再確認。(中)character-window.md/constraints.md が案2を「未決着」のまま=正本を実装済みに更新、既知の非対称表からbaseResolution行削除。(軽微)フォーカス中Cmd+Wで復帰不能=`quitting`フラグ+`before-quit`で`close`をpreventDefault(`destroy()`は'close'非発火なのでdispose不阻害)、`clearSaveTimer`をdispose/handleClosed両方から呼ぶよう統一
+  - **検証**: typecheck/build通過。Electronオフスクリーン スモーク18/18(透過のみElectron 43にランタイムgetter無しで未アサート=仕様)。位置ロジック13/13
+  - **スコープ外(意図的・#5送り)**: キャラウィンドウ内の実描画(CharacterRenderer Live2D/spriteset)は未実装=現在プレースホルダーHTML。透過部分のアルファ判定(hitTest)・app.dock.hide()・MIN_VISIBLEチューニング・キャラ一時非表示メニューは将来検討(character-window.md TODOに明記)
+- **完了 #5: CharacterRenderer(Live2D/スプライトセット両対応 FR-5)** — 描画抽象(mount/setState/destroy)+両実装+WS感情購読+manifestロードを実装。reviewerチェックループ2周(1周目3件→修正→2周目0件「問題なし」)で完了
+  - **新規**: `src/shared/manifest.ts`(manifest.jsonのZodスキーマ+resolve helpers。両形式)、`src/shared/bootstrap.ts`(character HTML埋め込み契約)、`src/renderer/character/renderer/`(CharacterRenderer.ts=抽象+共通、SpriteSetRenderer.ts、Live2DRenderer.ts、cubism-runtime.ts、createRenderer.ts、emotionSocket.ts、bootstrap.ts、loadManifest.ts)、`src/renderer/character/src/useCharacterScene.ts`。**変更**: `App.tsx`(シーン描画+状態表示)、`local-server.ts`(/characterへbootstrap注入)、`index.ts`(getCharacterBootstrap配線)
+  - **抽象**(basic-design 5.1): `CharacterRenderer`(mount/setState/destroy)+`createRenderer(manifest,ctx)`。EmotionEngineはsetState(key)を呼ぶだけで形式非依存。**createRendererはasync**(Live2Dはランタイム確認後に動的import。理由はbasic-design 5.1脚注に追記)
+  - **manifest正本**(C-18): idle必須をZod superRefineで両形式強制。**z.record(enum,X)はzod v4で全キー必須になる罠→z.partialRecordに修正**(idle以外省略可、欠落→idleフォールバック)。両方null(panic例)もidleへフォールバック(model-mapping-ui.md論点2)
+  - **SpriteSetRenderer**: 2レイヤーWebP crossfade。`/models/*`はヘッダ認証のため`<img>`直付け不可→**fetch(ヘッダ)→Blob→オブジェクトURL**でトークンをURLに載せず読む。取得キャッシュ+loadSeq競合防止+destroyでrevoke。loopは素材の再生方法(取り込み時に焼き込み)でRendererは制御しない=lipsync.md直交
+  - **Live2DRenderer**: pixi-live2d-display v6。**Cubism外部ランタイム(window.Live2DCubismCore/Live2D)がnpmに無く未同梱→実描画は実行不能**。ランタイム検知は`cubism-runtime.ts`(pixiをimportしない)に分離しcreateRendererが確認後に動的import(import時例外を避ける)。持続中の再発火(lipsync.md要決着)は#5では未実装=setStateは1回発火のみ。motion/expressionの.catchは非致命ログ(SpriteSetの致命onErrorと正当な非対称・明記)
+  - **bootstrap**: サーバーが/characterに`window.__APP_TOKEN__`+`window.__YORIMASHI_MODEL__`を注入(jsonForScriptで`</script>`・U+2028/2029エスケープ)。/panelにはアクティブモデルを注入しない。Rendererが読んでmanifest取得→createRenderer→mount→WS購読→setState
+  - **検証**: typecheck/build通過(Live2DRendererは動的importで別チャンク分離=character本体はpixiをeagerロードしない)。オフスクリーン: manifest schema/resolve/factory/bootstrap/EmotionSocket(モックWS往復・再接続・close) 19/19、サーバーbootstrap注入+XSSエスケープ+/panel非注入+CSP維持 8/8
+  - **スコープ外/未解決(実機・後続タスク)**: Live2D実描画・モーション駆動・アセットのヘッダ認証注入(pixiローダ)は**実機検証待ち**(推測でローダ差し替えを書かない)。実描画確認にはCubismランタイム同梱+モデル導入(#10オンボーディング/取り込み)が前提。spriteset生成パイプライン(sharp/WebCodecs)は取り込み側で#5対象外
+- **コミット済み(develop直接・1コミット)**: #1〜#5をまとめて develop へ直接コミット(ユーザー指示「#5完了後に一括」)。以降は都度コミット方針に戻す想定
+- **次**: Phase 1完了。Phase 2へ → #6(FR-15会話ペインをmockup(control-panel.jsx)から実プロダクトコードへ移植)。#7(折りたたみリサイズ)・#8(Chat Adapter mock)と連動
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**
