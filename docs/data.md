@@ -162,6 +162,7 @@ panic と sleepy はどちらも`loop: true`だが寿命は正反対である。
 <userData>/
  ├─ config.json               # パーミッション0600(real時にchatAdapter.anthropicApiKeyを保持しうるため)
  ├─ .token                    # ローカルサーバー認証トークン、パーミッション0600
+ ├─ .port                     # 実際にバインドしたポート(1行の平文)。秘密ではないため0600にしない
  ├─ models/
  │   └─ <uuid>/
  │       ├─ manifest.json
@@ -170,6 +171,8 @@ panic と sleepy はどちらも`loop: true`だが寿命は正反対である。
  └─ logs/
      └─ hook-events.jsonl     # パーミッション0600、retentionDaysで自動削除
 ```
+
+> **`.port` を置く理由(FR-2実装時に追加)**: `dispatch.sh` は「重い処理をしない薄いスクリプト」(api.md 1.3)であり、`config.json` を解析できない。ポートは競合時に8765以外へフォールバックする(environments.md)ため、実ポートを平文1行で置き、シェルから `cat` だけで読めるようにする。**トークンを利用者のプロジェクト側へ書かない**ための前提でもある(api.md 1.3)。
 
 ## 4. hooksイベントログの1行あたりのフィールド
 

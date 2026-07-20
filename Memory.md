@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-19
+**最終更新**: 2026-07-20
 
 ## 現在地
 
@@ -99,7 +99,7 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 - **完了 #1: EmotionEngine本体(FR-4)** — `src/main/emotion-engine.ts`新規実装。basic-design.md 5.2・lipsync.md(sustain/release)・emotion-classification.md(cooldown/優先度の役割分担)に基づく。GUI不要のfake scheduler検証(42ケース)で優先度調停・cooldown・sustain/release・streak遷移・sleepy・emit抑制を実データ確認。reviewerチェックループ2周(1周目6件指摘→修正→2周目0件)で完了
   - **1周目で検出した実バグ**: 無操作タイマー(sleepy用)が、sleepyより高優先なReactionにブロックされて`trigger('sleepy',...)`が失敗すると恒久的に再武装されない不具合。`settleToIdle()`ヘルパーに集約し、Reactionがnullへ戻る全経路(自然タイムアウト・release)で必ず`armIdleTimer()`を呼ぶよう修正
   - **正本に無い判断を明記**: sleepyは優先度チェーン(basic-design.md 5.2)に無いため、Reaction内で最下位(idle系の直上)とコードコメントで明記
-  - **TODO化(Code Adapter実装#9へ持ち越し)**: `Stop`イベント(basic-design.md 7.1「Moodのみidle寄りに重心移動」)に対応する専用APIは未実装。`onToolResult()`のJSDocにTODO明記済み
+  - **TODO化 → #9で解消済み**: `Stop`イベント(basic-design.md 7.1「Moodのみidle寄りに重心移動」)に対応する専用API。#9で`onSessionStop()`(両streakの切り捨て半減)として実装した
   - **実装時のGUI確認事項(reviewer2周目の参考コメント)**: `registerActivity()`がsleepy解除で`release('sleepy')`を呼んだ直後、新Reactionの`trigger()`が同一tick内で2回emitする経路がある(実害なしと判断、修正見送り)。Live2D/spriteset両形式のCharacterRenderer実装時、一瞬の中間遷移が視覚的に見えないかを確認する(対称性チェック対象ではなく両形式共通の挙動)
   - `EmotionSnapshot`型は#2で`src/shared/emotions.ts`へ移動した(Main/Renderer共有契約。WS配信で両者が同じ型を参照するため)。`emotion-engine.ts`は`export type { EmotionSnapshot }`で再エクスポートのみ
 - **完了 #2: ローカルサーバー(FR-2/FR-13)** — `src/main/local-server/`(local-server.ts本体・auth-token.ts・safe-path.ts)+`src/shared/ws-messages.ts`を新規実装。security.md・api.md準拠: 127.0.0.1限定バインド、ポート8765競合時フォールバック(解決ポートは`start()`が返す)、X-App-Token認証(定数時間比較)、`/panel`・`/character`(認証不要+CSP`frame-ancestors 'self'`+トークンHTML埋め込み`window.__APP_TOKEN__`)、POST /hook(認証+ボディ上限+onHookEventコールバック)、GET /models/*(認証+パストラバーサル対策)、WS /ws?token=(トークン検証+EmotionEngineスナップショット配信)。`ws`パッケージ追加(main bundleで外部化確認)。`src/main/index.ts`でサーバー起動を配線(token生成・EmotionEngine生成・start)。GUI不要のオフスクリーン検証34ケース全通過(実サーバー起動しhttp/wsで叩く)。reviewerチェックループ2周(1周目5件→修正→2周目0件)で完了
@@ -174,7 +174,18 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証**: typecheck/build通過。**分類器17/17**(設計の検証表11件を再現。既知NG「否定がスキャン窓の外」も設計どおりであることを含む)、**Chat Adapter 34/34**(実EmotionEngine/実ConfigStore使用。sustain→release→分類、中断、real=not-implementedでmock混入なし、入力バリデーション、多重送信拒否、C-24の自動切替と通知、dispose、送信先消失)、**会話ペインSSR 15/15**(空状態・Mood/アダプタ追従・real専用コントロール・捏造パーセント非表示)
   - **チェックループ**: 4周(1周目6件[中2/低4]→2周目4件[低]→3周目2件[中1/低1]→**4周目0件「問題なし」**)
   - **未実装(意図的・#12)**: real接続/APIキー導線/無通信ウォッチドッグ/@参照の文脈組立/添付/コンテキスト実測/Haiku分類
-- **次**: Phase 2継続 → #9(Code Adapter hooks受信)。#6の右ペインタブ中身は#11/#13および モード設定タブで差し込む
+- **完了 #9: Code Adapter(hooks受信)(FR-2)** — 利用者側Claude Codeのhooksイベントを`POST /hook`で受け、EmotionEngineを駆動する。#2で用意した`onHookEvent`の接続先が埋まった
+  - **新規**: `src/shared/hook-events.ts`(イベント名の単一の情報源+`resolveHookEventName`)、`src/main/code-adapter/code-adapter.ts`(本体)、`src/main/code-adapter/dispatch-script.ts`(配置用dispatch.shの正本)、`src/main/local-server/endpoint-file.ts`(`.port`書き出し)。**変更**: `emotion-engine.ts`(`onSessionStop()`追加・`applyMoodFromStreaks()`切り出し・#1のTODO解消)、`index.ts`(配線)、`local-server.ts`(`HookEventPayload`を共有型へ一本化)、`docs/api.md`・`docs/data.md`・`.claude/rules/environments.md`
+  - **⚠️ 実測で自分の思い込みを訂正**: 「Claude Codeに`PostToolUseFailure`は存在しない(PostToolUseの`tool_response`で判定するはず)」と考え、正本(api.md/requirements.md)が誤っていると疑ったが、**Claude Code 2.1.205のバイナリを実測して実在を確認**した(`| PostToolUseFailure | Tool name | Run after tool fails |`・`executePostToolUseFailureHooks`)。同じ表で`PostToolUse`は「Run after **successful** tool」。**正本が正しく、私の記憶が誤りだった**。推測でドキュメントを「修正」しなくてよかった事例
+  - **`Stop`のMood緩和を決定(#1からの持ち越しTODO)**: **両streakを切り捨て半減**(`onSessionStop()`)。0リセットだとMoodが実質「1ターン限りの状態」になり閾値ちょうどのconfident/tiredがターン終了で必ず消える。半減なら閾値ちょうど(3)は`3→1`でidleへ戻り、積み上げた確信(6)は`3`が残り維持=**強い傾きほど長く残る**。減算(-1)は「1回でどれだけ寄るか」がstreakの大きさに依らず鈍いため不採用。**Reactionには一切触れない**(正本の「Reactionには影響しない」)
+  - **Code側のthinkingはsustainしない(Chat側との意図的な非対称)**: PreToolUseに対応する「終わり」はPostToolUse(Failure)だが、ツール中断・クラッシュでどちらも来ない経路があり、sustainだとthinkingが永久固着する。正本(api.md 1.1)も`trigger('thinking')`とだけ書きsustainを指定していない
+  - **正本に無い判断を明記(黙って決めない)**: (1)`activeAdapter !== 'code'`の間は受信して204を返すが**適用しない**(Chat AdapterのsustainされたthinkingがPreToolUseに割り込まれる取り合いを防ぐ) (2)`watchedProjectPaths`の**空配列(既定)=絞り込み無し・全受理**(空を「全拒否」と読むと、hooksだけ手で設定した利用者にアプリが完全無反応になる) (3)判定は前方一致でなく**ディレクトリ境界での包含**(`/work/app`が`/work/app-backup`に一致しないように)。3点ともapi.md 1.1へ反映済み
+  - **dispatch.shの決定(api.md 1.3へ反映)**: (1)**jqを必須にしない** — jqはmacOS標準ではなく、jq前提のままだと未導入環境で全イベントが黙って捨てられ「アプリが無反応」になる。素通しでも**Claude Code自身が`hook_event_name`を含める**ため、受信側が`hookEventName`/`hook_event_name`両方を解釈すれば成立する (2)**トークンをスクリプトに埋め込まない** — 埋め込むと利用者のプロジェクト(gitに入りうる場所)へ認証情報を書くことになる。実行時に`<userData>/.token`(0600)を読む (3)ポートは**`.port`(平文1行)**を`cat`で読む(競合フォールバック後の実ポートに追従。薄いスクリプトではconfig.jsonを解析できない) (4)スクリプトの正本は**TS内の文字列**(`dispatch-script.ts`)。ファイルにするとelectron-builderの同梱設定が要り「開発では動くが配布物に入っていない」事故になる
+  - **自分で作り込んだバグを検出・修正**: データディレクトリの埋め込みが**二重引用符文脈**なのに、エスケープは**シングルクォート用**(`'\''`)を書いていた。パスに`$`や空白を含むと展開・分割される。`if [ -z ... ]; then VAR='...'; fi`のシングルクォート文脈に直して整合させた
+  - **検証**: typecheck/build通過。**オフスクリーン53/53**(実EmotionEngine/実ConfigStore/実LocalServer使用)。イベント名解決、api.md 1.1の対応表全6種、thinkingが一過性で自然消滅すること、Stop半減(3→idle / 6→confident維持→idle)、StopがReactionを消さないこと、**UserPromptSubmitの短縮クールダウンが既定値なら抑制される時刻で受理されること(判別力のある検証に作り直した)**、ゲート2種(app-backup誤一致の否定を含む)、不正ペイロード・dispose後でも例外を投げないこと、`POST /hook`のE2E(401では感情が動かない)、そして**dispatch.shを実際にbashで実行**(exit 0・空stdin・アプリ未起動・サーバー停止中(<3s)・不正`.port`・空白と`'`を含むパス)
+  - **チェックループ**: reviewer 1周目で0件。ただし1周目0件は疑い、生成される`dispatch.sh`の実物を目視確認した
+  - **未実装(意図的)**: dispatch.shの**配置**とhooks設定の案内はオンボーディング(#10)、イベントログ記録は#11(`HookHandleResult`を返す形にしてあるので配線するだけ)
+- **次**: Phase 2継続 → #10(オンボーディング FR-14)。#6の右ペインタブ中身は#11/#13および モード設定タブで差し込む
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**

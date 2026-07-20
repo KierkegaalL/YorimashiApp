@@ -15,6 +15,16 @@
 | Stop | Moodをidle寄りに重心移動 | セッション区切り。Reactionには影響しない |
 | UserPromptSubmit | `engine.trigger('curious', { cooldownMs: 500 })` | クールダウンを短めに設定 |
 
+> **`PostToolUseFailure`の実在性(実測で確認済み・#9)**: Claude Code 2.1.205のバイナリ内ヘルプ表に `| PostToolUseFailure | Tool name | Run after tool fails |` と `executePostToolUseFailureHooks` を確認した。同じ表で`PostToolUse`は「Run after **successful** tool」と定義されており、上表の「成功時のみ発火」は正しい。**この2つは必ず対で実装する**(失敗検知は`PostToolUseFailure`にのみ依存するため、片方だけ実装すると灯里は永久に失敗へ反応しない)。
+>
+> Claude Codeはこの他に`PermissionRequest` / `PreCompact` / `PostCompact` / `SessionStart` / `SubagentStop`等も発火するが、**上表にないイベントは受け取っても無視する**(勝手に感情へ結びつけない。追加はNotion正本の更新を伴う)。
+
+> **`Stop`のMood緩和方法(実装時に決定・#9)**: 正本は「idle寄りに重心移動」とだけ定めていたため、**両streakの切り捨て半減**として実装した(`EmotionEngine.onSessionStop()`)。0リセットにするとMoodが実質「1ターン限りの状態」になり、閾値ちょうどのconfident/tiredがターン終了だけで必ず消える。半減なら閾値ちょうど(既定3)は`3→1`でidleへ戻る一方、積み上げた確信(6以上)は`3`が残り維持される=**強い傾きほど長く残る**。詳細な検討は`src/main/emotion-engine.ts`の同メソッドに記載。
+
+> **`activeAdapter`によるゲート(実装時に決定・#9)**: `activeAdapter !== 'code'`の間、hooksイベントは受信して204を返すが**EmotionEngineへは適用しない**。FR-1でユーザーが「灯里が何に反応するか」を選ぶ以上、Chat選択中にCode側のイベントで感情が動くとChat AdapterのsustainされたthinkingがPreToolUseに割り込まれる等の取り合いが起きるため。
+>
+> **`watchedProjectPaths`による絞り込み(同)**: 空配列(既定)は**絞り込み無し=全受理**とする。空を「何も受け付けない」と解釈すると、オンボーディングを完了せずhooksだけ手で設定した利用者に対しアプリが完全に無反応になるため。判定は文字列の前方一致ではなく**ディレクトリ境界での包含**で行う(`/work/app`の設定が`/work/app-backup`に一致しないようにする)。
+
 ### 1.2 `.claude/settings.json`(hooks設定・アプリのユーザー側に案内するテンプレート)
 
 ```json
@@ -49,6 +59,19 @@
 - stdinのJSONをそのままローカルサーバーへPOSTする薄いスクリプト。重い処理をしない。
 - 必ず`exit 0`。curlは`-m 2`でタイムアウト、失敗してもアプリ側の動作をブロックしない(非同期・非ブロッキング)。
 - `$(echo "$INPUT" | jq -c --arg ev "$EVENT_NAME" '. + {hookEventName: $ev}')` のようにイベント名を付与してPOSTする。
+
+#### 実装時の決定(FR-2 / #9)
+
+スクリプトの正本は **`src/main/code-adapter/dispatch-script.ts`**(TS内の文字列)。ファイルとして持たないのは、electron-builderのアセット同梱設定を増やさずに済み「開発では動くが配布物に入っていない」事故を避けるため。配置はオンボーディング(FR-14)が行う。
+
+| 論点 | 決定 | 理由 |
+|---|---|---|
+| **jqへの依存** | **必須にしない**。あればイベント名を付与、無ければ本文を素通し | jqはmacOS標準ではない。上記のjq前提のままだと未導入環境で全イベントが黙って捨てられ、アプリが無反応になる。素通しでも**Claude Code自身が`hook_event_name`をstdin JSONに含める**(実測: 2.1.205のバイナリ内に文字列として存在)ため、受信側(`shared/hook-events.ts`の`resolveHookEventName`)が`hookEventName`/`hook_event_name`の両方を解釈すれば成立する |
+| **トークンの渡し方** | スクリプトに**埋め込まない**。実行時に`<userData>/.token`を読む | 埋め込むと利用者のプロジェクト(=gitに入りうる場所)へ認証情報を書き込むことになる。security.md 3章はトークンをuserData配下0600に置くと定めている |
+| **ポートの取得** | `<userData>/.port`(平文1行)を`cat`で読む。読めなければ8765 | 競合フォールバック後の実ポートに追従する必要があるが、薄いスクリプトでは`config.json`を解析できない(data.md 3章) |
+| スクリプトに埋め込む値 | **userDataディレクトリのパスのみ**(秘密ではない)。環境変数`YORIMASHI_DATA_DIR`で上書き可 | 配置時に確定し、以降変わらないため |
+
+`.token`が読めない(=アプリ未起動/未セットアップ)場合は**何もせず正常終了**する。認証なしでPOSTしても401になるだけで、利用者の作業を遅らせるだけだから。
 
 ## 2. ローカルサーバーAPI一覧
 

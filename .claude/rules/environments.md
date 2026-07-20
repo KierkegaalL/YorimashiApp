@@ -46,6 +46,7 @@
 <userData>/
  ├─ config.json               # Zodバリデーション、schemaVersionでマイグレーション
  ├─ .token                    # ローカルサーバー認証トークン、パーミッション0600
+ ├─ .port                     # 実際にバインドしたポート(平文1行)。dispatch.shがcatで読む
  ├─ models/
  │   └─ <uuid>/
  │       ├─ manifest.json     # clipsの正本

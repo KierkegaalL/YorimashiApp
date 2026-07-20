@@ -38,6 +38,7 @@ import {
   BOOTSTRAP_TOKEN_GLOBAL,
   type CharacterBootstrapModel,
 } from '../../shared/bootstrap';
+import type { HookEventPayload } from '../../shared/hook-events';
 import { tokensMatch } from './auth-token';
 import { resolveWithinBase } from './safe-path';
 
@@ -72,8 +73,12 @@ function contentTypeFor(filePath: string): string {
   return CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream';
 }
 
-/** hooksイベントのペイロード。中身の解釈はCode Adapter(#9)が行う。 */
-export type HookEventPayload = Record<string, unknown>;
+/**
+ * hooksイベントのペイロード。中身の解釈はCode Adapter(FR-2)が行う。
+ * 型の正本は shared/hook-events.ts(受信側とオンボーディングのテンプレートが同じ
+ * イベント定義を参照するため)。ここでは再エクスポートのみ行い、二重定義にしない。
+ */
+export type { HookEventPayload };
 
 export interface LocalServerOptions {
   /** 共有トークン(auth-token.ts で生成/読込したもの)。 */
