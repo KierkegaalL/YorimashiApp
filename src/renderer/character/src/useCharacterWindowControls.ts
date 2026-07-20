@@ -13,6 +13,13 @@ import { useEffect } from 'react';
  */
 export function useCharacterWindowControls(): void {
   useEffect(() => {
+    // preload が無い経路(ブラウザから /character を直接開いた場合。environments.md)では
+    // ウィンドウ操作自体が成立しないため、リスナーを張らずに何もしない。
+    const api = window.yorimashi?.character;
+    if (!api) {
+      return;
+    }
+
     let buttonDown = false;
     let dragging = false;
     let origin: { x: number; y: number } | null = null;
@@ -29,7 +36,7 @@ export function useCharacterWindowControls(): void {
       // beginDrag は非同期(IPC invoke)。解決までの間にボタンを離す素早いクリックがありうるため、
       // 解決時点で「まだ押されているか(buttonDown)」を再確認してからドラッグを確定する。
       // これを怠ると、離した後に dragging=true が残り、次の mousemove でウィンドウが暴れる。
-      void window.yorimashi.character.beginDrag().then((pos) => {
+      void api.beginDrag().then((pos) => {
         if (pos && buttonDown) {
           origin = pos;
           dragging = true;
@@ -41,7 +48,7 @@ export function useCharacterWindowControls(): void {
       if (!dragging || !origin) {
         return;
       }
-      window.yorimashi.character.dragMove({
+      api.dragMove({
         x: origin.x + (e.screenX - startScreenX),
         y: origin.y + (e.screenY - startScreenY),
       });
@@ -50,7 +57,7 @@ export function useCharacterWindowControls(): void {
     const endDrag = (): void => {
       buttonDown = false;
       if (dragging) {
-        window.yorimashi.character.endDrag();
+        api.endDrag();
       }
       dragging = false;
       origin = null;
@@ -58,7 +65,7 @@ export function useCharacterWindowControls(): void {
 
     const onContextMenu = (e: MouseEvent): void => {
       e.preventDefault();
-      window.yorimashi.character.requestContextMenu();
+      api.requestContextMenu();
     };
 
     window.addEventListener('mousedown', onMouseDown);
