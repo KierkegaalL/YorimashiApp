@@ -14,6 +14,11 @@ import type {
 } from '../shared/chat';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
+import type {
+  HookLogClearResult,
+  HookLogExportResult,
+  HookLogSnapshot,
+} from '../shared/hook-log';
 
 /**
  * contextIsolation: true / sandbox: true 前提のpreload(security.md 5章)。
@@ -132,6 +137,24 @@ const api = {
     copySettingsSnippet: (): Promise<boolean> => ipcRenderer.invoke(IPC.OnboardingCopySnippet),
     /** 完了として記録する(スキップ経由でも呼ぶ)。 */
     complete: (): Promise<void> => ipcRenderer.invoke(IPC.OnboardingComplete),
+  },
+  /**
+   * ログ管理(FR-11)。**ファイルを触るのはMainだけ**で、Rendererは要求と表示のみを行う。
+   * エクスポート先の選択・消去の確認はネイティブダイアログ(Main)が担う。
+   */
+  logs: {
+    /** 直近のイベント(新しい順)と総件数・保持日数・ファイルパス。 */
+    get: (): Promise<HookLogSnapshot> => ipcRenderer.invoke(IPC.LogsGet),
+    /** 仮名化した共有用JSONLを保存する(生ログは変更しない)。 */
+    export: (): Promise<HookLogExportResult> => ipcRenderer.invoke(IPC.LogsExport),
+    /** 確認ダイアログを経てログを消去する。 */
+    clear: (): Promise<HookLogClearResult> => ipcRenderer.invoke(IPC.LogsClear),
+    /** 新着通知の購読。中身は載らないので、受け取ったら get() で取り直す。 */
+    onChanged: (listener: () => void): (() => void) => {
+      const handler = (): void => listener();
+      ipcRenderer.on(IPC.LogsChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.LogsChanged, handler);
+    },
   },
   /**
    * EmotionEngine の状態(FR-4)。憑坐状態帯の表示に使う。

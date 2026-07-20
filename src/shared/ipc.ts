@@ -78,6 +78,23 @@ export const IPC = {
   OnboardingCopySnippet: 'onboarding:copy-snippet',
   /** invoke: 完了として記録する(スキップ経由でも呼ぶ)。 */
   OnboardingComplete: 'onboarding:complete',
+
+  /**
+   * ログ管理(FR-11)。**ログの実体はMainのファイル**(userData/logs/hook-events.jsonl、0600)で、
+   * Rendererはそれを読む・書き出す・消すよう要求するだけ。Renderer側にファイルパスを渡すのは
+   * 画面に表示するためで、Rendererからの書き込み経路は無い。
+   */
+  /** invoke: 直近のイベント(新しい順・上限あり)と総件数・保持日数・ファイルパス。 */
+  LogsGet: 'logs:get',
+  /** invoke: 仮名化した共有用JSONLを保存する(ネイティブの保存ダイアログ)。生ログは変更しない。 */
+  LogsExport: 'logs:export',
+  /** invoke: 確認ダイアログを出してからログを消去する。 */
+  LogsClear: 'logs:clear',
+  /**
+   * Main→Renderer: 新しいイベントを記録した通知(ログタブの自動更新)。
+   * **中身は載せない**。受け取った側が LogsGet で取り直す(表示は常にファイルが正)。
+   */
+  LogsChanged: 'logs:changed',
 } as const;
 
 /**

@@ -200,7 +200,17 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **チェックループ**: 2周(1周目4件[重大1/中1/軽微1/情報1] → 修正 → **2周目コード面0件**)。1周目の修正直後にセッション利用枠へ到達して2周目を起動できず、一度 Memory.md に「未完了」と記録して中断したうえで、次セッション冒頭に2周目を実行して閉じた
     - 2周目の唯一の指摘は Memory.md の記述矛盾(「#10は未完了」と書きながら直後に「次: #11」と書いていた)。この記述自体を修正して解消した
   - **未実装(意図的)**: モデル管理タブ本体(#未定)へ送るところまでがこの画面の役割。real接続の案内は#12、権利表示は#13
-- **次**: Phase 2継続 → #11(ログ管理 FR-11)。#6の右ペインタブ中身は#11/#13および モード設定タブで差し込む
+- **完了 #11: ログ管理(FR-11)** — 受信したhooksイベントを`userData/logs/hook-events.jsonl`(0600)へ追記し、`retentionDays`(既定7日)超過分を自動削除。ログタブから仮名化エクスポート・消去ができる
+  - **新規**: `src/shared/hook-log.ts`(共有型)、`src/main/logging/hook-event-log.ts`(記録・保持・仮名化・消去。**Electron非依存**)、`src/main/logging/log-actions.ts`(保存/確認ダイアログ。Electron依存はここだけ)、`src/renderer/control-panel/src/panel-ui.tsx`(Section/Row/全幅ボタン。**他タブで複製されないよう最初のタブ移植時に切り出した**)、`src/renderer/control-panel/src/LogsTab.tsx`。**変更**: `ipc.ts`・`preload/index.ts`・`main/index.ts`・`ControlPanelTabs.tsx`・`code-adapter.ts`・`docs/data.md` 4章
+  - **記録対象を決定(正本に明記が無いため決めて書き足した)**: `applied` と `ignored-inactive-adapter` のみ。後者を残すのは、ログが「灯里の反応の記録」ではなく**利用者の作業の記録**だから。`ignored-unwatched-path` は**記録しない**(利用者自身が除外したプロジェクトのフルパスを7日残すのは除外意図に反する)。`ignored-unknown-event` はイベント名が閉じたunionに無いため記録しない
+  - **`exit_code`は実測に基づき「無ければ付けない」**: Claude Code 2.1.205 のhooksドキュメントが示す stdin JSON は`session_id`/`tool_name`/`tool_input`/`tool_response`のみで、**`exit_code`は定義されていない**(バイナリ内ヘルプを実測)。成否の判定は`PostToolUseFailure`というイベント名そのものが担う。`filePath`は`tool_input.file_path`優先→無ければ`cwd`(同ドキュメントの例と、本リポジトリの開発用hookが同じ位置を読んでいることで確認)
+  - **仮名化の規則**: `watchedProjectPaths`を既知ルートとして`project-a`/`project-b`…へ置換(長いパスから照合するので入れ子は深い方が勝つ)。どのルートにも属さないパスは`project-unknown/<ファイル名>`にしディレクトリを全部落とす。**プロジェクトの境界を知らないので推測で分類しない**(別プロジェクトが同じ仮名に潰れるのは欠落であって漏洩ではない)。生ログは非マスクのまま(要件4.11)
+  - **正本(モックアップ)との意図的な差分**: モックアップは全行に「成功/失敗」の2値バッジを出すが、そのまま実装すると嘘になる(`Notification`/`Stop`に成否は無く、モックアップは Notification を「成功」と描いている。`PreToolUse`はまだ成否未定)。**バッジの形・位置・配色はモックアップのまま**、文言と色をイベントごとに正しくした(成功=mint/失敗=朱/その他=中間色)。理由は`LogsTab.tsx`冒頭に明記
+  - **⚠️ reviewer 1周目が実バグを検出**: `CodeAdapter.handle()`が`activeAdapter !== 'code'`を監視パス判定より**先に**returnしていたため、`activeAdapter`が`chat`(**既定値**)の間は`watchedProjectPaths`の判定に到達せず、**利用者が除外したプロジェクトのフルパスがログに残っていた**。上記の記録対象の判断が前提を失っていた。修正: 監視パス判定を先に移し、順序が意味を持つ理由を`code-adapter.ts`・`hook-event-log.ts`・`docs/data.md`の3箇所に明記。感情駆動(FR-1/FR-4)の挙動は不変(どちらの順でも適用しないため)
+  - **検証**: typecheck通過。**オフスクリーン55/55**(実ConfigStore/実HookEventLog/実CodeAdapter)。記録対象の取捨、フィールド抽出(file_path優先・cwdフォールバック・exit_code有無)、0600/0700、保持期間の削除と**消す行が無ければ書き換えないこと**、日付を解釈できない行を残すこと、上限200件、仮名化(入れ子ルート・未知パス・生ログ非改変)、`hookEventLogPath`がuserData外を指す場合のフォールバックと**外側にファイルを作らないこと**、消去、書き込み不能でも例外を投げないこと、そして**追記58µs/件**(同期`appendFileSync`で十分という判断の根拠)
+  - **チェックループ**: 2周(1周目1件[重大] → 修正 → 2周目0件)
+  - **未実装(意図的)**: 会話ペインの`@作業ログ`参照(C-23)はこのログを読むが、@参照自体は会話ペイン側の機能で別タスク
+- **次**: Phase 2継続 → #12(Chat Adapter real化 + APIキー導線 FR-3)。#6の右ペインタブ中身は#13および モード設定タブで差し込む(ログタブは#11で移植済み)
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**

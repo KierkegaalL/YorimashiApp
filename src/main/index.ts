@@ -12,6 +12,8 @@ import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
 import { writeEndpointFile } from './local-server/endpoint-file';
 import { OnboardingService } from './onboarding/onboarding-service';
+import { HookEventLog } from './logging/hook-event-log';
+import { LogActions } from './logging/log-actions';
 import { buildAppMenu, createTray, type AppMenuDeps } from './tray-menu';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
 import { IPC } from '../shared/ipc';
@@ -43,6 +45,9 @@ import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
  * - オンボーディング(FR-14/#10): 初回起動時に Control Panel 上へ4ステップのフローを出す。
  *   Main側は「ネイティブのディレクトリ選択」「dispatch.sh の配置」「hooks設定状況の実測」
  *   だけを担う(onboarding/onboarding-service.ts)。`.claude/settings.json` は**書き換えない**。
+ * - ログ管理(FR-11/#11): 受信したhooksイベントを userData/logs/hook-events.jsonl(0600)へ
+ *   追記し、retentionDays(既定7日)を過ぎた行を自動削除する。ログタブから仮名化エクスポート・
+ *   消去ができる(logging/hook-event-log.ts・logging/log-actions.ts)。
  *
  * 未実装:
  * - CharacterRenderer(FR-5/#5): キャラクターウィンドウ内の実描画(Live2D/スプライトセット)。
@@ -61,8 +66,17 @@ let controlPanelWindow: ControlPanelWindow | null = null;
 let chatAdapter: ChatAdapter | null = null;
 let codeAdapter: CodeAdapter | null = null;
 let onboarding: OnboardingService | null = null;
+let hookEventLog: HookEventLog | null = null;
+let logActions: LogActions | null = null;
 let tray: Tray | null = null;
 let unsubscribeEmotion: (() => void) | null = null;
+/**
+ * ログ新着通知(IPC.LogsChanged)のスロットル用タイマー。
+ * hooks は連続で飛ぶ(1ツール呼び出しごとに Pre/Post の2件)ため、届くたびに通知すると
+ * ログタブが読み直しを繰り返す。**中身は載せず「更新があった」だけを間引いて送る**。
+ */
+let logsChangedTimer: NodeJS.Timeout | null = null;
+const LOGS_CHANGED_THROTTLE_MS = 500;
 
 /**
  * config と EmotionEngine の初期化はローカルサーバー起動から独立させる。サーバーが起動に
@@ -76,6 +90,15 @@ function initCore(): void {
   // Code Adapter(FR-2)はローカルサーバーより先に用意する。サーバー起動時に
   // onHookEvent へ渡す必要があり、かつサーバーが落ちていても生成自体は害がないため。
   codeAdapter = new CodeAdapter({ engine, configStore });
+  // hooksイベントログ(FR-11)。Code Adapter と同じくサーバーより先に用意する
+  // (onHookEvent から呼ぶため)。start() で保持期間(既定7日)の整理を始める。
+  hookEventLog = new HookEventLog({
+    configStore,
+    userDataDir: app.getPath('userData'),
+    onAppended: scheduleLogsChanged,
+  });
+  hookEventLog.start();
+  logActions = new LogActions({ log: hookEventLog, getParentWindow: controlPanelBrowserWindow });
   // オンボーディング(FR-14)。config だけに依存するのでここで用意する。
   onboarding = new OnboardingService({
     configStore,
@@ -114,7 +137,13 @@ async function startLocalServer(): Promise<void> {
     // Code Adapter(FR-2): hooksイベント→EmotionEngine。handle()は例外を投げず結果を返す
     // ため、ここで握り潰す処理は要らない(可用性NFR: dispatch.shは常にexit 0)。
     onHookEvent: (payload) => {
-      codeAdapter?.handle(payload);
+      const result = codeAdapter?.handle(payload);
+      // ログ(FR-11)は**処理結果を見てから**記録する。何を残し何を残さないかの判断と
+      // その理由は logging/hook-event-log.ts の冒頭に書いてある(除外プロジェクトの
+      // フルパスを残さない等)。record() も例外を投げない。
+      if (result) {
+        hookEventLog?.record(payload, result);
+      }
     },
   });
 
@@ -227,6 +256,53 @@ function registerOnboardingIpc(): void {
     // モデルが導入済みならここで灯里が「降りてくる」(0体なら開かない。onboarding.md 論点4)。
     startCharacterWindow();
   });
+}
+
+/**
+ * ログ管理(FR-11)のIPCを配線する。
+ * 消去は取り消せず、エクスポートは任意の場所へ書き出すため、送信元の検証を欠かさない。
+ */
+function registerLogsIpc(): void {
+  ipcMain.handle(IPC.LogsGet, (event) => {
+    if (!isPanelSender(event.sender) || !hookEventLog) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return hookEventLog.getSnapshot();
+  });
+
+  ipcMain.handle(IPC.LogsExport, async (event) => {
+    if (!isPanelSender(event.sender) || !logActions) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    // 書き出し先の選択はネイティブの保存ダイアログ。Rendererからパスを受け取らない。
+    return logActions.export();
+  });
+
+  ipcMain.handle(IPC.LogsClear, async (event) => {
+    if (!isPanelSender(event.sender) || !logActions) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const result = await logActions.clear();
+    if (result.status === 'cleared') {
+      scheduleLogsChanged();
+    }
+    return result;
+  });
+}
+
+/** ログの更新をControl Panelへ間引いて通知する(中身は載せない)。 */
+function scheduleLogsChanged(): void {
+  if (logsChangedTimer !== null) {
+    return;
+  }
+  logsChangedTimer = setTimeout(() => {
+    logsChangedTimer = null;
+    const win = controlPanelBrowserWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.LogsChanged);
+    }
+  }, LOGS_CHANGED_THROTTLE_MS);
+  logsChangedTimer.unref?.();
 }
 
 /**
@@ -395,6 +471,7 @@ void app.whenReady().then(async () => {
   // Chat Adapter は Control Panel ウィンドウへ実況を送るため、生成後に配線する。
   startChatAdapter();
   registerOnboardingIpc();
+  registerLogsIpc();
   startCharacterWindow();
   // メニューバーアイコンは常設(要件定義書 C-19)。クリックスルーONでも操作面を確保する。
   tray = createTray(buildMenuDeps());
@@ -423,6 +500,16 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.OnboardingCopySnippet);
   ipcMain.removeHandler(IPC.OnboardingComplete);
   onboarding = null;
+  ipcMain.removeHandler(IPC.LogsGet);
+  ipcMain.removeHandler(IPC.LogsExport);
+  ipcMain.removeHandler(IPC.LogsClear);
+  if (logsChangedTimer !== null) {
+    clearTimeout(logsChangedTimer);
+    logsChangedTimer = null;
+  }
+  hookEventLog?.dispose();
+  hookEventLog = null;
+  logActions = null;
   engine?.dispose();
   characterWindow?.dispose();
   controlPanelWindow?.dispose();
