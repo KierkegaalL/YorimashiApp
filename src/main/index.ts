@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, type Tray } from 'electron';
+import { app, type Tray } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -7,6 +7,7 @@ import { ConfigStore } from './config-store';
 import { ensureAuthToken } from './local-server/auth-token';
 import { LocalServer } from './local-server/local-server';
 import { CharacterWindow, resolveActiveModel } from './character-window';
+import { ControlPanelWindow } from './control-panel-window';
 import { buildAppMenu, createTray, type AppMenuDeps } from './tray-menu';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
 
@@ -21,6 +22,8 @@ import type { CharacterBootstrapModel } from '../shared/bootstrap';
  * - キャラクター表示ウィンドウ(FR-6): CharacterWindow が透過・枠なし・最前面・クリックスルーの
  *   ウィンドウを生成し、位置解決/永続化・ドラッグ・メニューバーアイコン(Tray)を配線する
  *   (character-window.md)。
+ * - Control Panelウィンドウ(FR-7/FR-15/#7): ControlPanelWindow が2ペイン構成のウィンドウを生成し、
+ *   折りたたみ時に BrowserWindow の幅を 976⇄576px へ変更する(chat-pane.md 論点1)。
  * - Rendererの読み込み元をローカルサーバーへ移行(C3): キャラクターウィンドウは
  *   http://127.0.0.1:<port>/character、Control Panel は /panel から読む(prod)。file:// は
  *   secure contextでなくWebCodecsが無効になるため使わない(security.md 7章)。dev は
@@ -38,13 +41,24 @@ let engine: EmotionEngine | null = null;
 let localServer: LocalServer | null = null;
 let configStore: ConfigStore | null = null;
 let characterWindow: CharacterWindow | null = null;
-let controlPanelWindow: BrowserWindow | null = null;
+let controlPanelWindow: ControlPanelWindow | null = null;
 let tray: Tray | null = null;
+
+/**
+ * config のロードはローカルサーバー起動から独立させる。サーバーが起動に失敗しても
+ * Control Panel は開けなければならない(可用性NFR)が、Control Panel の生成には
+ * configStore(折りたたみ状態=初期ウィンドウ幅)が要るため。
+ */
+function loadConfig(): void {
+  configStore = ConfigStore.load(app.getPath('userData'));
+}
 
 async function startLocalServer(): Promise<void> {
   const userDataDir = app.getPath('userData');
 
-  configStore = ConfigStore.load(userDataDir);
+  if (!configStore) {
+    throw new Error('config が未ロードです');
+  }
   const config = configStore.current;
 
   const authToken = ensureAuthToken(userDataDir);
@@ -94,63 +108,19 @@ function resolveCharacterBootstrap(): CharacterBootstrapModel | null {
   return { installedDir: slot.installedDir, mappingFile: slot.mappingFile };
 }
 
-function createControlPanelWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 1000,
-    height: 720,
-    show: false,
-    title: 'ヨリマシ.app コントロールパネル',
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  win.on('ready-to-show', () => win.show());
-  win.on('closed', () => {
-    controlPanelWindow = null;
-  });
-
-  // レンダラー内のリンクは外部ブラウザで開き、Electronウィンドウを乗っ取らせない
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  loadControlPanel(win);
-  return win;
-}
-
-/**
- * Control Panel の読み込み(C3)。dev は Vite、prod はローカルサーバー /panel。
- * ただし Control Panel は WebCodecs 不要かつ、サーバー障害でも表示自体はブロックしない
- * (可用性NFR)ため、サーバー未起動時は loadFile へフォールバックする。
- */
-function loadControlPanel(win: BrowserWindow): void {
-  if (rendererUrl) {
-    void win.loadURL(`${rendererUrl}/control-panel/index.html`);
-    return;
-  }
-  const port = localServer?.port;
-  if (port != null) {
-    void win.loadURL(`http://127.0.0.1:${port}/panel`);
-    return;
-  }
-  void win.loadFile(join(__dirname, '../renderer/control-panel/index.html'));
-}
-
 /** Control Panel を開く(既に開いていればフォーカス)。Tray メニュー・activate から呼ぶ。 */
 function openControlPanel(): void {
-  if (controlPanelWindow && !controlPanelWindow.isDestroyed()) {
-    if (controlPanelWindow.isMinimized()) {
-      controlPanelWindow.restore();
-    }
-    controlPanelWindow.focus();
+  if (!configStore) {
+    console.warn('[control-panel] config 未ロードのため Control Panel を開けません');
     return;
   }
-  controlPanelWindow = createControlPanelWindow();
+  controlPanelWindow ??= new ControlPanelWindow({
+    configStore,
+    rendererUrl,
+    getServerPort: () => localServer?.port ?? null,
+    preloadPath: join(__dirname, '../preload/index.js'),
+  });
+  controlPanelWindow.open();
 }
 
 /** メニューバー・右クリック共通メニューの依存。呼び出し時点の config を読む/書く。 */
@@ -192,6 +162,8 @@ function startCharacterWindow(): void {
 }
 
 void app.whenReady().then(async () => {
+  loadConfig();
+
   try {
     await startLocalServer();
   } catch (err) {
@@ -216,6 +188,8 @@ app.on('will-quit', () => {
   localServer?.stop().catch((err) => console.error('[local-server] stop failed:', err));
   engine?.dispose();
   characterWindow?.dispose();
+  controlPanelWindow?.dispose();
+  controlPanelWindow = null;
   tray?.destroy();
   tray = null;
 });
