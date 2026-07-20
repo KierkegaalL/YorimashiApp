@@ -9,6 +9,8 @@ import { LocalServer } from './local-server/local-server';
 import { CharacterWindow, resolveActiveModel } from './character-window';
 import { ControlPanelWindow } from './control-panel-window';
 import { ChatAdapter } from './chat-adapter/chat-adapter';
+import { CodeAdapter } from './code-adapter/code-adapter';
+import { writeEndpointFile } from './local-server/endpoint-file';
 import { buildAppMenu, createTray, type AppMenuDeps } from './tray-menu';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
 import { IPC } from '../shared/ipc';
@@ -35,11 +37,12 @@ import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
  *
  * - Chat Adapter mock(FR-3/#8): 会話ペインからの送信を受け、固定返答を擬似streamingで流し、
  *   thinking(sustain)→release→分類 を駆動する(chat-pane.md 論点3)。real は #12。
+ * - Code Adapter(FR-2/#9): `POST /hook` で受けたhooksイベントをEmotionEngineへ橋渡しする
+ *   (api.md 1.1)。dispatch.sh の配置自体はオンボーディング(#10)が行う。
  *
  * 未実装:
  * - CharacterRenderer(FR-5/#5): キャラクターウィンドウ内の実描画(Live2D/スプライトセット)。
  *   現在はプレースホルダーHTMLを表示する。
- * - Code Adapter(FR-2/#9): onHookEvent → EmotionEngine の接続。
  * - Chat Adapter real(FR-3/#12): Anthropic SDK接続・APIキー導線・無通信ウォッチドッグ。
  *   **mockで代替せず**、real選択時は「未実装」を明示して失敗を返す(嘘をつかない)。
  */
@@ -52,6 +55,7 @@ let configStore: ConfigStore | null = null;
 let characterWindow: CharacterWindow | null = null;
 let controlPanelWindow: ControlPanelWindow | null = null;
 let chatAdapter: ChatAdapter | null = null;
+let codeAdapter: CodeAdapter | null = null;
 let tray: Tray | null = null;
 let unsubscribeEmotion: (() => void) | null = null;
 
@@ -64,6 +68,9 @@ let unsubscribeEmotion: (() => void) | null = null;
 function initCore(): void {
   configStore = ConfigStore.load(app.getPath('userData'));
   engine = new EmotionEngine(configStore.current.emotionEngine);
+  // Code Adapter(FR-2)はローカルサーバーより先に用意する。サーバー起動時に
+  // onHookEvent へ渡す必要があり、かつサーバーが落ちていても生成自体は害がないため。
+  codeAdapter = new CodeAdapter({ engine, configStore });
 }
 
 async function startLocalServer(): Promise<void> {
@@ -93,10 +100,17 @@ async function startLocalServer(): Promise<void> {
     // /character HTML に「今描画すべきアクティブモデル」を埋め込む(FR-5)。configから解決。
     // モデル未導入なら null(キャラウィンドウは「モデル未導入」を表示)。
     getCharacterBootstrap: resolveCharacterBootstrap,
-    // onHookEvent は Code Adapter(#9) 実装時に接続する(hooksイベント→EmotionEngine)。
+    // Code Adapter(FR-2): hooksイベント→EmotionEngine。handle()は例外を投げず結果を返す
+    // ため、ここで握り潰す処理は要らない(可用性NFR: dispatch.shは常にexit 0)。
+    onHookEvent: (payload) => {
+      codeAdapter?.handle(payload);
+    },
   });
 
   const port = await localServer.start();
+  // dispatch.sh が接続先を知るための `.port`(競合フォールバック後の実ポート)。
+  // JSONを解析できない薄いシェルスクリプトのために平文で置く(endpoint-file.ts)。
+  writeEndpointFile(userDataDir, port);
   // 競合フォールバックで既定8765以外に解決した場合、config.codeAdapter.serverPort へ
   // 書き戻す(dispatch.sh 等が参照するため。environments.md)。変化がなければ書かない。
   if (port !== config.codeAdapter.serverPort) {

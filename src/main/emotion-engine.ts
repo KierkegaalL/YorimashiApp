@@ -201,12 +201,6 @@ export class EmotionEngine {
    *   successStreak >= 閾値 → confident / failStreak >= 閾値 → tired / それ以外 → idle。
    *   毎回再計算するため、逆側のstreakが途切れた時点でidleへ戻る
    *   (例: tired中に1回成功するとfailStreak=0・successStreak=1でidle)。
-   *
-   * TODO(FR-2 Code Adapter実装時): basic-design.md 7.1の`Stop`イベント
-   * (「Moodのみidle寄りに重心移動」)に対応する専用APIが未実装。Stopは成功/失敗の
-   * 二値評価ではなく「ターン終了時に緩やかにidleへ寄せる」という別概念のため、
-   * onToolResult()を流用しない。Code Adapter実装(#9)でstreakの緩和方法
-   * (例: 半減させる等)を併せて設計する。
    */
   onToolResult(success: boolean): void {
     this.assertNotDisposed();
@@ -220,6 +214,46 @@ export class EmotionEngine {
       this.successStreak = 0;
     }
 
+    this.applyMoodFromStreaks();
+  }
+
+  /**
+   * セッションの区切り(Claude Codeの`Stop`)を通知し、**Moodのみ**をidle寄りへ重心移動する
+   * (basic-design.md 7.1 / api.md 1.1「Stop … Moodのみ idle寄りに重心移動」)。
+   *
+   * **Reactionには一切触れない**(正本が「Reactionには影響しない」と明記)。ターンが終わった
+   * だけで、再生中の反応を打ち切る理由にはならないため。
+   *
+   * 緩和方法は正本に具体値が無いので、ここで決めて明記する(黙って決めない):
+   * **両streakを切り捨て半減する**。
+   *  - 「重心移動」であって「リセット」ではない、という正本の言葉に合わせる。1回のStopで
+   *    streakを0にすると、閾値ちょうどのconfident/tiredがターン終了だけで必ず消え、
+   *    Moodが実質「1ターン限りの状態」になってしまう。
+   *  - 半減なら、閾値ちょうど(既定3)は 3→1 でidleへ戻る一方、積み上げた確信(6以上)は
+   *    3 が残り confident を保つ。**強い傾きほど長く残る**という直感に合い、Stopを重ねれば
+   *    幾何級数的にidleへ収束する。
+   *  - 減算(-1)も検討したが、閾値ちょうどでも 3→2 でidle・6→5でconfident維持となり、
+   *    「1回のStopでどれだけ寄るか」がstreakの大きさに依らず一定で、重心移動としては鈍い。
+   *
+   * idleタイマーはここで再武装する(registerActivity)。無操作5分の起点を「ターンが終わった
+   * 時点」に揃えるためで、Reactionを設定するわけではないため上記の原則には反しない。
+   */
+  onSessionStop(): void {
+    this.assertNotDisposed();
+    this.registerActivity();
+
+    this.successStreak = Math.floor(this.successStreak / 2);
+    this.failStreak = Math.floor(this.failStreak / 2);
+
+    this.applyMoodFromStreaks();
+  }
+
+  /**
+   * 現在のstreakからMoodを再計算し、変化した場合のみ通知する。
+   * onToolResult()とonSessionStop()で**同じ判定**を使うために切り出している
+   * (片方だけ閾値の扱いを変える事故を防ぐ)。
+   */
+  private applyMoodFromStreaks(): void {
     let nextMood: MoodState = 'idle';
     if (this.successStreak >= this.config.successStreakThreshold) {
       nextMood = 'confident';
