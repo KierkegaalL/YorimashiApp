@@ -10,6 +10,7 @@ import { CharacterWindow, resolveActiveModel } from './character-window';
 import { ControlPanelWindow } from './control-panel-window';
 import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
+import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
 import { writeEndpointFile } from './local-server/endpoint-file';
 import { OnboardingService } from './onboarding/onboarding-service';
 import { HookEventLog } from './logging/hook-event-log';
@@ -65,6 +66,7 @@ let characterWindow: CharacterWindow | null = null;
 let controlPanelWindow: ControlPanelWindow | null = null;
 let chatAdapter: ChatAdapter | null = null;
 let codeAdapter: CodeAdapter | null = null;
+let codeSettings: CodeAdapterSettings | null = null;
 let onboarding: OnboardingService | null = null;
 let hookEventLog: HookEventLog | null = null;
 let logActions: LogActions | null = null;
@@ -290,6 +292,61 @@ function registerLogsIpc(): void {
   });
 }
 
+/**
+ * モード設定タブ(FR-7)の Code Adapter セクションのIPCを配線する。
+ *
+ * 監視対象パスの**追加はネイティブダイアログ経由に限る**(dispatch.sh の書き込み先を利用者の
+ * 明示選択に限定する不変条件。onboarding-service.ts)。ここでは既存の入口 onboarding.chooseProject を
+ * CodeAdapterSettings へ注入して再利用し、Renderer からは任意のパス配列を受け付けない。
+ * 書き込み系(config更新)を含むため、送信元の検証を欠かさない。
+ */
+function registerCodeSettingsIpc(): void {
+  if (!configStore || !engine) {
+    console.warn('[code-settings] config/EmotionEngine が未初期化のため配線をスキップします');
+    return;
+  }
+
+  codeSettings = new CodeAdapterSettings({
+    configStore,
+    engine,
+    getActualPort: () => localServer?.port ?? null,
+    // watchedProjectPaths への唯一の入口(ダイアログ)を再利用する。オンボーディング完了後も
+    // OnboardingService は破棄されない(will-quit まで生存)ため、モード設定タブからも使える。
+    addWatchedProject: () => onboarding?.chooseProject() ?? Promise.resolve(null),
+  });
+
+  ipcMain.handle(IPC.CodeSettingsGet, (event) => {
+    if (!isPanelSender(event.sender) || !codeSettings) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return codeSettings.getSnapshot();
+  });
+
+  ipcMain.handle(IPC.CodeSettingsSet, (event, patch: unknown) => {
+    if (!isPanelSender(event.sender) || !codeSettings) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    return codeSettings.updateSettings(parseCodeSettingsPatch(patch));
+  });
+
+  ipcMain.handle(IPC.CodeSettingsChooseProject, async (event) => {
+    if (!isPanelSender(event.sender) || !codeSettings) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    return codeSettings.chooseProject();
+  });
+
+  ipcMain.handle(IPC.CodeSettingsRemoveProject, (event, projectPath: unknown) => {
+    if (!isPanelSender(event.sender) || !codeSettings) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    if (typeof projectPath !== 'string' || projectPath.length === 0) {
+      throw new Error('削除対象のパスが指定されていません');
+    }
+    return codeSettings.removeProject(projectPath);
+  });
+}
+
 /** ログの更新をControl Panelへ間引いて通知する(中身は載せない)。 */
 function scheduleLogsChanged(): void {
   if (logsChangedTimer !== null) {
@@ -476,6 +533,7 @@ void app.whenReady().then(async () => {
   startChatAdapter();
   registerOnboardingIpc();
   registerLogsIpc();
+  registerCodeSettingsIpc();
   startCharacterWindow();
   // メニューバーアイコンは常設(要件定義書 C-19)。クリックスルーONでも操作面を確保する。
   tray = createTray(buildMenuDeps());
@@ -510,6 +568,11 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.LogsGet);
   ipcMain.removeHandler(IPC.LogsExport);
   ipcMain.removeHandler(IPC.LogsClear);
+  ipcMain.removeHandler(IPC.CodeSettingsGet);
+  ipcMain.removeHandler(IPC.CodeSettingsSet);
+  ipcMain.removeHandler(IPC.CodeSettingsChooseProject);
+  ipcMain.removeHandler(IPC.CodeSettingsRemoveProject);
+  codeSettings = null;
   if (logsChangedTimer !== null) {
     clearTimeout(logsChangedTimer);
     logsChangedTimer = null;

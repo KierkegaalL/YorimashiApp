@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-20
+**最終更新**: 2026-07-21
 
 ## 現在地
 
@@ -219,7 +219,18 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **チェックループ4周**(1周目7件[重大2/中2/軽微3]→2周目3件[中〜重大1/軽微2]→3周目1件[軽微]→**4周目0件**)。主な指摘: 応答モデル選択がconfigと非同期だった、`/clear`と進行中streamの競合でMessages APIの先頭user要求に反する履歴になりうるバグ(`turnsAtStart`参照比較で解消・回帰検証追加)、モード設定タブが会話ペイン側の変更を購読しておらず表示が古くなる(`onConfigChanged`購読を追加)
   - **検証**: typecheck/build通過。オフスクリーン: real-responder 38件(実SDK 0.112.3+実HTTP+実SSE)、chat-adapter 37件(実EmotionEngine/実ConfigStore、reset競合の回帰含む)、AdapterTab SSR 4件
   - **未実装(意図的)**: @参照の文脈組立・添付(real)は次タスクへ。Code Adapterセクション(監視対象パス等)の編集はモード設定タブの別タスクへ
-- **次**: Phase 2継続 → モデル管理タブ・モード設定タブ(Code Adapterセクション)・#13(権利情報タブ FR-12)・#14(セキュリティ仕上げ FR-13)
+- **完了 #13: モード設定タブ Code Adapterセクション(FR-7/FR-2)** — 監視対象パス・ポート番号・連続失敗しきい値の表示/編集を実装。モデル管理タブは規模が大きく基盤未実装のため**別トラックに分解**(下記)、今回はCode Adapterセクションのみ着手(ユーザー選択「Code Adapter先行 + モデルは分解」)
+  - **新規**: `src/shared/code-settings.ts`(共有型`CodeSettingsSnapshot`/`CodeSettingsPatch`・検証`isValidPort`/`isValidFailStreak`・範囲定数)、`src/main/code-adapter/code-settings.ts`(`CodeAdapterSettings`サービス + `parseCodeSettingsPatch`。**Electron非依存**=ダイアログ・実ポート取得は関数注入)。**変更**: `emotion-engine.ts`(`updateConfig()`追加)、`ipc.ts`(`CodeSettingsGet/Set/ChooseProject/RemoveProject`)、`preload/index.ts`(`codeAdapter`名前空間)、`main/index.ts`(`registerCodeSettingsIpc()`+will-quit片付け)、`AdapterTab.tsx`(Code Adapterセクション実装。既存Chat部分は`ChatAdapterSection`へ分離し**独立読み込み**化)
+  - **watchedProjectPathsの入口を限定(不変条件)**: onboarding-service.ts「このダイアログだけが watchedProjectPaths の入口」= dispatch.shの書き込み先を利用者の明示選択に限定する根拠。**Rendererから任意パス配列を書かせない**。追加は`CodeSettingsChooseProject`(onboarding.chooseProjectへ委譲)経由のみ、`CodeSettingsPatch`/`parseCodeSettingsPatch`はport/threshold限定、削除は監視範囲を狭めるだけで安全なので特定パス指定で許可
+  - **反映タイミングを正直に扱う(嘘をつかない)**: (1)ポートは起動時バインドのため変更は**再起動後に反映**。UIは実ポート(`actualPort`)を併記し「再起動後に反映」と明示。(2)`failStreakThreshold`は**EmotionEngineが構築時スナップショットを握る**ため、`configStore.update()`(新オブジェクトを作る)だけでは伝播しない → `EmotionEngine.updateConfig()`を新設しlive更新で即時反映(idleTimeoutMs変更時のみ無操作タイマー張り直し)
+  - **検証はMain境界**: `config-schema.ts`はserverPort/failStreakThresholdに範囲を持たないため`CodeAdapterSettings`/`parseCodeSettingsPatch`で範囲外を弾き例外(config未更新)。スキーマ側へ範囲を足すとdata.md/basic-design.md同期が必要でスコープ外
+  - **モックアップ差分(明記)**: モック(L1183-1193)は監視対象パスを単一Row+ChevronRightの静的表示だが、`watchedProjectPaths`は配列(空=絞り込みなし)なので**リスト+追加/削除UIへ拡張**(理由をAdapterTab.tsxにコメント明記)
+  - **検証**: typecheck/build通過。**オフスクリーン20件**(validators境界・parseがwatchedProjectPathsを落とすこと・getSnapshotの配列コピー・updateSettings valid/invalid・threshold live反映(engine挙動で確認)・removeProject resolve一致・chooseProject委譲・updateConfigのidle再武装/dispose後throw)。AdapterTab SSRスモーク(初期ローディング・非クラッシュ)
+  - **チェックループ**: 2周(1周目軽微2件[モック拡張の理由コメント欠落・commit時の入力欄正規化非対称]→修正→**2周目0件**)
+- **モデル管理タブ(FR-5)を別トラックへ分解(2026-07-21・ユーザー承認)**: モックアップ(805-1179行)の裏にある基盤がほぼ未実装で規模が桁違い。**Main側インフラを先に作らないとUIだけ置いても動かない**:
+  - 必要な基盤: モデル一覧/削除/自動切替のIPC(`config.model.slots`はあるが専用IPCなし)、取り込みパイプライン(Live2D=Cubism2/4列挙+自動マッピング / spriteset=画像→AI生成→mp4取込→色キー抜き→WebP変換=spriteset-pipeline.md丸ごと)、感情↔モーション編集UI、Control Panel内プレビュー枠(`CharacterRenderer` mount)
+  - 進め方(推奨): まずMain側インフラ(スロット一覧/削除/自動切替IPC)→取り込みパイプライン→マッピング編集、の順。新規ファイルが多い工程はOpus 4.8で着手。model-mapping-ui.md / spriteset-pipeline.md が正本
+- **次**: Phase 2継続 → **モデル管理タブ(FR-5、上記分解の順で)**・#(権利情報タブ FR-12)・#(セキュリティ仕上げ FR-13)
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**
@@ -229,6 +240,6 @@ A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）
 - **スタック**: Electron 43 / TypeScript 7 / React 19 / Vite 7 / electron-vite 5 / Zod 4
 - **Viteは7系に固定**（electron-vite 5のpeerが`^5||^6||^7`。最新のVite 8とは非互換。`--legacy-peer-deps`で潰さない）
 - **tsconfigは3分割**: `tsconfig.node.json`（Main/Preload/shared）・`tsconfig.web.json`（Renderer/shared）・`tsconfig.json`（references）
-- **導入済み**: `pixi.js@^6.5.10`・`pixi-live2d-display@^0.4.0`（A2）
-- **未導入**: `@anthropic-ai/sdk`・`sharp`・`lucide-react`（すべて実装時に追加）。Cubism外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`、npmに無い）も実装時に用意
+- **導入済み**: `pixi.js@^6.5.10`・`pixi-live2d-display@^0.4.0`（A2）・`@anthropic-ai/sdk@^0.112.3`（#12）・`lucide-react@^1.25.0`（#6以降のUI移植で追加）
+- **未導入**: `sharp`（spriteset-pipeline実装時に追加）。Cubism外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`、npmに無い）も実装時に用意
 - **scratchpad**での検証実績: sharp・Anthropic SDK・Electronオフスクリーン。リポジトリには置かない

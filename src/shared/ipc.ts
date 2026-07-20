@@ -79,6 +79,24 @@ export const IPC = {
   ChatSettingsSet: 'chat-settings:set',
 
   /**
+   * モード設定タブ(FR-7)の Code Adapter セクション。監視対象パス・ポート番号・
+   * 連続失敗しきい値(config.codeAdapter / config.emotionEngine.failStreakThreshold)の表示と変更。
+   *
+   * **watchedProjectPaths への追加はネイティブダイアログ経由に限る**(CodeSettingsChooseProject)。
+   * Renderer から任意のパス配列を書かせない(dispatch.sh の書き込み先を利用者の明示選択に
+   * 限定する不変条件。onboarding-service.ts / shared/code-settings.ts)。CodeSettingsSet は
+   * ポートとしきい値だけを扱う。削除は監視範囲を狭めるだけで安全なので特定パス指定で受け付ける。
+   */
+  /** invoke: 監視対象パス・ポート(設定値/実値)・失敗しきい値のスナップショット。 */
+  CodeSettingsGet: 'code-settings:get',
+  /** invoke: ポート/失敗しきい値の更新。更新後のスナップショットを返す。 */
+  CodeSettingsSet: 'code-settings:set',
+  /** invoke: 監視対象プロジェクトをネイティブダイアログで1件追加する。更新後のスナップショットを返す。 */
+  CodeSettingsChooseProject: 'code-settings:choose-project',
+  /** invoke: 監視対象プロジェクトを1件外す(引数は対象パス)。更新後のスナップショットを返す。 */
+  CodeSettingsRemoveProject: 'code-settings:remove-project',
+
+  /**
    * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:
    * ネイティブのディレクトリ選択・dispatch.shの配置・hooks設定状況の実測
    * (detailed-design/onboarding.md / main/onboarding/onboarding-service.ts)。
