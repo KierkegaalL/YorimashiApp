@@ -161,7 +161,20 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **reviewer指摘と追加検証**: 「実測は`'Zen Antique', serif`で行ったが、本番はGoogle Fonts未同梱のためserifへフォールバックする(C2未解決)。実測条件と本番描画条件が一致する保証がドキュメントに無い」との指摘(中〜高)。**追加検証で解消**: 計測機に`Zen Antique`のフォントファイルが存在しないことを確認(`find /System/Library/Fonts /Library/Fonts ~/Library/Fonts`)した上で、`'Zen Antique', serif`と実在しないダミーフォント名`'Definitely-Not-Installed-XYZ', serif`の幅を比較したところ**完全に同一(252.59375px)**だった。これは実測が最初から`serif`フォールバックで行われていた証拠であり、本番の描画条件と一致することを確認できた(偶然ではなく実証)。control-panel-window.ts・chat-pane.md双方に根拠を追記
   - **end-to-end検証(追試で完了)**: 実preload + 実ウィンドウで `--yorimashi-collapsed=true→initialCollapsed=true` / `false→false` を実取得。**当初「環境にブロックされて完走できない」と報告したが、切り分けの結果それは誤りだった**
   - **【重要・検証環境の知見】`webPreferences.sandbox: true` のレンダラーはこの環境で起動できない**(ページロードが `ERR_FAILED`)。**Bashツールのサンドボックスは無関係**(有効/無効どちらでも同じ。有効時は `mach_port_rendezvous: Permission denied` が併記されるためそちらを原因と誤認しやすい)。`--no-sandbox` フラグも効かない(`webPreferences.sandbox:true` が個別に再有効化するため)。**検証ハーネス側で `sandbox: false` にすれば通る**(実証済み)。**本番コードは `sandbox: true` のまま変えない**(security.md 5章)。なお `sandbox:true` でも**preload自体は走る**(navigation前に実行されるため。probe実測でIPC送信が届いた)ので、sandbox環境固有の挙動は個別に確認できる。**実画面の目視確認は引き続きユーザー側で必要**
-- **次**: Phase 2継続 → #8(Chat Adapter mock)。#6の右ペインタブ中身は#8/#11/#13で差し込む
+- **完了 #8: Chat Adapter(mock)(FR-3)** — 会話ペインからの送信をMainのChat Adapterへ実接続。**擬似streaming・thinking(sustain)→release・感情分類**が実際に動く
+  - **新規**: `src/shared/emotion-classification.ts`(キーワード分類器。辞書・重み・否定スキャン・同点決着をemotion-classification.mdどおり)、`src/shared/chat.ts`(Main↔Renderer契約)、`src/main/chat-adapter/mock-responder.ts`(固定返答+擬似streaming)、`src/main/chat-adapter/chat-adapter.ts`(本体)。**変更**: `emotions.ts`(REACTION_PRIORITYを移設)、`emotion-engine.ts`(import化)、`ipc.ts`、`preload/index.ts`、`index.ts`(initCore化・配線)、`types.ts`、`ConversationPane.tsx`、`App.tsx`
+  - **release('thinking')の全経路保証(最重要)**: `runStream()`をtry/catch/finallyで包み、**finallyでrelease+終端イベント送出**。成功(done)・中断(aborted)・エラー(error)・**送信先ウィンドウ消失**・dispose のすべてで固着しないことを実EmotionEngineで確認
+  - **REACTION_PRIORITYを`shared/emotions.ts`へ移設**: EmotionEngineの調停と分類器の同点決着が同じ順序を使う必要があるため単一の情報源化(片方だけ書き換えると判断が食い違う)
+  - **嘘をつかない設計の徹底**: (1)real選択時は**mockで代替せず**`not-implemented`エラーを返す(表情はpanicでなくworried=設定ミス相当。設計表に無い区分のため理由をコードに明記) (2)mock応答に`origin='mock'`バッジ+本文でも名乗る(Claudeの回答に見せない) (3)憑坐状態帯のMoodを`mood="idle"`固定からEmotionEngineのIPC追従へ変更(固定値は嘘) (4)mock時はコンテキスト使用量メーター自体を出さない
+  - **モードの正本をconfig(Main)へ一本化**(reviewer指摘・中): Renderer側stateは写しにすぎず、`/mock`・`/real`・`/code`・「モックモードに切り替える」も必ずMainのconfigを更新→`ChatConfigChanged`で反映。**Trayからのactiveadapter切替にも会話ペインが追従**。これが無いと「UI上はmockなのに実際はrealへ送る」食い違いが起きる
+  - **reviewer指摘6件すべて対応**: (中)モード非同期→上記 / (中)**エラー終端で部分受信済み吹き出しのstreamingフラグが解除されず▍が残る**(#12のreal接続で確実に顕在化)→解除+中断注記 / (低)モックアップ未反映→意図的差分として理由を明記 / (低)入力欄のmaxLength追加 / (低)再生成でユーザー発話が重複→`echoUser=false`を追加 / (低)多重送信のstale closure→`sendingRef`で同一ティックも遮断
+  - **reviewer 2周目(4件・すべて低)も対応**: 型の二重定義(`AdapterMode`/`ChatMode`)→`ChatConfigSnapshot`からの導出に変更(「片方だけ直す」事故の予防) / retry・再生成が`sendingRef`でガードされていない→**送信口を`sendText`1箇所に統一しガードを集約** / 中断で空吹き出しが残る非対称→エラーと同じ後始末に揃え、1文字も受信していない中断は system で事実を残す / types.tsのdocstring陳腐化
+  - **reviewer 3周目(2件)も対応**: (中)**`error`終端でも`aborted:true`を立てており、ユーザーが押していない停止を「(ここで中断しました)」と表示していた**(realの無通信タイムアウトで日常的に踏む)→`aborted:boolean`を`truncated:'stopped'|'error'`へ変え、原因別に「中断しました」/「応答が途切れました」を出し分け / (低)エラーの「再送する」ボタンに無効表示が無い→disabled+opacityを追加。あわせて**「startは必ず最初に届く」という不変条件をshared/chat.tsに明文化**(Renderer実装が依存しているため)
+  - **自分で作り込んだバグを検出・修正**: 上記の空判定を`setChatMessages`のupdater内で行い直後に読んでいた。**updaterは同期実行されない**ため必ず初期値のままになり分岐を誤る → `streamingHasText` ref で同期的に持つよう修正
+  - **検証**: typecheck/build通過。**分類器17/17**(設計の検証表11件を再現。既知NG「否定がスキャン窓の外」も設計どおりであることを含む)、**Chat Adapter 34/34**(実EmotionEngine/実ConfigStore使用。sustain→release→分類、中断、real=not-implementedでmock混入なし、入力バリデーション、多重送信拒否、C-24の自動切替と通知、dispose、送信先消失)、**会話ペインSSR 15/15**(空状態・Mood/アダプタ追従・real専用コントロール・捏造パーセント非表示)
+  - **チェックループ**: 4周(1周目6件[中2/低4]→2周目4件[低]→3周目2件[中1/低1]→**4周目0件「問題なし」**)
+  - **未実装(意図的・#12)**: real接続/APIキー導線/無通信ウォッチドッグ/@参照の文脈組立/添付/コンテキスト実測/Haiku分類
+- **次**: Phase 2継続 → #9(Code Adapter hooks受信)。#6の右ペインタブ中身は#11/#13および モード設定タブで差し込む
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**

@@ -204,7 +204,7 @@ FR-9（表示排他制御）の削除により、**会話ペインとキャラ�
 - [ ] @参照の文脈組立（作業ログ・表示中モデル・設定）。参照対象はアプリ管理の固定対象に限定し、本文文字列から任意パスを解決しない（security.md 6章）
 - [ ] 添付（real時）のファイル読み出しをダイアログ選択に限定し、パス検証を通す（security.md 6章）
 - [ ] コンテキスト使用量表示はreal時のみ実測。mock時は誇張して見せない（constraints.md）
-- [ ] 送信時の`activeAdapter`自動切替＋明示（トースト等）の実装（案1・C-24）。全経路で`release()`が呼ばれることの確認と併せて行う
+- [x] **(実装済み・2026-07-20 / #8)** 送信時の`activeAdapter`自動切替＋明示の実装（案1・C-24）。Mainが`config.activeAdapter`を`chat`へ更新し、`ChatSendAccepted.adapterSwitched`で切替の事実を返す。会話ペインはトーストではなく**会話履歴内のsystemメッセージ**（「Chat Adapter に切り替えました。」）で明示する（灯里の発言と取り違えないよう吹き出しと別の見た目にした）。黙って切り替えない
 - [x] **(実装済み・2026-07-18)** モックアップの最外殻（`justifyContent: center`）を2ペイン構成へ書き換え（`Section`/`Row`/`THEMES`は無改変）。折りたたみで外側コンテナの幅を976px⇄576pxでアニメーションさせ、ウィンドウ全体縮小の見た目をReactレベルで再現。esbuildバンドル+ブラウザ描画で往復動作・送信/停止・スラッシュメニュー・real切替時の添付/モデル選択/コンテキスト表示を確認済み（Electron本体の確認ではない）
 - [x] **(実装済み・2026-07-20 / #7)** **Main側**: Control Panelウィンドウの折りたたみ時に`BrowserWindow.setBounds()`で幅のみ変更（高さ・x,yは固定、右辺のみ動かす）。次回起動時は保存済み`controlPanelCollapsed`に応じた幅で**生成**する。実装は`src/main/control-panel-window.ts`（`ControlPanelWindow`クラス）。Renderer→`IPC.ControlPanelSetCollapsed`→Main の経路で、Renderer側はCSS幅を変えない
   - **初期状態の伝達は起動引数（`webPreferences.additionalArguments`）で同期的に行う**（IPCの非同期取得ではない）。Mainは`--yorimashi-collapsed=true|false`を渡し、preloadが`process.argv`から読んで`controlPanel.initialCollapsed`として公開する。IPC（非同期）だと、Mainが既に576pxで生成したウィンドウに**展開レイアウト（Control Panel 400px + タブ16px）が一瞬描かれる**ため。preloadは初回描画より前に走るので、最初のフレームから正しい状態で描ける（`sandbox: true`のpreloadでも`process.argv`が読めることは実測で確認）。この方式に伴い、当初用意した取得用IPC（`ControlPanelGetCollapsed`）は廃止した
@@ -219,6 +219,7 @@ FR-9（表示排他制御）の削除により、**会話ペインとキャラ�
 > 2. **`minimumSize`/`maximumSize`は`setBounds()`をクランプする**。`minWidth: 976`のまま576を要求すると976のまま黙って無視された。**幅の下限/上限を付け替えてから`setBounds()`する**順序が必須（実装の`applySizeConstraints()` → `setBounds()`はこれに基づく。旧実装での関数名は`applyWidthLock()`）
 > 3. **（204行目の仕様変更後）** 下限のみ強制・上限は開放する新仕様でも、この制約は同じ形で効く: `setCollapsed()`は`setBounds()`の直前だけ一時的に`min=max=width`へ絞ってスナップさせ、スナップ後に`applySizeConstraints()`で上限を再度開放する2段階方式。オフスクリーン検証（43件）で、展開中に976pxを超えて広げられる／976px未満には縮められない（下限クランプ）／折りたたみ中も576pxを超えて広げられる／576px未満には縮められない／**手動で976pxより広げた状態で畳むと576pxへ厳密にスナップし、展開に戻すと976pxへスナップする（広げた幅は記憶されない）**ことを確認した
 > 4. `setMaximumSize()`に`Number.MAX_SAFE_INTEGER`を渡すとネイティブのint変換に失敗して例外になる（実装検証で検出）。有限値（`MAX_WIDTH`/`MAX_HEIGHT = 100000`）を使う
-- [ ] `release()`が成功・失敗・中断・無通信タイムアウトの**全経路**で呼ばれることを確認する（呼び忘れ = `thinking`の永久固着）
-- [ ] mockの固定返答を擬似streamingで流す実装（lipsync.md）
-- [ ] 会話履歴を**永続化しない**ことをコードコメントに明記する（後から「なぜ保存していないのか」と誤解されないように。理由はC-22）
+- [x] **(実装済み・2026-07-20 / #8)** `release()`が成功・失敗・中断・無通信タイムアウトの**全経路**で呼ばれることを確認する（呼び忘れ = `thinking`の永久固着）。`ChatAdapter.runStream()`の`finally`で保証し、オフスクリーン検証で成功・中断・エラー・送信先ウィンドウ消失・`dispose()`の全経路を確認した（無通信タイムアウトの実体は#12で入るため、その時点で同じ`finally`に載ることを再確認する）
+- [x] **(実装済み・2026-07-20 / #8)** mockの固定返答を擬似streamingで流す実装（lipsync.md）。`src/main/chat-adapter/mock-responder.ts`
+- [x] **(実装済み・2026-07-20 / #8)** 会話履歴を**永続化しない**ことをコードコメントに明記する（`src/shared/chat.ts`冒頭・`types.ts`の`ChatMessage`。理由はC-22）
+- [x] **(実装済み・2026-07-20 / #8)** モード類（`activeAdapter`/`chatAdapter.mode`）の**正本をconfig(Main)に一本化**した。Renderer側のstateは写しにすぎず、`/mock`・`/real`・`/code`やエラー時の「モックモードに切り替える」ボタンも必ずMainのconfigを更新し、`ChatConfigChanged`で戻ってきた値を反映する。Renderer内で完結させると「UI上はmockなのに実際はrealへ送る」食い違いが起きるため（constraints.md「嘘をつかない」）。Trayからの`activeAdapter`切替にも会話ペインが追従する（実装後のcheck-loopで検出した不整合への対応）

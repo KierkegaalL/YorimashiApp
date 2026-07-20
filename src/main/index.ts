@@ -1,4 +1,4 @@
-import { app, type Tray } from 'electron';
+import { app, ipcMain, type Tray } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -8,8 +8,12 @@ import { ensureAuthToken } from './local-server/auth-token';
 import { LocalServer } from './local-server/local-server';
 import { CharacterWindow, resolveActiveModel } from './character-window';
 import { ControlPanelWindow } from './control-panel-window';
+import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { buildAppMenu, createTray, type AppMenuDeps } from './tray-menu';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
+import { IPC } from '../shared/ipc';
+import type { EmotionSnapshot } from '../shared/emotions';
+import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
 
 /**
  * Mainプロセス。
@@ -29,10 +33,15 @@ import type { CharacterBootstrapModel } from '../shared/bootstrap';
  *   secure contextでなくWebCodecsが無効になるため使わない(security.md 7章)。dev は
  *   electron-vite の Vite サーバー(ELECTRON_RENDERER_URL、これもsecure context)。
  *
+ * - Chat Adapter mock(FR-3/#8): 会話ペインからの送信を受け、固定返答を擬似streamingで流し、
+ *   thinking(sustain)→release→分類 を駆動する(chat-pane.md 論点3)。real は #12。
+ *
  * 未実装:
  * - CharacterRenderer(FR-5/#5): キャラクターウィンドウ内の実描画(Live2D/スプライトセット)。
  *   現在はプレースホルダーHTMLを表示する。
  * - Code Adapter(FR-2/#9): onHookEvent → EmotionEngine の接続。
+ * - Chat Adapter real(FR-3/#12): Anthropic SDK接続・APIキー導線・無通信ウォッチドッグ。
+ *   **mockで代替せず**、real選択時は「未実装」を明示して失敗を返す(嘘をつかない)。
  */
 
 const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -42,27 +51,30 @@ let localServer: LocalServer | null = null;
 let configStore: ConfigStore | null = null;
 let characterWindow: CharacterWindow | null = null;
 let controlPanelWindow: ControlPanelWindow | null = null;
+let chatAdapter: ChatAdapter | null = null;
 let tray: Tray | null = null;
+let unsubscribeEmotion: (() => void) | null = null;
 
 /**
- * config のロードはローカルサーバー起動から独立させる。サーバーが起動に失敗しても
- * Control Panel は開けなければならない(可用性NFR)が、Control Panel の生成には
- * configStore(折りたたみ状態=初期ウィンドウ幅)が要るため。
+ * config と EmotionEngine の初期化はローカルサーバー起動から独立させる。サーバーが起動に
+ * 失敗しても Control Panel は開けなければならない(可用性NFR)が、その生成には configStore
+ * (折りたたみ状態=初期ウィンドウ幅)が、会話ペイン(FR-15)には engine が要るため。
+ * サーバーが落ちていても Chat Adapter(mock)と憑坐状態帯は動く。
  */
-function loadConfig(): void {
+function initCore(): void {
   configStore = ConfigStore.load(app.getPath('userData'));
+  engine = new EmotionEngine(configStore.current.emotionEngine);
 }
 
 async function startLocalServer(): Promise<void> {
   const userDataDir = app.getPath('userData');
 
-  if (!configStore) {
-    throw new Error('config が未ロードです');
+  if (!configStore || !engine) {
+    throw new Error('config/EmotionEngine が未初期化です');
   }
   const config = configStore.current;
 
   const authToken = ensureAuthToken(userDataDir);
-  engine = new EmotionEngine(config.emotionEngine);
 
   const modelsRoot = join(userDataDir, 'models');
   try {
@@ -123,15 +135,120 @@ function openControlPanel(): void {
   controlPanelWindow.open();
 }
 
+/** Control Panel ウィンドウの BrowserWindow(未生成/破棄後は null)。 */
+function controlPanelBrowserWindow(): Electron.BrowserWindow | null {
+  return controlPanelWindow?.browserWindow ?? null;
+}
+
+/**
+ * Chat Adapter(FR-3)と憑坐状態帯への感情配信を配線する。
+ *
+ * 感情の配信先が2系統あるのは意図的:
+ * - キャラクターウィンドウ … ローカルサーバーの WS /ws(api.md 3章)。サーバーが配信元。
+ * - Control Panel(会話ペイン) … IPC。dev では Vite から読むためHTMLにトークンが埋め込まれず
+ *   WSに接続できない。preload は dev/prod どちらでも効くのでこちらはIPCに寄せる。
+ */
+function startChatAdapter(): void {
+  if (!configStore || !engine) {
+    console.warn('[chat] config/EmotionEngine が未初期化のため Chat Adapter を開始できません');
+    return;
+  }
+
+  chatAdapter = new ChatAdapter({
+    engine,
+    configStore,
+    getTargetWindow: controlPanelBrowserWindow,
+    onConfigChanged: broadcastChatConfig,
+  });
+
+  const currentEngine = engine;
+  const currentStore = configStore;
+
+  const isPanelSender = (sender: Electron.WebContents): boolean => {
+    const win = controlPanelBrowserWindow();
+    return win !== null && !win.isDestroyed() && win.webContents === sender;
+  };
+
+  ipcMain.handle(IPC.EmotionGet, (event): EmotionSnapshot => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return currentEngine.getSnapshot();
+  });
+
+  unsubscribeEmotion = currentEngine.subscribe((snapshot) => {
+    const win = controlPanelBrowserWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.EmotionChanged, snapshot);
+    }
+  });
+
+  // ── モード類(activeAdapter / chatAdapter.mode / model)の同期 ──────────────
+  // 正本は config。Renderer側のstateは写しであり、変更も必ずここを通す。
+  // Renderer内で完結させると「UI上はmockなのに実際はrealへ送る」食い違いが起きる
+  // (constraints.md「アプリが自分の状態について嘘をつかない」)。
+  ipcMain.handle(IPC.ChatConfigGet, (event): ChatConfigSnapshot => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return readChatConfig();
+  });
+
+  ipcMain.on(IPC.ChatConfigSet, (event, patch: unknown) => {
+    if (!isPanelSender(event.sender) || typeof patch !== 'object' || patch === null) {
+      return;
+    }
+    const { activeAdapter, chatMode, model } = patch as ChatConfigPatch;
+    currentStore.update((draft) => {
+      if (activeAdapter === 'code' || activeAdapter === 'chat') {
+        draft.activeAdapter = activeAdapter;
+      }
+      // realへの切替はAPI課金が発生する操作。既定をmockから勝手に動かさないため、
+      // ここでも列挙値の検証を必ず通す(C-08)。
+      if (chatMode === 'mock' || chatMode === 'real') {
+        draft.chatAdapter.mode = chatMode;
+      }
+      if (typeof model === 'string' && model.length > 0) {
+        draft.chatAdapter.model = model;
+      }
+    });
+    broadcastChatConfig();
+  });
+}
+
+/** config から Renderer 向けのモードスナップショットを作る。 */
+function readChatConfig(): ChatConfigSnapshot {
+  const config = configStore?.current;
+  return {
+    activeAdapter: config?.activeAdapter ?? 'code',
+    chatMode: config?.chatAdapter.mode ?? 'mock',
+    model: config?.chatAdapter.model ?? '',
+  };
+}
+
+/**
+ * モードの現在値を Control Panel へ通知する。
+ * Chat Adapter の自動切替(C-24)や **Tray からの activeAdapter 変更** でも呼ぶ
+ * (呼ばないと会話ペインの「Code Adapter・待機中」表示が実体とずれる)。
+ */
+function broadcastChatConfig(): void {
+  const win = controlPanelBrowserWindow();
+  if (win && !win.isDestroyed()) {
+    win.webContents.send(IPC.ChatConfigChanged, readChatConfig());
+  }
+}
+
 /** メニューバー・右クリック共通メニューの依存。呼び出し時点の config を読む/書く。 */
 function buildMenuDeps(): AppMenuDeps {
   return {
     getActiveAdapter: () => configStore?.current.activeAdapter ?? 'code',
     setActiveAdapter: (adapter) => {
-      // FR-1のアダプタ切替面。ここでは永続化のみ。実際のAdapter稼働の切替は #8/#9 で接続する。
+      // FR-1のアダプタ切替面。実際のAdapter稼働の切替(Code Adapter側)は #9 で接続する。
       configStore?.update((draft) => {
         draft.activeAdapter = adapter;
       });
+      // 会話ペインの表示(「Code Adapter・待機中」等)を実体に追従させる。
+      broadcastChatConfig();
     },
     getClickThrough: () => configStore?.current.general.clickThrough ?? true,
     setClickThrough: (value) => characterWindow?.setClickThrough(value),
@@ -162,7 +279,7 @@ function startCharacterWindow(): void {
 }
 
 void app.whenReady().then(async () => {
-  loadConfig();
+  initCore();
 
   try {
     await startLocalServer();
@@ -173,6 +290,8 @@ void app.whenReady().then(async () => {
   }
 
   openControlPanel();
+  // Chat Adapter は Control Panel ウィンドウへ実況を送るため、生成後に配線する。
+  startChatAdapter();
   startCharacterWindow();
   // メニューバーアイコンは常設(要件定義書 C-19)。クリックスルーONでも操作面を確保する。
   tray = createTray(buildMenuDeps());
@@ -186,6 +305,15 @@ void app.whenReady().then(async () => {
 // アプリ終了時にサーバー・EmotionEngine・ウィンドウ・Trayを確実に片付ける。
 app.on('will-quit', () => {
   localServer?.stop().catch((err) => console.error('[local-server] stop failed:', err));
+  // Chat Adapter は engine より先に片付ける(進行中のstreamをabortし、release('thinking')を
+  // 通してから engine を落とすため。逆順だと dispose 済みの engine に触れて例外になる)。
+  chatAdapter?.dispose();
+  chatAdapter = null;
+  unsubscribeEmotion?.();
+  unsubscribeEmotion = null;
+  ipcMain.removeHandler(IPC.EmotionGet);
+  ipcMain.removeHandler(IPC.ChatConfigGet);
+  ipcMain.removeAllListeners(IPC.ChatConfigSet);
   engine?.dispose();
   characterWindow?.dispose();
   controlPanelWindow?.dispose();

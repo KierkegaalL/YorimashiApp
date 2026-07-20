@@ -30,6 +30,7 @@ import { ConversationPane } from './ConversationPane';
 import { ControlPanelTabs } from './ControlPanelTabs';
 import type { TabId } from './catalog';
 import type { AdapterMode, ChatMode } from './types';
+import type { MoodState } from '../../../shared/emotions';
 
 export function App(): React.JSX.Element {
   // テーマは当面 OS の配色設定に追従する(system)。ライト/ダークの**手動切替は FR-7 設定タブ**の
@@ -65,12 +66,68 @@ export function App(): React.JSX.Element {
     setControlPanelCollapsed(next);
     window.yorimashi?.controlPanel.setCollapsed(next);
   };
-  // アダプタ(FR-1)と Chat モード(C-08 既定 mock)。会話ペインと(将来の)モードタブで共有する。
+  // アダプタ(FR-1)と Chat モード(C-08 既定 mock)。
+  // **正本は config(Main)**。ここはその写しで、変更要求もMainへ送って結果を受け取る
+  // (Renderer内で完結させると「UI上はmockなのに実際はrealへ送る」食い違いが起きる)。
+  // Tray からの activeAdapter 切替にも onConfigChanged で追従する。
   const [adapterMode, setAdapterMode] = useState<AdapterMode>('code');
   const [chatMode, setChatMode] = useState<ChatMode>('mock');
+
+  useEffect(() => {
+    const api = window.yorimashi?.chat;
+    if (!api) {
+      return;
+    }
+    let cancelled = false;
+    const apply = (snapshot: { activeAdapter: AdapterMode; chatMode: ChatMode }): void => {
+      setAdapterMode(snapshot.activeAdapter);
+      setChatMode(snapshot.chatMode);
+    };
+    void api.getConfig().then((snapshot) => {
+      if (!cancelled) {
+        apply(snapshot);
+      }
+    });
+    const unsubscribe = api.onConfigChanged(apply);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  /** モード変更はMainへ委譲する(configが正本。反映は onConfigChanged で戻ってくる)。 */
+  const requestChatMode = (mode: ChatMode): void => {
+    window.yorimashi?.chat.setConfig({ chatMode: mode });
+  };
+  const requestAdapterMode = (mode: AdapterMode): void => {
+    window.yorimashi?.chat.setConfig({ activeAdapter: mode });
+  };
   // 選択中タブは App が保持する(モックアップと同様。L251)。折りたたみで ControlPanelTabs が
   // アンマウントされても選択タブが 'home' にリセットされないようにするため親に置く。
   const [tab, setTab] = useState<TabId>('home');
+
+  // 憑坐状態帯に出す Mood(FR-4)。**権威ある状態は Main の EmotionEngine** にあり、ここは
+  // その写し。固定値を描くと「灯里の状態」について嘘をつくことになるため、IPCで追従する
+  // (preload が無い経路では既定の idle のまま)。
+  const [mood, setMood] = useState<MoodState>('idle');
+
+  useEffect(() => {
+    const api = window.yorimashi?.emotion;
+    if (!api) {
+      return;
+    }
+    let cancelled = false;
+    void api.get().then((snapshot) => {
+      if (!cancelled) {
+        setMood(snapshot.mood);
+      }
+    });
+    const unsubscribe = api.onChanged((snapshot) => setMood(snapshot.mood));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
 
   return (
     <ThemeProvider value={theme}>
@@ -109,11 +166,11 @@ export function App(): React.JSX.Element {
       >
         {/* ══ 会話ペイン(FR-15)。常時表示・畳めない ══ */}
         <ConversationPane
-          mood="idle"
+          mood={mood}
           adapterMode={adapterMode}
           chatMode={chatMode}
-          onSetChatMode={setChatMode}
-          onSetAdapterMode={setAdapterMode}
+          onSetChatMode={requestChatMode}
+          onSetAdapterMode={requestAdapterMode}
           onExpandControlPanel={() => toggleControlPanel(false)}
         />
 

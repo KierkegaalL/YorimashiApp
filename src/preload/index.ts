@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import { IPC, CONTROL_PANEL_COLLAPSED_ARG, type WindowPoint } from '../shared/ipc';
+import type {
+  ChatConfigPatch,
+  ChatConfigSnapshot,
+  ChatSendAccepted,
+  ChatStreamEvent,
+} from '../shared/chat';
+import type { EmotionSnapshot } from '../shared/emotions';
 
 /**
  * contextIsolation: true / sandbox: true 前提のpreload(security.md 5章)。
@@ -51,6 +58,47 @@ const api = {
     /** 折りたたみを切り替える(Mainがウィンドウ幅を変更し config へ保存する)。 */
     setCollapsed: (collapsed: boolean): void =>
       ipcRenderer.send(IPC.ControlPanelSetCollapsed, collapsed),
+  },
+  /**
+   * Chat Adapter(FR-3)。**APIキー・SDKクライアントはMainにしか無い**(security.md 5章)ので、
+   * Rendererは本文の送信と実況の購読だけを行う。
+   */
+  chat: {
+    /** 送信。受理されると requestId を返し、本文は onStream で流れてくる。 */
+    send: (text: string): Promise<ChatSendAccepted> => ipcRenderer.invoke(IPC.ChatSend, text),
+    /** 応答の中断(停止ボタン)。 */
+    stop: (): void => ipcRenderer.send(IPC.ChatStop),
+    /** streaming実況の購読。戻り値の関数で解除する。 */
+    onStream: (listener: (event: ChatStreamEvent) => void): (() => void) => {
+      const handler = (_e: unknown, payload: ChatStreamEvent): void => listener(payload);
+      ipcRenderer.on(IPC.ChatStream, handler);
+      return () => ipcRenderer.removeListener(IPC.ChatStream, handler);
+    },
+    /**
+     * モード類(activeAdapter / chatAdapter.mode / model)の取得・変更・購読。
+     * **正本は config(Main)**。Renderer側で完結させると「UI上はmockなのに実際はrealへ送る」
+     * という食い違いが起きるため、変更も必ずMainを経由する。
+     */
+    getConfig: (): Promise<ChatConfigSnapshot> => ipcRenderer.invoke(IPC.ChatConfigGet),
+    setConfig: (patch: ChatConfigPatch): void => ipcRenderer.send(IPC.ChatConfigSet, patch),
+    onConfigChanged: (listener: (snapshot: ChatConfigSnapshot) => void): (() => void) => {
+      const handler = (_e: unknown, payload: ChatConfigSnapshot): void => listener(payload);
+      ipcRenderer.on(IPC.ChatConfigChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.ChatConfigChanged, handler);
+    },
+  },
+  /**
+   * EmotionEngine の状態(FR-4)。憑坐状態帯の表示に使う。
+   * キャラクターウィンドウはローカルサーバーのWSから受け取るが、Control Panel は dev だと
+   * Vite から読まれてトークンが埋め込まれないためIPCで受け取る(ipc.ts の EmotionGet 参照)。
+   */
+  emotion: {
+    get: (): Promise<EmotionSnapshot> => ipcRenderer.invoke(IPC.EmotionGet),
+    onChanged: (listener: (snapshot: EmotionSnapshot) => void): (() => void) => {
+      const handler = (_e: unknown, payload: EmotionSnapshot): void => listener(payload);
+      ipcRenderer.on(IPC.EmotionChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.EmotionChanged, handler);
+    },
   },
 } as const;
 
