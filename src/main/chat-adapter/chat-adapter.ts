@@ -8,6 +8,11 @@
  * - 持続: lipsync.md(thinkingはChatでは持続。Code Adapterは一過性)
  * - エラー: chat-adapter-errors.md 論点4(mockへ自動フォールバックしない)
  * - 自動切替: C-24 / chat-pane.md 論点5(案1: 送信時にactiveAdapterをChatへ切替し**明示**する)
+ * - real接続: chat-adapter-errors.md 論点1〜3(#12。実体は real-responder.ts)
+ *
+ * **mockとrealは経路を共有する**(分類・thinkingのsustain/release・終端イベント・履歴の積み方は
+ * どちらも同じコードを通る)。差し替わるのは「本文をどこから得るか」だけ。既定がmockである以上
+ * (C-08)、real専用の経路を別に作ると real でしか動かないコードが腐るため。
  *
  * **このクラスの最重要責務は `release('thinking')` の全経路保証**である。
  * lipsync.md: 「release()の呼び忘れはthinkingの永久固着を招く」。成功・失敗・中断・
@@ -30,12 +35,15 @@ import { classify } from '../../shared/emotion-classification';
 import { isReactionState } from '../../shared/emotions';
 import {
   MAX_CHAT_INPUT_LENGTH,
-  type ChatErrorAction,
-  type ChatErrorKind,
   type ChatSendAccepted,
+  type ChatSettingsPatch,
+  type ChatSettingsSnapshot,
   type ChatStreamEvent,
+  type ChatTurn,
+  type ChatUsage,
 } from '../../shared/chat';
 import { streamMockReply, type Sleep } from './mock-responder';
+import { RealChatError, streamRealReply, type AnthropicLike } from './real-responder';
 
 export interface ChatAdapterDeps {
   engine: EmotionEngine;
@@ -49,6 +57,18 @@ export interface ChatAdapterDeps {
   onConfigChanged?: () => void;
   /** 擬似streamingの待機(検証で高速化・決定化するため注入可能にする)。 */
   sleep?: Sleep;
+  /**
+   * `net.isOnline()`(Electron)。**接続可否の事前判定には使わない**。
+   * real の通信断エラーの**文言を出し分けるためだけ**に使う(chat-adapter-errors.md 論点2)。
+   * 注入にしているのは real-responder.ts を Electron非依存に保つため。
+   */
+  isOnline?: () => boolean;
+  /** 検証で Anthropic SDK クライアントを差し替えるための注入口(本番では未指定)。 */
+  createClient?: (options: {
+    apiKey: string;
+    maxRetries: number;
+    timeout: number;
+  }) => AnthropicLike;
 }
 
 /** 進行中の1リクエスト。 */
@@ -62,6 +82,23 @@ export class ChatAdapter {
   private active: ActiveRequest | null = null;
   private nextRequestId = 1;
   private disposed = false;
+  /**
+   * 会話履歴の**正本**(#12)。real は文脈を渡さないと灯里が毎回記憶喪失になるため必要になった。
+   *
+   * **メモリのみ・永続化しない**(C-22)。アプリ終了で消え、ディスクには一切書かない。
+   * Rendererに持たせて送らせない理由は shared/chat.ts の `ChatTurn` に記載
+   * (表示専用の行をAPIへ送らないため / 画面と送信内容が別経路になるのを避けるため)。
+   */
+  /**
+   * **mode不問で単一の配列に積む(意図的)**(reviewer #12 1周目 指摘3)。
+   * mockで交わした固定返答も`assistant`ターンとして残り、その後realへ切り替えると
+   * 実際のAPIへ「過去に灯里が言った」ことにして送られる。これは容認する: mockは
+   * 「何を言ったか」自体が固定文字列(MOCK_REPLY)であり、隠すべき機密でも、ユーザーが
+   * 知らない内容でもない(画面に既に表示されている)。mode別に履歴を分けると、
+   * 「mockで試してからrealへ切り替える」という最も自然な導線で文脈が失われ、
+   * ユーザーから見て「さっきの話を忘れた」という体験になる方が実害が大きいと判断した。
+   */
+  private turns: ChatTurn[] = [];
 
   constructor(deps: ChatAdapterDeps) {
     this.deps = deps;
@@ -78,7 +115,7 @@ export class ChatAdapter {
    * 戻り値は受理の事実だけで、本文は ChatStream イベントで流す。
    * こうしないと invoke の解決が応答完了まで待たされ、streaming表示にならない。
    */
-  send(text: string): ChatSendAccepted {
+  send(text: string, isRetry = false): ChatSendAccepted {
     this.assertNotDisposed();
 
     const trimmed = text.trim();
@@ -106,6 +143,22 @@ export class ChatAdapter {
       this.deps.onConfigChanged?.();
     }
 
+    // 履歴の更新。**再送/再生成(isRetry)では user ターンを積み直さない**。会話ペイン側も
+    // `echoUser=false` で吹き出しを二重に積まない実装(ConversationPane sendText)なので、
+    // ここで積むと**画面に見えている会話とAPIへ送る会話がずれる**。あわせて直前の
+    // assistant ターン(失敗/中断した応答)を捨て、同じ問いをやり直す形に揃える。
+    if (isRetry) {
+      if (this.turns.at(-1)?.role === 'assistant') {
+        this.turns.pop();
+      }
+      if (this.turns.at(-1)?.role !== 'user') {
+        // 履歴側に対応する user ターンが無い(/clear 後の再送など)。積み直して整合させる。
+        this.turns.push({ role: 'user', content: trimmed });
+      }
+    } else {
+      this.turns.push({ role: 'user', content: trimmed });
+    }
+
     const requestId = this.nextRequestId++;
     const controller = new AbortController();
     this.active = { requestId, controller };
@@ -123,12 +176,61 @@ export class ChatAdapter {
     this.active?.controller.abort(new Error('aborted-by-user'));
   }
 
+  /**
+   * 会話履歴を消す(`/clear`)。**Main側の履歴が正本**なので、ここを消さないと
+   * 画面は空なのに次の送信で過去の文脈がAPIへ送られ続ける。
+   * 進行中の応答は中断する(消した会話の続きが後から届くのは辻褄が合わない)。
+   */
+  reset(): void {
+    this.active?.controller.abort(new Error('reset'));
+    // abort直後にrunStreamのfinallyが走ってactiveを null化するのを待たず、ここで確定させる。
+    // 待つと reset 直後の即時再送が「応答の生成中です」で弾かれる一瞬の隙間ができる。
+    this.active = null;
+    this.turns = [];
+  }
+
+  /** モード設定タブ(FR-7)向け。**APIキー本体は返さない**(security.md 5章)。 */
+  getSettings(): ChatSettingsSnapshot {
+    const chat = this.deps.configStore.current.chatAdapter;
+    const key = chat.anthropicApiKey;
+    return {
+      mode: chat.mode,
+      model: chat.model,
+      hasApiKey: key.length > 0,
+      apiKeyTail: key.length > 0 ? key.slice(-4) : '',
+    };
+  }
+
+  /** モード設定タブからの更新。省略したフィールドは変更しない。 */
+  updateSettings(patch: ChatSettingsPatch): ChatSettingsSnapshot {
+    this.assertNotDisposed();
+    this.deps.configStore.update((draft) => {
+      if (patch.mode !== undefined) {
+        draft.chatAdapter.mode = patch.mode;
+      }
+      if (patch.model !== undefined) {
+        draft.chatAdapter.model = patch.model;
+      }
+      if (patch.apiKey !== undefined) {
+        // 前後の空白は落とす。コピー&ペーストで混入した改行や空白がそのまま401になるのは
+        // ユーザーには原因が見えない失敗になるため。
+        draft.chatAdapter.anthropicApiKey = patch.apiKey.trim();
+      }
+    });
+    this.deps.onConfigChanged?.();
+    return this.getSettings();
+  }
+
   dispose(): void {
     this.disposed = true;
     this.active?.controller.abort(new Error('disposed'));
     this.active = null;
+    this.turns = [];
     ipcMain.removeHandler(IPC.ChatSend);
+    ipcMain.removeHandler(IPC.ChatSettingsGet);
+    ipcMain.removeHandler(IPC.ChatSettingsSet);
     ipcMain.removeAllListeners(IPC.ChatStop);
+    ipcMain.removeAllListeners(IPC.ChatReset);
   }
 
   // ── 内部 ───────────────────────────────────────────
@@ -138,8 +240,22 @@ export class ChatAdapter {
    * 成功・失敗・中断のいずれでも finally で release('thinking') と終端イベント送出を行う。
    */
   private async runStream(requestId: number, signal: AbortSignal): Promise<void> {
-    const mode = this.deps.configStore.current.chatAdapter.mode;
+    // **reset()との競合対策**(reviewer #12 1周目 指摘2・重大)。reset()は`this.turns`を
+    // 新しい配列へ**差し替える**(空にする)ため、この関数の開始時点の参照を覚えておき、
+    // 応答を積む直前に「まだ同じ会話か」を確認する。確認しないと、reset後に遅れて届いた
+    // 応答が新しい(空の)履歴へ`assistant`から積まれ、先頭がuserでない不正な配列になる
+    // (Messages APIは先頭userを要求するため、次回送信が400になりうる)。
+    const turnsAtStart = this.turns;
+    const pushAssistantTurn = (content: string): void => {
+      if (this.turns === turnsAtStart) {
+        this.turns.push({ role: 'assistant', content });
+      }
+    };
+    const chatConfig = this.deps.configStore.current.chatAdapter;
+    const mode = chatConfig.mode;
     let received = '';
+    /** real のみ。取れなければ null のまま(**推測値を出さない**)。 */
+    let usage: ChatUsage | null = null;
     /** 終端イベントは finally で必ず1つ送る。ここに何を送るかを決めていく。 */
     let terminal: ChatStreamEvent | null = null;
     /** 終端後に発火するReaction(分類結果 or エラー時の表情)。releaseの後に出す。 */
@@ -161,19 +277,59 @@ export class ChatAdapter {
         // mockの固定返答でも必ず通す(分類経路を日常的に動かし続けるため)。
         const classified = classify(received);
         finalReaction = classified?.state ?? null;
-        terminal = { type: 'done', requestId, text: received, state: finalReaction };
+        // mock は実際にトークンを消費していないので usage は常に null(誇張して見せない)。
+        terminal = { type: 'done', requestId, text: received, state: finalReaction, usage: null };
       } else {
-        // real は #12。**mockの固定返答で代替しない**(chat-adapter-errors.md 論点4:
-        // 未接続を隠して固定文を返すと、それがClaudeの回答であるかのように見える)。
-        // 素直に「まだ実装されていない」と返す。
-        const { kind, message, action } = notImplementedError();
-        finalReaction = 'worried';
-        terminal = { type: 'error', requestId, kind, message, action };
+        const result = await streamRealReply({
+          apiKey: chatConfig.anthropicApiKey,
+          model: chatConfig.model,
+          idleTimeoutMs: chatConfig.idleTimeoutMs,
+          maxRetries: chatConfig.maxRetries,
+          timeout: chatConfig.timeout,
+          turns: this.turns,
+          onChunk: (chunk) => {
+            received += chunk;
+            this.emit({ type: 'chunk', requestId, text: chunk });
+          },
+          signal,
+          isOnline: this.deps.isOnline ?? (() => true),
+          createClient: this.deps.createClient,
+        });
+        received = result.text;
+        usage = result.usage;
+        // mock と**同じ経路で**分類する(realだけ別扱いにすると片方が腐る)。
+        const classified = classify(received);
+        finalReaction = classified?.state ?? null;
+        terminal = { type: 'done', requestId, text: received, state: finalReaction, usage };
+      }
+      // 応答を履歴へ積む(次のターンの文脈になる)。空文字は積まない。
+      if (received.length > 0) {
+        pushAssistantTurn(received);
       }
     } catch (err) {
       if (signal.aborted) {
         // 中断: 分類しない(途中までの本文を分類しても意味が無い)。表情も足さない。
+        // **途中まで受信した本文は履歴へ積む**。画面にはそれが表示されたままであり、
+        // 積まないと「見えている会話」と「APIへ送る会話」がずれる(嘘をつかない)。
+        // ただし reset() 由来の中断(turnsAtStart が既に差し替わっている)では積まない
+        // (消した会話の続きを新しい会話の先頭へ紛れ込ませない)。
+        if (received.length > 0) {
+          pushAssistantTurn(received);
+        }
         terminal = { type: 'aborted', requestId, text: received };
+      } else if (err instanceof RealChatError) {
+        // real の失敗は種別ごとに表情を変える(chat-adapter-errors.md 論点1の表)。
+        // 設定ミス(401/400/404)は worried、リトライ尽き・無通信は panic。
+        finalReaction = err.kind === 'configuration' ? 'worried' : 'panic';
+        terminal = {
+          type: 'error',
+          requestId,
+          kind: err.kind,
+          message: err.message,
+          action: err.action,
+        };
+        // 失敗した応答は履歴へ積まない(次のターンの文脈にしない)。直前の user ターンは
+        // 残すので、「再送する」を押せば同じ問いをそのままやり直せる。
       } else {
         finalReaction = 'panic';
         terminal = {
@@ -186,7 +342,8 @@ export class ChatAdapter {
       }
     } finally {
       // ── ここが release の全経路保証 ───────────────────────────
-      // 成功・失敗・中断・(将来の)無通信タイムアウトのどれで来ても必ず通る。
+      // 成功・失敗・中断・無通信タイムアウトのどれで来ても必ず通る(#12でrealの
+      // 無通信ウォッチドッグが実際に到達する経路になった)。
       if (this.active?.requestId === requestId) {
         this.active = null;
       }
@@ -215,21 +372,45 @@ export class ChatAdapter {
   }
 
   private registerIpc(): void {
-    ipcMain.handle(IPC.ChatSend, (event: IpcMainInvokeEvent, text: unknown): ChatSendAccepted => {
+    ipcMain.handle(
+      IPC.ChatSend,
+      (event: IpcMainInvokeEvent, text: unknown, isRetry: unknown): ChatSendAccepted => {
       if (!this.isSender(event.sender)) {
         throw new Error('この送信元からのチャット送信は許可されていません');
       }
       if (typeof text !== 'string') {
         throw new Error('本文が文字列ではありません');
       }
-      return this.send(text);
-    });
+        return this.send(text, isRetry === true);
+      },
+    );
     ipcMain.on(IPC.ChatStop, (event: IpcMainEvent) => {
       if (!this.isSender(event.sender)) {
         return;
       }
       this.stop();
     });
+    ipcMain.on(IPC.ChatReset, (event: IpcMainEvent) => {
+      if (!this.isSender(event.sender)) {
+        return;
+      }
+      this.reset();
+    });
+    ipcMain.handle(IPC.ChatSettingsGet, (event: IpcMainInvokeEvent): ChatSettingsSnapshot => {
+      if (!this.isSender(event.sender)) {
+        throw new Error('この送信元からの設定取得は許可されていません');
+      }
+      return this.getSettings();
+    });
+    ipcMain.handle(
+      IPC.ChatSettingsSet,
+      (event: IpcMainInvokeEvent, patch: unknown): ChatSettingsSnapshot => {
+        if (!this.isSender(event.sender)) {
+          throw new Error('この送信元からの設定変更は許可されていません');
+        }
+        return this.updateSettings(parseSettingsPatch(patch));
+      },
+    );
   }
 
   /** IPCの送信元が Control Panel ウィンドウのときだけ受け付ける(キャラウィンドウ等を弾く)。 */
@@ -246,17 +427,34 @@ export class ChatAdapter {
 }
 
 /**
- * real 未実装であることのエラー内容。**panicではなくworried**にするのは、
- * chat-adapter-errors.md が「設定ミスであって異常事態ではない」ものを worried に割り当てて
- * いるのと同じ理由(ユーザーが取れる行動があり、灯里が慌てる状況ではない)。
- * 同mdの表に無い区分のため、この判断はここに明記する(黙って決めない)。
+ * Rendererから来た設定パッチを検証する。**Rendererを信用しない**(security.md 5章)。
+ * 未知のフィールドは無視し、型が違うものは弾く。APIキーは文字列であること以外を検査しない
+ * (`sk-ant-`前提の形式チェックは入れない。将来キーの体裁が変わったときに、
+ * 正しいキーをアプリが勝手に拒否する側の事故になるため。正しさはAPIが401で答える)。
  */
-function notImplementedError(): { kind: ChatErrorKind; message: string; action: ChatErrorAction } {
-  return {
-    kind: 'not-implemented',
-    message:
-      'real 接続はまだ実装されていません(Anthropic APIへの接続は今後のタスクで対応します)。' +
-      'mock の固定返答で代用することはしません。',
-    action: 'switch-to-mock',
-  };
+function parseSettingsPatch(patch: unknown): ChatSettingsPatch {
+  if (typeof patch !== 'object' || patch === null) {
+    throw new Error('設定の指定が不正です');
+  }
+  const raw = patch as Record<string, unknown>;
+  const result: ChatSettingsPatch = {};
+  if (raw.mode !== undefined) {
+    if (raw.mode !== 'mock' && raw.mode !== 'real') {
+      throw new Error('mode の指定が不正です');
+    }
+    result.mode = raw.mode;
+  }
+  if (raw.model !== undefined) {
+    if (typeof raw.model !== 'string' || raw.model.length === 0) {
+      throw new Error('model の指定が不正です');
+    }
+    result.model = raw.model;
+  }
+  if (raw.apiKey !== undefined) {
+    if (typeof raw.apiKey !== 'string') {
+      throw new Error('APIキーの指定が不正です');
+    }
+    result.apiKey = raw.apiKey;
+  }
+  return result;
 }

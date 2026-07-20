@@ -30,9 +30,7 @@ export type ChatErrorKind =
   /** 401/400/404 等のリトライ不能な設定ミス。灯里はworried。「モード設定を開く」ボタン。 */
   | 'configuration'
   /** 無通信ウォッチドッグが切った。灯里はpanic。再送ボタン。 */
-  | 'idle-timeout'
-  /** まだ実装されていない経路(現時点ではreal=#12)。**mockで代替せず、そのまま失敗を返す**。 */
-  | 'not-implemented';
+  | 'idle-timeout';
 
 /** UIがエラー吹き出しに添えるアクション(chat-pane.md 論点4の表)。 */
 export type ChatErrorAction = 'switch-to-mock' | 'open-adapter-settings' | 'retry' | 'none';
@@ -59,11 +57,71 @@ export type ChatStreamEvent =
    * 受信完了。`text`は結合済みの全文(Rendererの追記結果と一致するはずの正)。
    * `state`は受信完了時に1度だけ実行した分類結果(該当なしならnull。emotion-classification.md)。
    */
-  | { type: 'done'; requestId: number; text: string; state: string | null }
+  | {
+      type: 'done';
+      requestId: number;
+      text: string;
+      state: string | null;
+      /** real のみ。取得できなかった場合は null で、**UIは推測値を出さない**(下記 ChatUsage)。 */
+      usage: ChatUsage | null;
+    }
   /** ユーザーが停止ボタンで中断した。`text`はそこまでに受信済みの本文。 */
   | { type: 'aborted'; requestId: number; text: string }
   /** 失敗。`message`はそのままUIに出す文言(Mainが状況に応じて出し分ける)。 */
   | { type: 'error'; requestId: number; kind: ChatErrorKind; message: string; action: ChatErrorAction };
+
+/**
+ * real 応答1回の実トークン使用量(Anthropic APIの `usage` をそのまま持つ)。
+ *
+ * **mock では常に null**。mock は固定返答であって実際にトークンを消費しておらず、
+ * それらしい数値を出せば嘘になる(chat-pane.md 論点7「mock時は実測値を持たないため
+ * 誇張して見せない」・constraints.md)。real でも `usage` が欠けていれば null にする。
+ */
+export interface ChatUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/**
+ * Anthropic Messages API へ送る1ターン。**会話履歴の正本はMain**(chat-adapter.ts)で、
+ * Rendererの `ChatMessage[]` は表示用の写しである。
+ *
+ * Rendererから履歴を送らせない理由: 送らせると「画面に見えているもの」と「実際にAPIへ
+ * 送ったもの」が別経路になり、両者がずれても誰も気づけない。system メッセージ
+ * (「Chat Adapter に切り替えました。」等)やエラー吹き出しのように**APIへ送ってはならない
+ * 表示専用の行**もあるため、送信内容の決定はMain側に閉じる。
+ *
+ * 永続化しないのは変わらない(C-22)。Main のこの履歴もメモリ上にしか存在せず、
+ * アプリ終了で消える。`/clear` は Main の履歴も消す(ChatReset)。
+ */
+export interface ChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/**
+ * Chat Adapter の設定のうち、モード設定タブ(FR-7)が読み書きするもの。
+ *
+ * **APIキーの値そのものは決してRendererへ返さない**(security.md 5章「APIキーを扱うのは
+ * Mainのみ」)。返すのは「設定されているか」と、確認用の末尾4文字だけ。画面に平文の
+ * キーを描くと、スクリーンショット・画面共有・DevToolsのいずれからも漏れうる。
+ */
+export interface ChatSettingsSnapshot {
+  mode: 'mock' | 'real';
+  model: string;
+  /** APIキーが設定済みか。**キー本体は含めない**。 */
+  hasApiKey: boolean;
+  /** 設定済みのキーの末尾4文字(未設定なら空文字)。取り違えの確認だけに使う。 */
+  apiKeyTail: string;
+}
+
+/** モード設定タブからの変更要求。`apiKey` を省略した場合はキーを変更しない。 */
+export interface ChatSettingsPatch {
+  mode?: 'mock' | 'real';
+  model?: string;
+  /** 空文字を明示的に渡すとキーを削除する(「設定しない」も正当な操作)。 */
+  apiKey?: string;
+}
 
 /**
  * 送信要求に対するMainの即時応答(streamの中身ではなく受理可否)。

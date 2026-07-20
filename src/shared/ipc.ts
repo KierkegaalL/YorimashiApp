@@ -32,6 +32,12 @@ export const IPC = {
   ChatSend: 'chat:send',
   /** send: 応答の中断(停止ボタン)。中断経路でも release('thinking') を必ず通す。 */
   ChatStop: 'chat:stop',
+  /**
+   * send: 会話履歴の消去(`/clear`)。**Main側の履歴も消す**。
+   * Rendererの表示だけ消すと、画面は空なのにAPIへは過去の文脈が送られ続け、
+   * 「消したはずの会話が効いている」という食い違いになる(会話履歴の正本はMain)。
+   */
+  ChatReset: 'chat:reset',
   /** Main→Renderer: streaming の実況(start/chunk/done/aborted/error)。 */
   ChatStream: 'chat:stream',
 
@@ -59,6 +65,18 @@ export const IPC = {
   ChatConfigSet: 'chat-config:set',
   /** Main→Renderer: モード類の変化通知(Trayからの activeAdapter 切替にも追従するため)。 */
   ChatConfigChanged: 'chat-config:changed',
+
+  /**
+   * モード設定タブ(FR-7)の Chat Adapter セクション。ChatConfigGet/Set が**会話ペイン**の
+   * 表示に必要な最小限だけを扱うのに対し、こちらは設定画面がAPIキーまで扱う。
+   *
+   * **APIキーの値はMain→Rendererの向きには決して流れない**(security.md 5章)。
+   * `ChatSettingsGet` が返すのは `hasApiKey` と末尾4文字だけ。
+   */
+  /** invoke: mode / model / APIキーの設定状況(キー本体は含まない)。 */
+  ChatSettingsGet: 'chat-settings:get',
+  /** invoke: mode / model / APIキーの更新。更新後のスナップショットを返す。 */
+  ChatSettingsSet: 'chat-settings:set',
 
   /**
    * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:

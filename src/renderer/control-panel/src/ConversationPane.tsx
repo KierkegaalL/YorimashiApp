@@ -14,7 +14,9 @@
  *    (案1・C-24。黙って切り替えない)。
  *  - mock の応答には origin='mock' のバッジを出す。固定返答をClaudeの回答に見せない
  *    (chat-adapter-errors.md 論点4と同じ理屈)。
- * 残り(#12): @参照の文脈組立 / 添付(real) / コンテキスト実測 / real接続。
+ * #12(FR-3)で real 接続とコンテキスト使用量の実測表示を追加した。会話履歴の**正本はMain**に
+ * なり(real は文脈を送らないと毎ターン記憶喪失になるため)、`/clear` は Main の履歴も消す。
+ * 残り: @参照の文脈組立 / 添付(real)。
  *
  * 会話履歴の初期シードは置かない(C-22: 永続化しない。デモ用の固定会話を実物に見せない)。
  *
@@ -47,15 +49,27 @@ import { useTheme } from './theme';
 import { AT_REFERENCES, RESPONSE_MODELS, SLASH_COMMANDS } from './catalog';
 import type { AdapterMode, ChatMode, ChatMessage } from './types';
 import type { MoodState } from '../../../shared/emotions';
-import { MAX_CHAT_INPUT_LENGTH, type ChatErrorAction } from '../../../shared/chat';
+import {
+  MAX_CHAT_INPUT_LENGTH,
+  type ChatErrorAction,
+  type ChatUsage,
+} from '../../../shared/chat';
 
 export interface ConversationPaneProps {
   /** 憑坐状態帯に表示する現在のMood。#8 で EmotionEngine のスナップショット(WS)に接続する。 */
   mood: MoodState;
   adapterMode: AdapterMode;
   chatMode: ChatMode;
+  /**
+   * real時の応答モデル(C-23)。**正本は config(Main)**。ここはその写しで、変更要求も
+   * `onSetResponseModel` 経由でMainへ送り、結果は `onConfigChanged` 経由で戻ってくる
+   * (App.tsx)。ローカルで完結させると「画面上の選択」と「実際にAPIへ送るモデル」が
+   * ずれる(reviewer #12 1周目 指摘1・重大)。
+   */
+  responseModel: string;
   onSetChatMode: (mode: ChatMode) => void;
   onSetAdapterMode: (mode: AdapterMode) => void;
+  onSetResponseModel: (model: string) => void;
   /** /panel・折りたたみ解除で Control Panel を展開する。 */
   onExpandControlPanel: () => void;
 }
@@ -64,8 +78,10 @@ export function ConversationPane({
   mood,
   adapterMode,
   chatMode,
+  responseModel,
   onSetChatMode,
   onSetAdapterMode,
+  onSetResponseModel,
   onExpandControlPanel,
 }: ConversationPaneProps): React.JSX.Element {
   const theme = useTheme();
@@ -73,6 +89,12 @@ export function ConversationPane({
 
   // 会話履歴はメモリのみ(C-22)。初期値は空 = デモ会話をシードしない。
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  /**
+   * 直近の real 応答の実トークン使用量(C-23のコンテキスト表示)。
+   * **mock では常に null**(固定返答は実際にトークンを消費していない)。取得できなかった
+   * 場合も null のままにし、それらしい数値を作らない(constraints.md「嘘をつかない」)。
+   */
+  const [lastUsage, setLastUsage] = useState<ChatUsage | null>(null);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
   /** 再送(エラー時の retry ボタン)のために直近の送信本文だけ覚えておく。 */
@@ -93,8 +115,6 @@ export function ConversationPane({
    * (Main側も弾くが、ユーザーには「応答の生成中です」エラーが見えて驚きになる)。
    */
   const sendingRef = useRef(false);
-  // 応答モデル選択は real 時のみ意味を持つ(C-23)。将来 config.chatAdapter.model に保存する(#12)。
-  const [responseModel, setResponseModel] = useState('claude-sonnet-5');
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
 
@@ -150,6 +170,8 @@ export function ConversationPane({
       setChatSending(false);
       if (event.type === 'done') {
         patchMessage(target, { streaming: false });
+        // real のみ値が入る。mock や取得できなかった場合は null で、表示自体を出さない。
+        setLastUsage(event.usage);
       } else {
         // 中断・エラーの共通後始末。**部分受信済みなら残したうえで streaming を必ず解除し**
         // (解除しないと ▍ カーソルが残り続け、コピー/再生成も出せなくなる)、
@@ -214,7 +236,9 @@ export function ConversationPane({
     sendingRef.current = true;
     setChatSending(true);
     try {
-      const accepted = await api.send(text);
+      // `echoUser=false`(再送/再生成)は Main 側でも user ターンを積み直さない合図になる。
+      // 揃えないと、画面には1回しか出ていない質問が API へは2回送られる(chat-adapter.ts send)。
+      const accepted = await api.send(text, !echoUser);
       if (accepted.adapterSwitched) {
         // 案1(C-24): 黙って切り替えない。切り替えた事実をその場で明示する。
         // adapterMode 自体の更新はここで行わない — Mainが config を書き換えた結果が
@@ -276,15 +300,21 @@ export function ConversationPane({
   };
 
   // 応答モデルを次候補へ循環(real時のみ意味を持つ。C-23)。/model と入力欄フッターのチップから呼ぶ。
+  // **正本はconfig(Main)**なので、ここではローカルstateを回さず onSetResponseModel を呼ぶだけ。
+  // 表示は App.tsx が onConfigChanged で受け取った値(props.responseModel)に従う。
   const cycleResponseModel = (): void => {
-    setResponseModel((prev) => {
-      const i = RESPONSE_MODELS.findIndex((mm) => mm.id === prev);
-      return RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id;
-    });
+    const i = RESPONSE_MODELS.findIndex((mm) => mm.id === responseModel);
+    onSetResponseModel(RESPONSE_MODELS[(i + 1) % RESPONSE_MODELS.length].id);
   };
 
   const runSlashCommand = (cmd: string): void => {
-    if (cmd === '/clear') setChatMessages([]);
+    if (cmd === '/clear') {
+      setChatMessages([]);
+      setLastUsage(null);
+      // **Main側の会話履歴も消す**。表示だけ消すと、画面は空なのに次の送信では
+      // 過去の文脈がAPIへ送られ続ける(履歴の正本はMain。chat-adapter.ts reset)。
+      window.yorimashi?.chat?.reset();
+    }
     if (cmd === '/mock') onSetChatMode('mock');
     if (cmd === '/real') onSetChatMode('real');
     if (cmd === '/code') onSetAdapterMode('code');
@@ -473,7 +503,16 @@ export function ConversationPane({
             下の入力欄から灯里に話しかけてみてください。
           </div>
         )}
-        {chatMessages.map((msg) => (
+        {/*
+          再生成は「直近の質問をやり直す」操作であり(`lastSentText`はグローバルに1つしか
+          持たない・Main側も履歴末尾のassistantターンしかpopしない)、過去のメッセージに
+          対する再生成ではない。ボタンを全assistantメッセージに出すと、押した対象と実際に
+          やり直される内容がずれる(reviewer #12 1周目 指摘4)。**最新のassistantメッセージ
+          にのみ**出すことで、見た目と実挙動を一致させる。
+        */}
+        {(() => {
+          const lastAssistantId = [...chatMessages].reverse().find((m) => m.role === 'assistant')?.id;
+          return chatMessages.map((msg) => (
           <div
             key={msg.id}
             style={{
@@ -608,26 +647,30 @@ export function ConversationPane({
                 >
                   <Copy size={12} />
                 </button>
-                <button
-                  title="再生成"
-                  disabled={chatSending || lastSentText.length === 0}
-                  onClick={() => void sendText(lastSentText, false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: chatSending || lastSentText.length === 0 ? 'not-allowed' : 'pointer',
-                    padding: 2,
-                    color: theme.iconInactive,
-                    display: 'flex',
-                    opacity: chatSending || lastSentText.length === 0 ? 0.4 : 1,
-                  }}
-                >
-                  <RotateCcw size={12} />
-                </button>
+                {/* **最新のassistantメッセージにのみ**出す(上のコメント参照)。 */}
+                {msg.id === lastAssistantId && (
+                  <button
+                    title="再生成"
+                    disabled={chatSending || lastSentText.length === 0}
+                    onClick={() => void sendText(lastSentText, false)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: chatSending || lastSentText.length === 0 ? 'not-allowed' : 'pointer',
+                      padding: 2,
+                      color: theme.iconInactive,
+                      display: 'flex',
+                      opacity: chatSending || lastSentText.length === 0 ? 0.4 : 1,
+                    }}
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                )}
               </div>
             )}
           </div>
-        ))}
+        ));
+        })()}
         {/* 「考えています…」は**最初のチャンクが来るまで**の表示。streaming が始まったら
             吹き出し自体が伸びていくので、二重に出さない。 */}
         {chatSending && streamingMessageId.current === null && (
@@ -646,15 +689,27 @@ export function ConversationPane({
 
       {/* ── 入力欄(C-23) ── */}
       <div style={{ position: 'relative', borderTop: `1px solid ${theme.line}`, padding: '10px 14px 14px' }}>
-        {/* コンテキスト使用量: real時のみ実測(#12)。mock は実測値を持たないため表示しない(嘘をつかない)。
-            下のバーは real 時のプレースホルダで、実測接続まで固定値を出さないよう #12 で置換する。 */}
-        {chatMode === 'real' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-            <div style={{ flex: 1, height: 3, borderRadius: 2, background: theme.sliderTrack, overflow: 'hidden' }}>
-              <div style={{ width: '0%', height: '100%', background: theme.mint }} />
-            </div>
+        {/* コンテキスト使用量: real時のみ**実測値**(#12。Anthropic APIの usage をそのまま出す)。
+            mock は実測値を持たないため表示自体を出さない(chat-pane.md 論点7・嘘をつかない)。
+
+            **モックアップとの意図的な差分**: モックアップはパーセンテージのメーターを描くが、
+            分母(モデルのコンテキストウィンドウ長)は API 応答に含まれず、アプリ側で定数として
+            持つしかない。ハードコードするとモデルが増減・更新されたときに黙って古い値のまま
+            もっともらしい%を出し続ける(= 実測に見える推測値)。よって**分母を持たず、
+            実際に消費したトークン数だけを出す**。%が要るなら、分母をどこから取るかを先に決めること。 */}
+        {chatMode === 'real' && lastUsage !== null && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: 6,
+              marginBottom: 8,
+            }}
+          >
             <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10.5, color: theme.inkDim }}>
-              —
+              直近の応答: 入力 {lastUsage.inputTokens.toLocaleString()} / 出力{' '}
+              {lastUsage.outputTokens.toLocaleString()} トークン
             </span>
           </div>
         )}

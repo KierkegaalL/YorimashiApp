@@ -65,6 +65,27 @@ export interface ResponseModel {
   label: string;
 }
 
+/**
+ * APIキーの取得手順(FR-3。chat-adapter-errors.md 論点5。UIの正: モックアップ `API_KEY_STEPS`)。
+ *
+ * **401を待たずに常設で見せる**のがこの案内の趣旨。論点5は「realへ切り替えた時点で
+ * (キーが間違っていると発覚する前に)見えるようにする」と定めており、失敗後の事後対応
+ * (401→worried+「モード設定を開く」)を置き換えるものではない。両者は併存する。
+ *
+ * **OAuthでの「Claudeにサインイン」は提供しない**(論点5)。AnthropicはMessages APIに対して
+ * 第三者アプリ向けの公開OAuth連携を提供しておらず、Claude Code CLIのログインは公式ツール
+ * 専用の内部機構であるため。だから摩擦を減らす方向(手順の常設)で対応している。
+ */
+export const API_KEY_STEPS: readonly string[] = [
+  'Anthropicアカウントでログイン(未登録ならこの画面から新規登録)',
+  '左メニューの「API Keys」→「Create Key」を選ぶ',
+  '発行された sk-ant- から始まるキーをコピーする',
+  '上の「APIキー」欄に貼り付ける',
+];
+
+/** 上の手順で開く先。**アプリ内では開かず**、既存の setWindowOpenHandler 経由で外部ブラウザへ渡す。 */
+export const ANTHROPIC_CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
+
 export const RESPONSE_MODELS: readonly ResponseModel[] = [
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
