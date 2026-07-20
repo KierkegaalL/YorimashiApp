@@ -6,16 +6,31 @@
  * Live2D/スプライトセットのどちらにも依存しない: キャラ描画は持たず、EmotionEngine への
  * trigger/release だけを扱う(chat-pane.md「形式による分岐について」)。
  *
- * この移植段階(#6)の範囲は**プレゼンテーションと入力操作のUI**まで。以下は後続タスク:
- *  - 送信→Main(Chat Adapter)→擬似streaming受信、release('thinking') の全経路保証 … #8(FR-3)
- *  - 送信時の activeAdapter 自動切替+明示(案1・C-24・論点5) … #8
- *  - @参照の文脈組立 / 添付(real) / コンテキスト実測 … #8・#12
- * そのため**偽の応答は生成しない**(「状態について嘘をつかない」。constraints.md)。送信すると
- * ユーザー発話を積み「考えています…」を出すところまでで、応答本文の捏造はしない。
- * 会話履歴の初期シードも置かない(C-22: 永続化しない。デモ用の固定会話を実物に見せない)。
+ * #8(FR-3)で Main の Chat Adapter へ接続済み。送信→擬似streaming受信→分類までが実際に動く:
+ *  - 送信は `window.yorimashi.chat.send()`。**本文の生成はMainの責務**で、このペインは
+ *    受け取ったチャンクを最後の吹き出しへ追記するだけ(偽の応答をここで作らない)。
+ *  - `thinking`(sustain)→`release`の駆動もMain側。UIは実況イベントを映すだけ。
+ *  - 送信で activeAdapter が Chat へ自動切替された場合、**system メッセージで明示する**
+ *    (案1・C-24。黙って切り替えない)。
+ *  - mock の応答には origin='mock' のバッジを出す。固定返答をClaudeの回答に見せない
+ *    (chat-adapter-errors.md 論点4と同じ理屈)。
+ * 残り(#12): @参照の文脈組立 / 添付(real) / コンテキスト実測 / real接続。
+ *
+ * 会話履歴の初期シードは置かない(C-22: 永続化しない。デモ用の固定会話を実物に見せない)。
+ *
+ * **モックアップ(UIの正: docs/mockups/control-panel.jsx)との意図的な差分**:
+ * モックアップの会話履歴は user/assistant の2ロールだけを描き、実データが流れる前提の表現を
+ * 持っていない。#8 で実接続したことにより、モックアップに無い次の表現を足している:
+ *   - role='system'(「Chat Adapter に切り替えました」等。C-24が**明示**を要求するため必須)
+ *   - role='error' + アクションボタン(chat-pane.md 論点4の表がUI要件として定めている)
+ *   - origin='mock' のバッジ(固定返答をClaudeの回答に見せない。chat-adapter-errors.md 論点4)
+ *   - streaming中のカーソルと中断の注記(擬似streamingがlipsync.mdの要求で入ったため)
+ * いずれも**詳細設計が要求していてモックアップが先回りしていなかった**もので、モックアップの
+ * レイアウト・配色・既存要素には手を入れていない。モックアップ側への反映は、6タブの中身を
+ * 移植する後続タスクでUI全体を見直す際に併せて行う。
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   UserRound,
   Circle,
@@ -32,6 +47,7 @@ import { useTheme } from './theme';
 import { AT_REFERENCES, RESPONSE_MODELS, SLASH_COMMANDS } from './catalog';
 import type { AdapterMode, ChatMode, ChatMessage } from './types';
 import type { MoodState } from '../../../shared/emotions';
+import { MAX_CHAT_INPUT_LENGTH, type ChatErrorAction } from '../../../shared/chat';
 
 export interface ConversationPaneProps {
   /** 憑坐状態帯に表示する現在のMood。#8 で EmotionEngine のスナップショット(WS)に接続する。 */
@@ -59,27 +75,205 @@ export function ConversationPane({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [chatSending, setChatSending] = useState(false);
+  /** 再送(エラー時の retry ボタン)のために直近の送信本文だけ覚えておく。 */
+  const [lastSentText, setLastSentText] = useState('');
+  /** 描画キー用の連番。Date.now()だと同一ms内の連続追加で衝突しうる。 */
+  const nextMessageId = useRef(1);
+  /** 現在streaming中のアシスタント吹き出しのid(チャンクの追記先)。 */
+  const streamingMessageId = useRef<number | null>(null);
+  /**
+   * 現在のstreamingで1文字でも受信したか。**stateではなくrefで持つ**理由:
+   * `setChatMessages` の updater は同期実行されないため、updater内で判定した結果を
+   * 直後に読むと必ず初期値のままになる(終端処理の分岐を誤る)。
+   */
+  const streamingHasText = useRef(false);
+  /**
+   * 送信中フラグの即時版。`chatSending` は再レンダーまで更新されないため、Enterキーの
+   * リピート等で同一ティック内に handleChatSend が連続で走ると多重送信が漏れうる
+   * (Main側も弾くが、ユーザーには「応答の生成中です」エラーが見えて驚きになる)。
+   */
+  const sendingRef = useRef(false);
   // 応答モデル選択は real 時のみ意味を持つ(C-23)。将来 config.chatAdapter.model に保存する(#12)。
   const [responseModel, setResponseModel] = useState('claude-sonnet-5');
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
 
-  const handleChatSend = (): void => {
-    const text = chatInput.trim();
-    if (!text || chatSending) {
-      return;
-    }
-    // ユーザー発話を積み、送信中(考え中)にする。ここから先(Main への送信・擬似streaming・
-    // 応答本文・emotion trigger/release)は #8 で配線する。偽の応答本文はここでは作らない。
-    // 併せて #8 で案1(C-24)の activeAdapter→chat 自動切替+明示も実装する。
-    setChatMessages((prev) => [...prev, { id: Date.now(), role: 'user', text }]);
-    setChatInput('');
-    setChatSending(true);
+  const appendMessage = (message: Omit<ChatMessage, 'id'>): number => {
+    const id = nextMessageId.current++;
+    setChatMessages((prev) => [...prev, { ...message, id }]);
+    return id;
   };
 
-  // 中断。成功・失敗・中断・無通信タイムアウトの全経路で release('thinking') を呼ぶ必要がある
-  // (呼び忘れ=thinking永久固着。chat-pane.md 論点3)。その保証は #8 で送信経路と一体で実装する。
-  const handleChatStop = (): void => setChatSending(false);
+  const patchMessage = (id: number, patch: Partial<ChatMessage>): void => {
+    setChatMessages((prev) => prev.map((msg) => (msg.id === id ? { ...msg, ...patch } : msg)));
+  };
+
+  /**
+   * Main(Chat Adapter)からの実況を購読する。
+   * start → chunk* → (done | aborted | error) で必ず終端し、そこで送信中フラグを解く。
+   * **終端イベントはMain側が全経路で必ず送る**ため、ここが「考えています…」のまま
+   * residueとして残ることはない(chat.ts / chat-adapter.ts の release 全経路保証と対)。
+   */
+  useEffect(() => {
+    const api = window.yorimashi?.chat;
+    if (!api) {
+      return;
+    }
+    return api.onStream((event) => {
+      if (event.type === 'start') {
+        streamingHasText.current = false;
+        streamingMessageId.current = appendMessage({
+          role: 'assistant',
+          text: '',
+          origin: event.origin,
+          streaming: true,
+        });
+        return;
+      }
+      const target = streamingMessageId.current;
+      if (target === null) {
+        return;
+      }
+      if (event.type === 'chunk') {
+        if (event.text.length > 0) {
+          streamingHasText.current = true;
+        }
+        // 差し替えではなく**追記**する(streaming表示。chat-pane.md 論点3)。
+        setChatMessages((prev) =>
+          prev.map((msg) => (msg.id === target ? { ...msg, text: msg.text + event.text } : msg)),
+        );
+        return;
+      }
+      // ── 終端 ───────────────────────────────
+      streamingMessageId.current = null;
+      sendingRef.current = false;
+      setChatSending(false);
+      if (event.type === 'done') {
+        patchMessage(target, { streaming: false });
+      } else {
+        // 中断・エラーの共通後始末。**部分受信済みなら残したうえで streaming を必ず解除し**
+        // (解除しないと ▍ カーソルが残り続け、コピー/再生成も出せなくなる)、
+        // **1文字も受信していないなら空の吹き出しを残さない**。
+        // real接続では受信途中のAPIエラー・無通信タイムアウトが現実に起きる
+        // (chat-adapter-errors.md)ため、両方のケースの後始末が要る。
+        const hadText = streamingHasText.current;
+        // 打ち切りの**原因**を保持する。ユーザーが押していない停止を「中断しました」と
+        // 表示しないため(real接続では無通信タイムアウト等で error 側にも部分受信が起きる)。
+        const truncated = event.type === 'aborted' ? 'stopped' : 'error';
+        setChatMessages((prev) =>
+          prev.flatMap((msg) =>
+            msg.id !== target ? [msg] : hadText ? [{ ...msg, streaming: false, truncated }] : [],
+          ),
+        );
+        if (event.type === 'aborted') {
+          // 何も受信していない中断は痕跡が消えてしまうため、system で事実だけ残す。
+          if (!hadText) {
+            appendMessage({ role: 'system', text: '応答を中断しました。' });
+          }
+        } else {
+          appendMessage({ role: 'error', text: event.message, action: event.action });
+        }
+      }
+    });
+    // appendMessage/patchMessage は setState のみを使う安定した処理のため依存に含めない
+    // (含めると毎レンダーで購読を張り替えることになり、チャンクを取りこぼしうる)。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * 送信。`echoUser=false` は**再生成/再送**用で、同じ質問をユーザー発話として二重に積まない
+   * (直前の質問に対する新しい応答だけを求める操作のため)。
+   *
+   * **送信口はこの関数1つに統一する**(新規送信・再生成・再送すべて)。多重送信のガードを
+   * ここに集約しないと、経路ごとにガードの有無がばらつき、Main側の「応答の生成中です」
+   * エラーがユーザーに見えてしまう。
+   *
+   * 戻り値は**受理できたか**(Mainがstreamingを開始したか)。入力欄のクリアはこの結果を
+   * 見てから行う必要があるため(handleChatSend)、呼び出し側に返す。
+   */
+  const sendText = async (text: string, echoUser = true): Promise<boolean> => {
+    // sendingRef は同一ティック内の連打も弾く(chatSending は再レンダーまで古い値のため)。
+    if (!text || sendingRef.current) {
+      return false;
+    }
+    const api = window.yorimashi?.chat;
+    if (echoUser) {
+      appendMessage({ role: 'user', text });
+    }
+    setLastSentText(text);
+    if (!api) {
+      // preload が無い経路(ブラウザから /panel を直接開いた場合。environments.md)。
+      // 送れないことをそのまま伝える(黙って握りつぶさない)。
+      appendMessage({
+        role: 'error',
+        text: 'この画面からは送信できません(アプリのウィンドウで開いてください)。',
+        action: 'none',
+      });
+      return false;
+    }
+    sendingRef.current = true;
+    setChatSending(true);
+    try {
+      const accepted = await api.send(text);
+      if (accepted.adapterSwitched) {
+        // 案1(C-24): 黙って切り替えない。切り替えた事実をその場で明示する。
+        // adapterMode 自体の更新はここで行わない — Mainが config を書き換えた結果が
+        // onConfigChanged で降ってくるため(正本はconfig。二重に持たない)。
+        appendMessage({ role: 'system', text: 'Chat Adapter に切り替えました。' });
+      }
+      return true;
+    } catch (err) {
+      // 受理されなかった(空文/長すぎ/多重送信など)。start が来ないので終端も来ない。
+      sendingRef.current = false;
+      setChatSending(false);
+      appendMessage({
+        role: 'error',
+        text: err instanceof Error ? err.message : '送信できませんでした。',
+        action: 'none',
+      });
+      return false;
+    }
+  };
+
+  /**
+   * 送信が受理された場合だけ入力欄をクリアする。受理されなかった場合(空文/長すぎ/多重送信/
+   * preload無し)は、書いた本文が消えると打ち直しになるため**そのまま残す**。
+   */
+  const handleChatSend = (): void => {
+    const text = chatInput.trim();
+    // ガード本体は sendText 側(全送信経路で共通)。ここでは入力欄のクリア条件だけ判断する。
+    if (!text || sendingRef.current) {
+      return;
+    }
+    void sendText(text).then((accepted) => {
+      if (accepted) {
+        setChatInput('');
+      }
+    });
+  };
+
+  /**
+   * 中断。実際の release('thinking') はMain側の finally が通す(chat-pane.md 論点3の
+   * 「成功・失敗・中断・無通信タイムアウトの全経路」)。ここでフラグを勝手に倒さず、
+   * Mainから aborted イベントが返ってきた時点で解く(状態の正はMainにある)。
+   */
+  const handleChatStop = (): void => {
+    window.yorimashi?.chat.stop();
+  };
+
+  /** エラー吹き出しのボタン(chat-pane.md 論点4の表)。 */
+  const runErrorAction = (action: ChatErrorAction): void => {
+    if (action === 'switch-to-mock') {
+      // **自動フォールバックではない**。ユーザーが明示的に押したときだけ切り替える。
+      onSetChatMode('mock');
+      appendMessage({ role: 'system', text: 'mock モードに切り替えました。' });
+    } else if (action === 'open-adapter-settings') {
+      onExpandControlPanel();
+    } else if (action === 'retry') {
+      // 再送も同じ質問の再試行なのでユーザー発話は積み直さない。多重送信のガードは sendText 側。
+      void sendText(lastSentText, false);
+    }
+  };
 
   // 応答モデルを次候補へ循環(real時のみ意味を持つ。C-23)。/model と入力欄フッターのチップから呼ぶ。
   const cycleResponseModel = (): void => {
@@ -286,30 +480,123 @@ export function ConversationPane({
               display: 'flex',
               flexDirection: 'column',
               gap: 4,
-              alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+              alignItems:
+                msg.role === 'user' ? 'flex-end' : msg.role === 'system' ? 'center' : 'flex-start',
             }}
           >
-            <div
-              style={{
-                maxWidth: '85%',
-                padding: '9px 13px',
-                borderRadius: 14,
-                background: msg.role === 'user' ? theme.accentTag : theme.bgRaised,
-                border: `1px solid ${msg.role === 'user' ? theme.accent : theme.line}`,
-                color: theme.ink,
-                fontFamily: "'M PLUS 1 Code', sans-serif",
-                fontSize: 13,
-                lineHeight: 1.6,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {msg.text}
-            </div>
-            {msg.role === 'assistant' && (
+            {/* system はアプリ自身の申告。灯里の発言と取り違えないよう吹き出しにしない。 */}
+            {msg.role === 'system' ? (
+              <span
+                style={{
+                  fontFamily: "'M PLUS 1 Code', sans-serif",
+                  fontSize: 11,
+                  color: theme.inkDim,
+                  background: theme.bgRaised,
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 999,
+                  padding: '3px 10px',
+                }}
+              >
+                {msg.text}
+              </span>
+            ) : (
+              <div
+                style={{
+                  maxWidth: '85%',
+                  padding: '9px 13px',
+                  borderRadius: 14,
+                  background:
+                    msg.role === 'user'
+                      ? theme.accentTag
+                      : msg.role === 'error'
+                        ? theme.sealRedTagSoft
+                        : theme.bgRaised,
+                  border: `1px solid ${
+                    msg.role === 'user'
+                      ? theme.accent
+                      : msg.role === 'error'
+                        ? theme.sealRed
+                        : theme.line
+                  }`,
+                  color: msg.role === 'error' ? theme.warnText : theme.ink,
+                  fontFamily: "'M PLUS 1 Code', sans-serif",
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {msg.text}
+                {/* streaming中のカーソル。受信が続いていることを示す。 */}
+                {msg.streaming === true && (
+                  <span style={{ color: theme.accent, marginLeft: 1 }}>▍</span>
+                )}
+                {msg.truncated !== undefined && (
+                  <span
+                    style={{
+                      display: 'block',
+                      marginTop: 6,
+                      fontSize: 11,
+                      color: theme.inkDim,
+                    }}
+                  >
+                    {msg.truncated === 'stopped'
+                      ? '(ここで中断しました)'
+                      : '(ここで応答が途切れました)'}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* mock の固定返答を Claude の回答に見せない(chat-adapter-errors.md 論点4の理屈)。 */}
+            {msg.role === 'assistant' && msg.origin === 'mock' && (
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 9.5,
+                  letterSpacing: '0.08em',
+                  color: theme.iconInactive,
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 999,
+                  padding: '1px 6px',
+                }}
+              >
+                mock・固定返答
+              </span>
+            )}
+            {/* エラーに添えるボタン。**自動でmockへ落とさない**(押されたときだけ切り替える)。 */}
+            {msg.role === 'error' && msg.action !== undefined && msg.action !== 'none' && (
+              <button
+                onClick={() => runErrorAction(msg.action ?? 'none')}
+                // 再送は送信中に押しても sendText 側のガードで無視される。黙って無反応にせず
+                // 押せないことを見た目でも示す(再生成ボタンと同じ扱いに揃える)。
+                disabled={msg.action === 'retry' && (chatSending || lastSentText.length === 0)}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${theme.sealRed}`,
+                  borderRadius: 999,
+                  padding: '3px 10px',
+                  cursor:
+                    msg.action === 'retry' && (chatSending || lastSentText.length === 0)
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    msg.action === 'retry' && (chatSending || lastSentText.length === 0) ? 0.45 : 1,
+                  fontFamily: "'M PLUS 1 Code', sans-serif",
+                  fontSize: 11,
+                  color: theme.warnText,
+                }}
+              >
+                {msg.action === 'switch-to-mock'
+                  ? 'モックモードに切り替える'
+                  : msg.action === 'open-adapter-settings'
+                    ? 'モード設定を開く'
+                    : '再送する'}
+              </button>
+            )}
+            {msg.role === 'assistant' && msg.streaming !== true && (
               <div style={{ display: 'flex', gap: 4 }}>
-                {/* コピー・再生成の実挙動は #8 で配線する(応答本文が実データになってから)。 */}
                 <button
                   title="コピー"
+                  onClick={() => void navigator.clipboard?.writeText(msg.text)}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -323,13 +610,16 @@ export function ConversationPane({
                 </button>
                 <button
                   title="再生成"
+                  disabled={chatSending || lastSentText.length === 0}
+                  onClick={() => void sendText(lastSentText, false)}
                   style={{
                     background: 'none',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: chatSending || lastSentText.length === 0 ? 'not-allowed' : 'pointer',
                     padding: 2,
                     color: theme.iconInactive,
                     display: 'flex',
+                    opacity: chatSending || lastSentText.length === 0 ? 0.4 : 1,
                   }}
                 >
                   <RotateCcw size={12} />
@@ -338,7 +628,9 @@ export function ConversationPane({
             )}
           </div>
         ))}
-        {chatSending && (
+        {/* 「考えています…」は**最初のチャンクが来るまで**の表示。streaming が始まったら
+            吹き出し自体が伸びていくので、二重に出さない。 */}
+        {chatSending && streamingMessageId.current === null && (
           <div
             style={{
               alignSelf: 'flex-start',
@@ -470,6 +762,9 @@ export function ConversationPane({
             }}
             placeholder="灯里に話しかける…"
             rows={1}
+            // Main側でも弾くが(chat-adapter.ts)、送信ボタンを押すまで気づけないのは不親切なので
+            // 入力時点で止める。しきい値の正は shared/chat.ts。
+            maxLength={MAX_CHAT_INPUT_LENGTH}
             style={{
               flex: 1,
               resize: 'none',

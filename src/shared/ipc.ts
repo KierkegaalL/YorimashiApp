@@ -23,6 +23,42 @@ export const IPC = {
    * (chat-pane.md 論点1「内部レイアウトの再フローではなくウィンドウ自体を縮小する」)。
    */
   ControlPanelSetCollapsed: 'control-panel:set-collapsed',
+
+  /**
+   * invoke: 会話ペインからのメッセージ送信(FR-3/FR-15)。Mainが受理して requestId を返し、
+   * 以降の実況は ChatStream(Main→Renderer)で流す。**Chat AdapterはMainにしか無い**
+   * (APIキーを扱うのはMainのみ。security.md 5章)。
+   */
+  ChatSend: 'chat:send',
+  /** send: 応答の中断(停止ボタン)。中断経路でも release('thinking') を必ず通す。 */
+  ChatStop: 'chat:stop',
+  /** Main→Renderer: streaming の実況(start/chunk/done/aborted/error)。 */
+  ChatStream: 'chat:stream',
+
+  /**
+   * invoke: 現在の EmotionSnapshot を取得する(会話ペインの憑坐状態帯の初期表示)。
+   * キャラクターウィンドウは**ローカルサーバーのWS**から受け取るが(api.md 3章)、Control Panel は
+   * IPCで受け取る。理由: dev では Control Panel を Vite から読むためサーバーがHTMLへ埋め込む
+   * トークン(`window.__APP_TOKEN__`)が無く、WSに接続できないため。preloadはdev/prodどちらでも
+   * 効くので、パネル側はIPCに寄せる(この非対称は意図的)。
+   */
+  EmotionGet: 'emotion:get',
+  /** Main→Renderer: EmotionSnapshot の変化通知(憑坐状態帯の追従)。 */
+  EmotionChanged: 'emotion:changed',
+
+  /**
+   * invoke: Rendererが表示・操作するモード類(activeAdapter / chatAdapter.mode)を取得する。
+   * **正本は config(Main)**。Renderer側のstateはその写しでしかない。
+   */
+  ChatConfigGet: 'chat-config:get',
+  /**
+   * send: モードの変更要求(`/mock`・`/real`・`/code` や「モックモードに切り替える」ボタン)。
+   * Rendererのstateだけ変えると「UI上はmockなのに実際はrealへ送る」という食い違いが起きるため、
+   * **必ずMainのconfigを更新し、その結果をChatConfigChangedで受け取って反映する**。
+   */
+  ChatConfigSet: 'chat-config:set',
+  /** Main→Renderer: モード類の変化通知(Trayからの activeAdapter 切替にも追従するため)。 */
+  ChatConfigChanged: 'chat-config:changed',
 } as const;
 
 /**

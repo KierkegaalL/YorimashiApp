@@ -176,6 +176,6 @@ realに切り替えて初めて経路が動く、という状態を作らない�
 - [ ] **持続中の再発火メカニズムを`sustain`/`release`とあわせて設計する**(③の帰結)。`sustain`はMoodへの復帰タイマーを止めるだけで、Live2Dのモーションは①で寿命前にidleへ戻ってしまう。**持続中に同じReactionのモーションを尽きるたび再トリガーする仕組み**(再発火の間隔・実装主体がEmotionEngineか`Live2DRenderer`か・スプライトセットの`loop`との責務分担)を決める必要がある。本文③に埋もれさせず独立項目として決着させる
 - [x] **(コード実測で判明・A2)** Live2Dで持続中にモーションが尽きたときの挙動を確定した。**尽きるとidleグループへ自動フォールバックし固まらない/個々のモーションはループしない**(上記のコード実測ブロック①②参照)。結論: `emotionMap`に`loop`相当は**足さない**。持続はEmotionEngine側の再発火で管理する(③)。**スプライトセット側だけ`loop: true`にして終わらせない**という警告は引き続き有効(Live2D側はEmotionEngineの再発火で担保する)。実描画での最終確認のみ実装時に残る
 - [x] data.md 2.2の`clips.thinking`を`loop: true`へ変更し、`loop`と寿命が直交する旨の説明に差し替える(本ドキュメントの決定に含む・反映済み)
-- [ ] `release()`が成功・失敗・中断・無通信タイムアウトの全経路で呼ばれることを実装時に確認する(呼び忘れ=`thinking`の永久固着)
-- [ ] mockの固定返答を擬似streamingで流す実装
+- [x] **(実装・確認済み・2026-07-20 / #8)** `release()`が成功・失敗・中断・無通信タイムアウトの全経路で呼ばれることを実装時に確認する(呼び忘れ=`thinking`の永久固着)。実装は`src/main/chat-adapter/chat-adapter.ts`の`runStream()`で、streaming本体を`try/catch/finally`で包み**finallyで必ず`release('thinking')`と終端イベント送出を行う**。オフスクリーン検証(実EmotionEngine使用)で、成功(done)・中断(aborted)・エラー(error)・**送信先ウィンドウが存在しない場合**・`dispose()`のいずれでも`thinking`が残らないことを確認済み。なお無通信タイムアウト経路の実体は#12(real)で入る(mockには無通信が起こりえない)ため、その時点で同じ`finally`に載ることを再確認する
+- [x] **(実装済み・2026-07-20 / #8)** mockの固定返答を擬似streamingで流す実装(`src/main/chat-adapter/mock-responder.ts`。2文字/30msでコードポイント単位に分割し、`AbortSignal`で即中断できる)
 - [ ] 将来TTS導入時(C-12)に、スプライトセットのリップシンク不可能性を素材形式から再設計する

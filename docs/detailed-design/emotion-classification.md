@@ -163,7 +163,7 @@ Haiku分類には**応答完了後に追加の往復が入る**ため、リア�
 ## 実装時のTODO
 
 - [ ] **(要決着)** `chatAdapter.classifier`と分類用モデルIDのスキーマ追加(Notion基本設計書 6.1)
-- [ ] `KEYWORDS`は`src/shared/`に置き、Mood/Reactionの定義(`emotions.ts`)とは別ファイルにする(分類はChat Adapter固有で、Code Adapterは使わない)
+- [x] **(実装済み・2026-07-20 / #8)** `KEYWORDS`は`src/shared/`に置き、Mood/Reactionの定義(`emotions.ts`)とは別ファイルにする(分類はChat Adapter固有で、Code Adapterは使わない) → `src/shared/emotion-classification.ts`。本文の検証表11件を再現するテストを書き、**設計どおりの挙動(既知NGの「否定がスキャン窓の外」を含む)であることを確認済み**。同点決着に使う優先度は`emotions.ts`の`REACTION_PRIORITY`をEmotionEngineと共有する(順序が二重定義にならないよう単一の情報源にした)
 - [ ] 否定スキャン窓(暫定10文字)の実使用でのチューニング
 - [ ] 辞書は実際の会話ログを見ながら育てる。初期辞書は最小限で始め、憶測で語を増やさない
 - [ ] chat-adapter-errors.mdで`panic`のAPIエラー起点を確定させ、本ドキュメントの辞書側`panic`と役割が重複しないか突き合わせる
