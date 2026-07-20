@@ -14,6 +14,7 @@ import type {
   ChatSettingsSnapshot,
   ChatStreamEvent,
 } from '../shared/chat';
+import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../shared/code-settings';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
 import type {
@@ -120,6 +121,25 @@ const api = {
     getSettings: (): Promise<ChatSettingsSnapshot> => ipcRenderer.invoke(IPC.ChatSettingsGet),
     setSettings: (patch: ChatSettingsPatch): Promise<ChatSettingsSnapshot> =>
       ipcRenderer.invoke(IPC.ChatSettingsSet, patch),
+  },
+  /**
+   * Code Adapter(FR-2)の設定。モード設定タブの Code Adapter セクション用。
+   * **watchedProjectPaths への追加はネイティブダイアログ経由(chooseProject)に限る**
+   * (dispatch.sh の書き込み先を利用者の明示選択に限定する不変条件。shared/code-settings.ts)。
+   * setSettings はポートとしきい値だけを扱い、削除は特定パス指定で受け付ける。
+   */
+  codeAdapter: {
+    /** 監視対象パス・ポート(設定値/実値)・失敗しきい値のスナップショット。 */
+    getSettings: (): Promise<CodeSettingsSnapshot> => ipcRenderer.invoke(IPC.CodeSettingsGet),
+    /** ポート/失敗しきい値の更新(更新後のスナップショットを返す)。 */
+    setSettings: (patch: CodeSettingsPatch): Promise<CodeSettingsSnapshot> =>
+      ipcRenderer.invoke(IPC.CodeSettingsSet, patch),
+    /** 監視対象プロジェクトをネイティブダイアログで1件追加する。 */
+    chooseProject: (): Promise<CodeSettingsSnapshot> =>
+      ipcRenderer.invoke(IPC.CodeSettingsChooseProject),
+    /** 監視対象プロジェクトを1件外す。 */
+    removeProject: (projectPath: string): Promise<CodeSettingsSnapshot> =>
+      ipcRenderer.invoke(IPC.CodeSettingsRemoveProject, projectPath),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

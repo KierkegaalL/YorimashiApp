@@ -101,10 +101,31 @@ export class EmotionEngine {
   private lastEmitted: EmotionSnapshot | null = null;
 
   constructor(
-    private readonly config: EmotionEngineConfig,
+    private config: EmotionEngineConfig,
     private readonly scheduler: Scheduler = defaultScheduler,
   ) {
     this.armIdleTimer();
+  }
+
+  /**
+   * 実行中の設定を差し替える(モード設定タブ/設定タブからの変更を即座に効かせる)。
+   *
+   * このエンジンは**構築時に受け取った config のスナップショットを保持している**。
+   * ConfigStore.update() は新しいオブジェクトを作って差し替えるため(config-store.ts)、
+   * config.json を書き換えても、このエンジンが握っている config には伝播しない。
+   * 変更を再起動なしで反映するには、書き換え後の config をここへ明示的に渡す必要がある。
+   *
+   * しきい値(failStreakThreshold 等)は判定のたびに this.config を読むため、差し替えるだけで
+   * 次回の onToolResult() から効く。**idleTimeoutMs だけは既に張ってあるタイマーの残り時間に
+   * 影響する**ため、値が変わったときに限り無操作タイマーを張り直す(armIdleTimer は冪等)。
+   */
+  updateConfig(config: EmotionEngineConfig): void {
+    this.assertNotDisposed();
+    const idleTimeoutChanged = config.idleTimeoutMs !== this.config.idleTimeoutMs;
+    this.config = config;
+    if (idleTimeoutChanged) {
+      this.armIdleTimer();
+    }
   }
 
   /**
