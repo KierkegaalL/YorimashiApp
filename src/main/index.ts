@@ -1,4 +1,4 @@
-import { app, clipboard, ipcMain, type Tray } from 'electron';
+import { app, clipboard, ipcMain, net, type Tray } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -324,6 +324,10 @@ function startChatAdapter(): void {
     configStore,
     getTargetWindow: controlPanelBrowserWindow,
     onConfigChanged: broadcastChatConfig,
+    // real の通信断エラーの**文言を出し分けるためだけ**に渡す(接続可否の事前判定には使わない。
+    // chat-adapter-errors.md 論点2)。ChatAdapter/real-responder を Electron非依存に保つため、
+    // Electron API はここで関数として注入する。
+    isOnline: () => net.isOnline(),
   });
 
   const currentEngine = engine;
@@ -485,8 +489,11 @@ void app.whenReady().then(async () => {
 // アプリ終了時にサーバー・EmotionEngine・ウィンドウ・Trayを確実に片付ける。
 app.on('will-quit', () => {
   localServer?.stop().catch((err) => console.error('[local-server] stop failed:', err));
-  // Chat Adapter は engine より先に片付ける(進行中のstreamをabortし、release('thinking')を
-  // 通してから engine を落とすため。逆順だと dispose 済みの engine に触れて例外になる)。
+  // Chat Adapter は engine より先に片付ける。dispose() は進行中のstreamをabortするが、
+  // `disposed`フラグを先に立てるため release('thinking') 自体は呼ばない(この直後に engine
+  // ごと破棄するので、Reactionを個別に戻す意味が無いため。reviewer #12 1周目 指摘6で
+  // 誤解を招く記述だったコメントを修正)。engineより先に片付けるのは、逆順だと
+  // dispose 済みの engine に触れて例外になるため。
   chatAdapter?.dispose();
   chatAdapter = null;
   unsubscribeEmotion?.();

@@ -210,7 +210,16 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証**: typecheck通過。**オフスクリーン55/55**(実ConfigStore/実HookEventLog/実CodeAdapter)。記録対象の取捨、フィールド抽出(file_path優先・cwdフォールバック・exit_code有無)、0600/0700、保持期間の削除と**消す行が無ければ書き換えないこと**、日付を解釈できない行を残すこと、上限200件、仮名化(入れ子ルート・未知パス・生ログ非改変)、`hookEventLogPath`がuserData外を指す場合のフォールバックと**外側にファイルを作らないこと**、消去、書き込み不能でも例外を投げないこと、そして**追記58µs/件**(同期`appendFileSync`で十分という判断の根拠)
   - **チェックループ**: 2周(1周目1件[重大] → 修正 → 2周目0件)
   - **未実装(意図的)**: 会話ペインの`@作業ログ`参照(C-23)はこのログを読むが、@参照自体は会話ペイン側の機能で別タスク
-- **次**: Phase 2継続 → #12(Chat Adapter real化 + APIキー導線 FR-3)。#6の右ペインタブ中身は#13および モード設定タブで差し込む(ログタブは#11で移植済み)
+- **完了 #12: Chat Adapter real化 + APIキー導線(FR-3)** — real接続(`@anthropic-ai/sdk` 0.112.3)・会話履歴のMain保持・モード設定タブ(AdapterTabのChat Adapterセクション)・コンテキスト使用量の実測表示を実装
+  - **新規**: `src/main/chat-adapter/real-responder.ts`(**Electron非依存**。無通信ウォッチドッグ・エラー分類・`net.isOnline()`は関数注入)、`src/renderer/control-panel/src/AdapterTab.tsx`(モード設定タブ)。**変更**: `chat-adapter.ts`(real分岐・会話履歴・reset・設定IPC)、`shared/chat.ts`(`ChatUsage`/`ChatTurn`/`ChatSettingsSnapshot`/`ChatSettingsPatch`)、`shared/ipc.ts`(`ChatReset`/`ChatSettingsGet`/`ChatSettingsSet`)、`preload/index.ts`、`main/index.ts`(`isOnline`注入)、`ConversationPane.tsx`・`App.tsx`(応答モデルのconfig同期)、`panel-ui.tsx`(Switch/TextInput追加)、`catalog.ts`(APIキー取得手順)、`ControlPanelTabs.tsx`、`package.json`
+  - **無通信ウォッチドッグが最重要**(chat-adapter-errors.md 論点3): SDKの`timeout`は凍ったstreamに効かないため`AbortSignal`による自前ウォッチドッグを実装。実測(実SDK+実HTTP+実SSE)でしきい値2秒に対し凍ったstreamは2012msで中断、遅いが生きているstream(合計4015ms)は完走することを確認(壁時計方式ではないことの実証)
+  - **会話履歴の正本をMainへ**: realは文脈を渡さないと毎ターン記憶喪失になるため、`ChatAdapter`がメモリ上に`turns`を保持(C-22どおり永続化しない)。Rendererには送らせない(表示専用行をAPIへ送らない・画面とAPI送信内容の経路を分けない)
+  - **APIキーはMainのみ**(security.md 5章): モード設定タブへ返すのは`hasApiKey`と末尾4文字のみ。キー本体を編集はできず、入れ替えるか消すかのみ
+  - **正本に無い判断を明記**: システムプロンプトを付けない(要件が灯里のロールプレイを要求していない)・`max_tokens`はコード内定数4096(configスキーマを汚さない)・コンテキスト表示はパーセンテージを出さず実トークン数のみ(分母=モデルのコンテキストウィンドウ長がAPI応答に含まれず、ハードコードは実測に見える推測値になるため)
+  - **チェックループ4周**(1周目7件[重大2/中2/軽微3]→2周目3件[中〜重大1/軽微2]→3周目1件[軽微]→**4周目0件**)。主な指摘: 応答モデル選択がconfigと非同期だった、`/clear`と進行中streamの競合でMessages APIの先頭user要求に反する履歴になりうるバグ(`turnsAtStart`参照比較で解消・回帰検証追加)、モード設定タブが会話ペイン側の変更を購読しておらず表示が古くなる(`onConfigChanged`購読を追加)
+  - **検証**: typecheck/build通過。オフスクリーン: real-responder 38件(実SDK 0.112.3+実HTTP+実SSE)、chat-adapter 37件(実EmotionEngine/実ConfigStore、reset競合の回帰含む)、AdapterTab SSR 4件
+  - **未実装(意図的)**: @参照の文脈組立・添付(real)は次タスクへ。Code Adapterセクション(監視対象パス等)の編集はモード設定タブの別タスクへ
+- **次**: Phase 2継続 → モデル管理タブ・モード設定タブ(Code Adapterセクション)・#13(権利情報タブ FR-12)・#14(セキュリティ仕上げ FR-13)
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**

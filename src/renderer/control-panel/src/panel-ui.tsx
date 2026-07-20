@@ -159,3 +159,99 @@ export function PanelButton({
     </button>
   );
 }
+
+export interface SwitchProps {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  /** 注意を促す色にする(モックアップ: realへの切替は課金が発生するため朱色)。 */
+  warn?: boolean;
+  disabled?: boolean;
+}
+
+/** ON/OFFトグル(モックアップ L138-157)。 */
+export function Switch({ checked, onChange, warn, disabled }: SwitchProps): React.JSX.Element {
+  const theme = useTheme();
+  return (
+    <button
+      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      aria-pressed={checked}
+      style={{
+        width: 44,
+        height: 26,
+        borderRadius: 999,
+        position: 'relative',
+        border: 'none',
+        cursor: disabled ? 'default' : 'pointer',
+        flexShrink: 0,
+        opacity: disabled ? 0.45 : 1,
+        background: checked ? (warn ? theme.sealRed : theme.accent) : theme.sliderTrack,
+        transition: 'background 0.2s ease',
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 3,
+          left: checked ? 21 : 3,
+          width: 20,
+          height: 20,
+          borderRadius: '50%',
+          background: theme.ink,
+          transition: 'left 0.2s ease',
+        }}
+      />
+    </button>
+  );
+}
+
+export interface TextInputProps {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  /** 等幅にする(キー・ポート番号など)。 */
+  mono?: boolean;
+  /** 入力値を伏せる(APIキー。画面共有・スクリーンショットからの漏洩を避ける)。 */
+  secret?: boolean;
+  onBlur?: () => void;
+  width?: number;
+}
+
+/** 1行テキスト入力(モックアップ L213-230)。 */
+export function TextInput({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  mono,
+  secret,
+  onBlur,
+  width = 140,
+}: TextInputProps): React.JSX.Element {
+  const theme = useTheme();
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onBlur}
+      placeholder={placeholder}
+      disabled={disabled}
+      type={secret === true ? 'password' : 'text'}
+      // パスワードマネージャの自動補完対象にしない(APIキーはユーザーのログイン情報ではない)。
+      autoComplete={secret === true ? 'off' : undefined}
+      spellCheck={false}
+      style={{
+        background: disabled ? theme.bgPanel : theme.bgRaised,
+        border: `1px solid ${theme.line}`,
+        borderRadius: 8,
+        padding: '7px 10px',
+        color: disabled ? theme.disabledText : theme.ink,
+        fontSize: 13,
+        width,
+        fontFamily: mono === true ? "'JetBrains Mono', monospace" : "'M PLUS 1 Code', sans-serif",
+        outline: 'none',
+      }}
+    />
+  );
+}

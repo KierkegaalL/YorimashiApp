@@ -33,7 +33,7 @@ api.md 6章は「Messages APIを**直叩き**」と記述しているが、**公
 - APIキーは`config.chatAdapter.anthropicApiKey`にあり、config.jsonを所有するのはMain。
 - security.md は全レンダラーに`contextIsolation: true` / `sandbox: true`を課している。Rendererから直接APIを叩くとキーをRendererへ渡すことになり、この前提が崩れる。
 
-> **要決着**: `@anthropic-ai/sdk`は`package.json`に未追加で、**要件定義書5章(技術スタック)にも記載がない**(Electron / PixiJS / Zod等は列挙されているが、Anthropic SDKだけ無い)。追加はスタック変更にあたるためNotion正本の更新が要る。
+> **決着済み(A1+B一括Notion更新)**: Anthropic SDK は要件定義書5章(技術スタック)へ追加済み。`package.json`にも `@anthropic-ai/sdk` を追加した(#12。導入時のバージョンは **0.112.3**)。
 
 ### 論点1: レート制限時の挙動
 
@@ -186,7 +186,7 @@ async function streamWithIdleTimeout(client, params, idleMs) {
 
 `stream.finalMessage()`を使う。SDKは`.on()`イベントを`new Promise()`で包む必要がないよう完了・エラー・中断を内部で処理している。
 
-> **要決着**: `chatAdapter`は`{ mode, anthropicApiKey, model }`しか持たず、**無通信しきい値・`maxRetries`・`timeout`を置く場所がない**。emotion-classification.mdが要求している`classifier`と合わせて、basic-design.md 6.1(Notion正本)の変更が要る。
+> **決着済み(A1+B一括Notion更新)**: `chatAdapter` に `idleTimeoutMs`(既定30000)・`maxRetries`(2)・`timeout`(60000)・`classifier`・`classifierModel` を追加済み(basic-design.md 6.1 / docs/data.md / config-schema.ts すべて反映)。#12の実装はこの3値を config から読む。
 
 ### 論点4: mockモードへのフォールバック
 
@@ -228,13 +228,64 @@ C-08が「既定はmock、課金トリガーはreal切替時のみ」と定め�
 
 Moodの2層構造はEmotionEngineの概念なので、**しきい値は`emotionEngine`ブロックへ移すのが筋**だと考えるが、これはbasic-design.md 6.1 = Notion正本の変更を伴うため本ドキュメントでは決定しない。
 
+> **解消済み(A1+B一括Notion更新)**: `failStreakThreshold` / `successStreakThreshold` は `emotionEngine` ブロックへ移設され、Code/Chat両Adapterで共有する形になった(config-schema.ts にコメントで明記)。上の不整合は残っていない。
+
 ## 実装時のTODO
 
-- [ ] **(要決着)** `@anthropic-ai/sdk`を技術スタック(要件定義書5章)へ追加
-- [ ] **(要決着)** `chatAdapter`に無通信しきい値・`maxRetries`・`timeout`・`classifier`を追加(basic-design.md 6.1)
-- [ ] **(要決着)** `failStreakThreshold`/`successStreakThreshold`を`codeAdapter`から`emotionEngine`へ移すか判断する
-- [ ] `@anthropic-ai/sdk`を`package.json`へ追加し、権利情報タブ(FR-12)のOSS一覧にも追加する
-- [ ] `streamWithIdleTimeout`をMain側に実装する。**SDKの`timeout`だけに頼らない**
-- [ ] 無通信しきい値(暫定30秒)の実使用でのチューニング
-- [ ] api.md 6章の「直叩き」の記述を、SDK採用に合わせて更新する
-- [ ] 「console.anthropic.com を開く」ボタンの実装（論点5）: まず既存の`setWindowOpenHandler`（`src/main/index.ts`）に`window.open(url)`で乗せられるか試し、それで足りるなら専用IPCは追加しない
+- [x] **(決着済み)** `@anthropic-ai/sdk`を技術スタック(要件定義書5章)へ追加 — A1+B一括Notion更新で反映済み
+- [x] **(決着済み)** `chatAdapter`に無通信しきい値・`maxRetries`・`timeout`・`classifier`を追加(basic-design.md 6.1) — 同上
+- [x] **(決着済み)** `failStreakThreshold`/`successStreakThreshold`を`emotionEngine`へ移設 — 同上
+- [x] **(実装済み・#12)** `@anthropic-ai/sdk`(0.112.3)を`package.json`へ追加
+- [ ] 権利情報タブ(FR-12)のOSS一覧に`@anthropic-ai/sdk`を追加する(#13)
+- [x] **(実装済み・#12)** 無通信ウォッチドッグを`src/main/chat-adapter/real-responder.ts`に実装。**SDKの`timeout`だけに頼らない**
+- [ ] 無通信しきい値(暫定30秒)の実使用でのチューニング(実接続を日常的に使い始めてから)
+- [x] **(実装済み・#12)** api.md 5章の「直叩き」の記述をSDK採用に合わせて更新(章番号はFR-8/9削除にともない6章→5章へ繰り上がっている)
+- [x] **(実装済み・#12)** 「console.anthropic.com を開く」ボタン(論点5)。**既存の`setWindowOpenHandler`に`window.open(url)`で乗せられたため、専用IPCは追加していない**
+
+## 実装記録(#12・2026-07-20)
+
+実装は `src/main/chat-adapter/real-responder.ts`(**Electron非依存**。`net.isOnline()`は関数として注入)と、既存 `chat-adapter.ts` の real 分岐。**mockとrealは同じ経路を通る**(分類・sustain/release・終端イベント・履歴の積み方は共通で、差し替わるのは本文の取得元だけ)。
+
+本ドキュメントに書かれていなかったため、#12で決めて明記した事項:
+
+| 論点 | 決定 | 理由 |
+|---|---|---|
+| システムプロンプト | **付けない** | 要件はrealを「Anthropic APIに実接続する」としか定義しておらず、灯里としてのロールプレイは要求していない。灯里が担うのは応答への**感情表現**であって応答の人格ではない。勝手なペルソナ注入は「Claudeと話している」という理解と食い違う |
+| `max_tokens` | **4096**(コード内定数) | Messages APIの必須パラメータだが、会話1往復の長さのためにconfigスキーマ(=Notion正本)を変更する理由が無い。mock-responder.ts のチャンク設定と同じ判断 |
+| 会話履歴の保持場所 | **Main**(メモリのみ・C-22どおり永続化しない) | realは文脈を渡さないと毎ターン記憶喪失になる。Rendererから送らせると「画面に見えている会話」と「APIへ送る会話」が別経路になり、ずれても誰も気づけない。system行・エラー行のようにAPIへ送ってはならない表示専用の行もある |
+| 再送/再生成 | `isRetry` を Main へ伝え、**userターンを積み直さない** | 会話ペインも `echoUser=false` で吹き出しを積み直さないため、揃えないと画面1回・API2回になる |
+| 中断時の部分受信 | **履歴へ積む** | 画面にはそれが残っている。積まないと画面とAPIの文脈がずれる |
+| 失敗時の応答 | 履歴へ**積まない**(userターンは残す) | 「再送する」で同じ問いをやり直せるようにするため |
+| APIキーのRendererへの露出 | `hasApiKey` と**末尾4文字のみ**。本体は返さない | security.md 5章。画面に平文を描くとスクリーンショット・画面共有・DevToolsから漏れる。結果としてこの画面はキーを「編集」できず、**入れ替える**か**消す**かのみ |
+| APIキーの形式検査 | **しない**(空白のtrimだけ) | `sk-ant-`前提の検査を入れると、キーの体裁が変わったときに正しいキーをアプリが拒否する側の事故になる。正しさはAPIが401で答える |
+| コンテキスト使用量の表示 | **実トークン数のみ。パーセンテージは出さない** | 分母(モデルのコンテキストウィンドウ長)はAPI応答に含まれず、ハードコードするとモデル更新時に古い分母でもっともらしい%を出し続ける = 実測に見える推測値になる。モックアップのメーター表現からの意図的な差分 |
+
+**実測(オフスクリーン・実SDK 0.112.3 + 実HTTPサーバー + 実SSE)**: 38件。無通信しきい値2秒で、凍ったstreamは**2012msで中断**、0.8秒間隔×5チャンク(合計4015ms)の遅いstreamは**中断せず完走**した。これは壁時計方式では両方とも殺されるケースで、idle方式であることの実証になっている。エラー分類は401/403/404/400/429/500/529と通信断を実際に返させて確認し、いずれの文言にもAPIキーが混入しないことを確認した。APIキー未設定時は**APIへ1回もリクエストしない**(サーバーへのヒット数0で確認)。429は`maxRetries:2`で総試行3回・透過的に成功することを再確認した。
+
+**ChatAdapterレベル**: 37件(実EmotionEngine/実ConfigStore)。履歴の積み方(正常・再送・失敗・中断・`/clear`)、real全経路での`release('thinking')`、設定APIがキー本体を返さないこと、mockの`usage`が常に`null`であることを確認した。
+
+**reviewer 1周目(7件: 重大2/中2/軽微3)への対応**:
+
+| # | 指摘 | 対応 |
+|---|---|---|
+| 1(重大) | 応答モデル選択(`/model`・フッターチップ)がローカルstateのみを回し、実際にAPIへ送るモデル(config)と同期していなかった | `App.tsx`が`ChatConfigSnapshot.model`を state 化し`ConversationPane`へpropsで渡す形に変更。変更要求は`onSetResponseModel`→`chat.setConfig({model})`→Main側configを更新→`onConfigChanged`で戻る、という既存のmode/adapterと同じ経路に統一した |
+| 2(重大) | `/clear`(`reset()`)と進行中streamが競合すると、resetで空になった新しい履歴の先頭に`assistant`ターンが積まれ、Messages APIの「先頭user」要求に反する不正な配列になりうる | `runStream`開始時に`this.turns`への参照(`turnsAtStart`)を保持し、応答を積む直前に`this.turns === turnsAtStart`を確認してから積む(`pushAssistantTurn`)。reset由来なら黙って捨てる。回帰検証を追加(オフスクリーン[8][9]) |
+| 3(中) | mockの固定返答がmode不問で履歴に残り、real切替後にAPIへ送られる | 意図的な挙動と判断し、理由をコードコメントに明記(`chat-adapter.ts`の`turns`フィールド)。mock/realで履歴を分けるとモード切替のたびに文脈が失われる方が実害が大きいため |
+| 4(中) | 「再生成」ボタンが全assistantメッセージに出るが、実際には常に直近の質問だけを再送する(過去のメッセージへの操作に見えて実挙動と食い違う) | **最新のassistantメッセージにのみ**再生成ボタンを表示するよう`ConversationPane.tsx`を修正 |
+| 5(軽微) | `ChatErrorKind`の`'not-implemented'`が real実装完了後デッドコード化 | `shared/chat.ts`から削除 |
+| 6(軽微) | `will-quit`のコメントが「release('thinking')を通してから」と書いていたが、実際は`dispose()`の`disposed`フラグにより release は呼ばれない(直後にengineごと破棄するため実害は無い) | コメントを実態に合わせて修正 |
+| 7(軽微) | `reset()`直後の即時再送が、abortの非同期解決を待つ一瞬の隙間で「応答の生成中です」エラーになりうる | `reset()`内で`this.active`を同期的に`null`化するよう変更 |
+
+修正後、typecheck・buildを再確認し、オフスクリーン検証は**75件**(real-responder 38 + chat-adapter 37。AdapterTab SSR 4件は別途)全通過。
+
+**reviewer 2周目(3件: 中〜重大1/軽微2)への対応**:
+
+| # | 指摘 | 対応 |
+|---|---|---|
+| 1(中〜重大) | モード設定タブ(`AdapterTab.tsx`)が`ChatConfigChanged`を購読しておらず、会話ペイン(左)の`/mock`・`/real`・`/model`操作でMainのconfigが変わっても表示が古いまま残る。会話ペインとこのタブは同一ウィンドウに常時併存するため、実際に「もうrealなのにmockの表示のまま」という食い違いが起きる | `AdapterTab.tsx`のuseEffectで`api.onConfigChanged(reload)`を購読し、通知のたびに`getSettings()`で**取り直す**よう変更(`ChatConfigChanged`は`hasApiKey`/`apiKeyTail`を運ばないため差分適用ではなく再取得にした) |
+| 2(軽微) | `apply()`が失敗時も`catch`で吸収し常にresolveするため、APIキー保存に失敗しても入力欄が空になり、ユーザーが打ち直しを強いられる | `apply()`の戻り値を`Promise<boolean>`(成否)に変更し、保存ボタンのハンドラは成功時のみ`setKeyDraft('')`する |
+| 3(軽微) | コメントが`setWindowOpenHandler`の実装場所を`src/main/index.ts`と誤記(実際は`src/main/control-panel-window.ts`) | コメントを実ファイルパスへ修正 |
+
+3周目の検証: typecheck・build・AdapterTab SSR(4件)を再確認。
+
+**reviewer 3周目(1件・軽微)への対応**: `AdapterTab.tsx`の設定再取得(`reload`)で、成功時(`then`)は`cancelled`ガードがあるのに失敗時(`catch`)には無い非対称があった。アンマウント後に`getSettings()`が失敗すると無条件で`setError`を呼ぶ経路になっていた(実害はReactがアンマウント後の`setState`を無視するためほぼ無いが、一貫性のため修正)。`catch`側にも`if (!cancelled)`を追加。**4周目0件**でチェックループ終了。

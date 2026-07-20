@@ -12,6 +12,7 @@
 import { useTheme } from './theme';
 import { TABS, type TabId } from './catalog';
 import { LogsTab } from './LogsTab';
+import { AdapterTab } from './AdapterTab';
 
 /** 各タブの中身は後続タスクで差し込む。それまでは正直なプレースホルダを出す(偽データを置かない)。 */
 function TabPlaceholder({ label }: { label: string }): React.JSX.Element {
@@ -88,7 +89,13 @@ export function ControlPanelTabs({ tab, onSelectTab }: ControlPanelTabsProps): R
 
       {/* ── コンテンツ領域(移植済みのタブから順に差し替える) ───────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 16px 40px' }}>
-        {tab === 'logs' ? <LogsTab /> : <TabPlaceholder label={activeTab.label} />}
+        {tab === 'logs' ? (
+          <LogsTab />
+        ) : tab === 'adapter' ? (
+          <AdapterTab />
+        ) : (
+          <TabPlaceholder label={activeTab.label} />
+        )}
       </div>
     </div>
   );

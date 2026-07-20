@@ -73,6 +73,10 @@ export function App(): React.JSX.Element {
   // Tray からの activeAdapter 切替にも onConfigChanged で追従する。
   const [adapterMode, setAdapterMode] = useState<AdapterMode>('code');
   const [chatMode, setChatMode] = useState<ChatMode>('mock');
+  // real時の応答モデル(C-23)。**正本は config(Main)**。/model コマンドやフッターのモデル
+  // チップがローカルstateだけを回すと、選んだつもりのモデルと実際にAPIへ送るモデルがずれる
+  // (reviewer #12 1周目 指摘1・重大)。
+  const [responseModel, setResponseModel] = useState('claude-sonnet-5');
 
   useEffect(() => {
     const api = window.yorimashi?.chat;
@@ -80,9 +84,14 @@ export function App(): React.JSX.Element {
       return;
     }
     let cancelled = false;
-    const apply = (snapshot: { activeAdapter: AdapterMode; chatMode: ChatMode }): void => {
+    const apply = (snapshot: {
+      activeAdapter: AdapterMode;
+      chatMode: ChatMode;
+      model: string;
+    }): void => {
       setAdapterMode(snapshot.activeAdapter);
       setChatMode(snapshot.chatMode);
+      setResponseModel(snapshot.model);
     };
     void api.getConfig().then((snapshot) => {
       if (!cancelled) {
@@ -102,6 +111,9 @@ export function App(): React.JSX.Element {
   };
   const requestAdapterMode = (mode: AdapterMode): void => {
     window.yorimashi?.chat.setConfig({ activeAdapter: mode });
+  };
+  const requestResponseModel = (model: string): void => {
+    window.yorimashi?.chat.setConfig({ model });
   };
   // 選択中タブは App が保持する(モックアップと同様。L251)。折りたたみで ControlPanelTabs が
   // アンマウントされても選択タブが 'home' にリセットされないようにするため親に置く。
@@ -178,8 +190,10 @@ export function App(): React.JSX.Element {
           mood={mood}
           adapterMode={adapterMode}
           chatMode={chatMode}
+          responseModel={responseModel}
           onSetChatMode={requestChatMode}
           onSetAdapterMode={requestAdapterMode}
+          onSetResponseModel={requestResponseModel}
           onExpandControlPanel={() => toggleControlPanel(false)}
         />
 

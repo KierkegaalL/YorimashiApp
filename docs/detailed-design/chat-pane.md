@@ -203,7 +203,7 @@ FR-9（表示排他制御）の削除により、**会話ペインとキャラ�
 - [ ] 入力欄機能（C-23・論点7）の実装: スラッシュコマンド・@参照・添付(real)・応答モデル選択(real)・停止・メッセージ操作・コンテキスト表示・入力ヒント
 - [ ] @参照の文脈組立（作業ログ・表示中モデル・設定）。参照対象はアプリ管理の固定対象に限定し、本文文字列から任意パスを解決しない（security.md 6章）
 - [ ] 添付（real時）のファイル読み出しをダイアログ選択に限定し、パス検証を通す（security.md 6章）
-- [ ] コンテキスト使用量表示はreal時のみ実測。mock時は誇張して見せない（constraints.md）
+- [x] **(実装済み・2026-07-20 / #12)** コンテキスト使用量表示はreal時のみ実測（Anthropic APIの`usage`をそのまま表示）。mock時は表示自体を出さない。**パーセンテージは出さない**（分母＝モデルのコンテキストウィンドウ長がAPI応答に含まれず、ハードコードすると実測に見える推測値になるため。モックアップのメーター表現からの意図的な差分）
 - [x] **(実装済み・2026-07-20 / #8)** 送信時の`activeAdapter`自動切替＋明示の実装（案1・C-24）。Mainが`config.activeAdapter`を`chat`へ更新し、`ChatSendAccepted.adapterSwitched`で切替の事実を返す。会話ペインはトーストではなく**会話履歴内のsystemメッセージ**（「Chat Adapter に切り替えました。」）で明示する（灯里の発言と取り違えないよう吹き出しと別の見た目にした）。黙って切り替えない
 - [x] **(実装済み・2026-07-18)** モックアップの最外殻（`justifyContent: center`）を2ペイン構成へ書き換え（`Section`/`Row`/`THEMES`は無改変）。折りたたみで外側コンテナの幅を976px⇄576pxでアニメーションさせ、ウィンドウ全体縮小の見た目をReactレベルで再現。esbuildバンドル+ブラウザ描画で往復動作・送信/停止・スラッシュメニュー・real切替時の添付/モデル選択/コンテキスト表示を確認済み（Electron本体の確認ではない）
 - [x] **(実装済み・2026-07-20 / #7)** **Main側**: Control Panelウィンドウの折りたたみ時に`BrowserWindow.setBounds()`で幅のみ変更（高さ・x,yは固定、右辺のみ動かす）。次回起動時は保存済み`controlPanelCollapsed`に応じた幅で**生成**する。実装は`src/main/control-panel-window.ts`（`ControlPanelWindow`クラス）。Renderer→`IPC.ControlPanelSetCollapsed`→Main の経路で、Renderer側はCSS幅を変えない

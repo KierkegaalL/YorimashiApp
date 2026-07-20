@@ -10,6 +10,8 @@ import type {
   ChatConfigPatch,
   ChatConfigSnapshot,
   ChatSendAccepted,
+  ChatSettingsPatch,
+  ChatSettingsSnapshot,
   ChatStreamEvent,
 } from '../shared/chat';
 import type { EmotionSnapshot } from '../shared/emotions';
@@ -87,9 +89,12 @@ const api = {
    */
   chat: {
     /** 送信。受理されると requestId を返し、本文は onStream で流れてくる。 */
-    send: (text: string): Promise<ChatSendAccepted> => ipcRenderer.invoke(IPC.ChatSend, text),
+    send: (text: string, isRetry = false): Promise<ChatSendAccepted> =>
+      ipcRenderer.invoke(IPC.ChatSend, text, isRetry),
     /** 応答の中断(停止ボタン)。 */
     stop: (): void => ipcRenderer.send(IPC.ChatStop),
+    /** `/clear`。**Main側の会話履歴も消す**(表示だけ消すとAPIへは古い文脈が送られ続ける)。 */
+    reset: (): void => ipcRenderer.send(IPC.ChatReset),
     /** streaming実況の購読。戻り値の関数で解除する。 */
     onStream: (listener: (event: ChatStreamEvent) => void): (() => void) => {
       const handler = (_e: unknown, payload: ChatStreamEvent): void => listener(payload);
@@ -108,6 +113,13 @@ const api = {
       ipcRenderer.on(IPC.ChatConfigChanged, handler);
       return () => ipcRenderer.removeListener(IPC.ChatConfigChanged, handler);
     },
+    /**
+     * モード設定タブ(FR-7)用。APIキーまで扱うが、**キー本体はMainからこちらへ流れない**
+     * (取得できるのは hasApiKey と末尾4文字だけ。security.md 5章)。
+     */
+    getSettings: (): Promise<ChatSettingsSnapshot> => ipcRenderer.invoke(IPC.ChatSettingsGet),
+    setSettings: (patch: ChatSettingsPatch): Promise<ChatSettingsSnapshot> =>
+      ipcRenderer.invoke(IPC.ChatSettingsSet, patch),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

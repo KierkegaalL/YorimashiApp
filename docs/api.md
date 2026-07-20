@@ -117,6 +117,18 @@ APIを直接叩かず、以下の半自動フローで完結する(特定ベン�
 
 ## 5. Anthropic API連携(Chat Adapter real時)
 
-- Messages APIをstreamingで直叩き。`chatAdapter.mode === 'real'`の場合のみ。
-- APIキーは`config.chatAdapter.anthropicApiKey`から取得。
+- **公式SDK(`@anthropic-ai/sdk`)をMainプロセスで使う**。`chatAdapter.mode === 'real'`の場合のみ。
+  - 以前は「Messages APIをstreamingで**直叩き**」と記述していたが、`detailed-design/chat-adapter-errors.md`(論点1)でSDK採用が確定したため更新した。リトライ・`retry-after`の尊重はSDKが実装済みで、自前でバックオフを書かない。
+- APIキーは`config.chatAdapter.anthropicApiKey`から取得。**Rendererへは渡さない**(security.md 5章)。モード設定タブへ返すのは「設定済みか」と末尾4文字だけ。
+- 送信するのは`messages`と`max_tokens`のみ。**システムプロンプトは付けない**(要件にキャラクターとしてのロールプレイの定義が無く、勝手なペルソナ注入は「Claudeと話している」というユーザーの理解と食い違うため)。
+- **無通信(idle)ウォッチドッグが必須**。SDKの`timeout`は応答ヘッダ受信までしかカバーせず、streamが凍ると中断されない(実測)。`config.chatAdapter.idleTimeoutMs`(既定30000)のあいだ1チャンクも来なければ`AbortSignal`で中断する。
+- 会話履歴は**Mainがメモリ上に保持する**(C-22どおり永続化しない)。realは文脈を渡さないと毎ターン記憶喪失になるため。`/clear`でMain側の履歴も消える。
 - エラーハンドリング(レート制限・ネットワーク断時の挙動)は詳細設計で確定(`detailed-design/chat-adapter-errors.md`参照)。
+
+| 失敗 | `ChatErrorKind` | 表情 | UIのボタン |
+|---|---|---|---|
+| 401 / 403 / 404 / 400、APIキー未設定 | `configuration` | `worried` | モード設定を開く |
+| 429 / 5xx(リトライ尽き)・通信断 | `retry-exhausted` | `panic` | モックモードに切り替える |
+| 無通信ウォッチドッグ | `idle-timeout` | `panic` | 再送する |
+
+**real接続に失敗しても、mockの固定返答へ自動フォールバックしない**(論点4)。切り替えはユーザーがボタンを押したときだけ行う。

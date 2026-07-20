@@ -23,6 +23,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.3",
     "lucide-react": "^1.25.0",
     "pixi-live2d-display": "^0.4.0",
     "pixi.js": "^6.5.10",
