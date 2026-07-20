@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-import { IPC, CONTROL_PANEL_COLLAPSED_ARG, type WindowPoint } from '../shared/ipc';
+import {
+  IPC,
+  CONTROL_PANEL_COLLAPSED_ARG,
+  ONBOARDING_PENDING_ARG,
+  type WindowPoint,
+} from '../shared/ipc';
 import type {
   ChatConfigPatch,
   ChatConfigSnapshot,
@@ -8,6 +13,7 @@ import type {
   ChatStreamEvent,
 } from '../shared/chat';
 import type { EmotionSnapshot } from '../shared/emotions';
+import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
 
 /**
  * contextIsolation: true / sandbox: true 前提のpreload(security.md 5章)。
@@ -28,6 +34,17 @@ const initialCollapsed =
   process.argv.find((arg) => arg.startsWith(CONTROL_PANEL_COLLAPSED_ARG))?.slice(
     CONTROL_PANEL_COLLAPSED_ARG.length,
   ) === 'true';
+
+/**
+ * オンボーディング(FR-14)が未完了か。折りたたみと同じ理由で起動引数から同期的に読む
+ * (最初のフレームからオンボーディングを描き、Control Panel の中身を一瞬見せない)。
+ * 引数が無い経路(キャラクターウィンドウ・ブラウザでの表示確認)では false = 出さない。
+ */
+const onboardingPending =
+  process.argv.find((arg) => arg.startsWith(ONBOARDING_PENDING_ARG))?.slice(
+    ONBOARDING_PENDING_ARG.length,
+  ) === 'true';
+
 const api = {
   versions: {
     electron: process.versions.electron,
@@ -86,6 +103,35 @@ const api = {
       ipcRenderer.on(IPC.ChatConfigChanged, handler);
       return () => ipcRenderer.removeListener(IPC.ChatConfigChanged, handler);
     },
+  },
+  /**
+   * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する
+   * (ネイティブのディレクトリ選択・dispatch.shの配置・hooks設定状況の実測)。
+   * 画面遷移やステップ管理はRenderer側に閉じている。
+   */
+  onboarding: {
+    /**
+     * 初回起動フローを出すべきか(config.onboarding.completed の否定)。**同期的に読める**。
+     * IPCで読むと Control Panel の中身が一瞬描かれてから被さるため、起動引数から取る。
+     */
+    pending: onboardingPending,
+    /** 現在の状態(完了フラグ・モデル数・hooks設定状況・貼り付け用JSON)。 */
+    get: (): Promise<OnboardingSnapshot> => ipcRenderer.invoke(IPC.OnboardingGet),
+    /** 監視するプロジェクトをネイティブダイアログで選ぶ(キャンセルは null)。 */
+    chooseProject: (): Promise<string | null> => ipcRenderer.invoke(IPC.OnboardingChooseProject),
+    /**
+     * dispatch.sh を配置する。既存の内容が異なる場合は書き込まず `exists-differs` が返るので、
+     * 利用者の確認を得てから overwrite: true で呼び直す(手を入れたファイルを黙って潰さない)。
+     */
+    installDispatchScript: (
+      projectPath: string,
+      overwrite = false,
+    ): Promise<DispatchInstallResult> =>
+      ipcRenderer.invoke(IPC.OnboardingInstallDispatch, { projectPath, overwrite }),
+    /** hooks設定JSONをクリップボードへコピーする(本文はMainが持つ。表示と必ず一致する)。 */
+    copySettingsSnippet: (): Promise<boolean> => ipcRenderer.invoke(IPC.OnboardingCopySnippet),
+    /** 完了として記録する(スキップ経由でも呼ぶ)。 */
+    complete: (): Promise<void> => ipcRenderer.invoke(IPC.OnboardingComplete),
   },
   /**
    * EmotionEngine の状態(FR-4)。憑坐状態帯の表示に使う。

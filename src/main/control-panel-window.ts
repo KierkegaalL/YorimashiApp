@@ -59,7 +59,7 @@ import { BrowserWindow, ipcMain, screen, shell, type IpcMainEvent } from 'electr
 import { join } from 'node:path';
 
 import type { ConfigStore } from './config-store';
-import { IPC, CONTROL_PANEL_COLLAPSED_ARG } from '../shared/ipc';
+import { IPC, CONTROL_PANEL_COLLAPSED_ARG, ONBOARDING_PENDING_ARG } from '../shared/ipc';
 
 /** 会話ペインの目安幅(実際は flex:1 で可変。総幅の算出根拠として持つ)。 */
 export const CONVERSATION_PANE_WIDTH = 560;
@@ -249,7 +249,12 @@ export class ControlPanelWindow {
         nodeIntegration: false,
         sandbox: true,
         // 初期折りたたみ状態を preload へ同期的に渡す(IPC非同期だと展開レイアウトが一瞬見える)。
-        additionalArguments: [`${CONTROL_PANEL_COLLAPSED_ARG}${collapsed}`],
+        additionalArguments: [
+          `${CONTROL_PANEL_COLLAPSED_ARG}${collapsed}`,
+          // 初回起動フロー(FR-14)の要否。最初のフレームから正しく描くため起動引数で渡す
+          // (IPCだと Control Panel の中身が一瞬見えてからオンボーディングが被さる)。
+          `${ONBOARDING_PENDING_ARG}${!this.deps.configStore.current.onboarding.completed}`,
+        ],
       },
     });
     this.win = win;

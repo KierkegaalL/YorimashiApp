@@ -63,6 +63,11 @@ const AppConfigSchema = z.object({
     controlPanelCollapsed: z.boolean().default(false),       // Control Panel(設定画面)側の折りたたみ状態(FR-15/C-23)。既定は展開(false)=C-21
   }),
 
+  onboarding: z.object({
+    completed: z.boolean().default(false),          // FR-14。falseの間だけ初回起動フローを表示する。スキップ完了もtrue
+    completedAt: z.string().nullable().default(null), // ISO8601。未完了はnull
+  }),
+
   notion: z.object({
     connected: z.boolean().default(false),
     requirementsPageId: z.string().nullable().default(null),
