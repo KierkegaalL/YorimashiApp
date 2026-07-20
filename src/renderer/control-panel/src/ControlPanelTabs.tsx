@@ -1,10 +1,9 @@
 /**
  * Control Panel(FR-7。6タブ)。UIの正: docs/mockups/control-panel.jsx。
  *
- * この移植段階(#6=FR-15 会話ペイン)では **タブバーの骨組み** までを置く。各タブの中身は
- * それぞれの機能実装タスクで移植する(モード=#8 / ログ=#11 / 権利=#13 ほか)。#6 は FR-15 の
- * 範囲であり、6タブの中身(モデル一覧・ログ・生成ウィザード等)を先に捏造しないための線引き
- * (Memory.md「次: #6=FR-15会話ペイン移植」/ タスク #8・#11・#13 が各タブを担当)。
+ * #6(FR-15 会話ペイン)で **タブバーの骨組み** を置き、各タブの中身はそれぞれの機能実装
+ * タスクで移植する。移植済みは **ログ(FR-11/#11)** のみで、残りは正直なプレースホルダを出す
+ * (モデル一覧・生成ウィザード等を先に捏造しない)。
  *
  * ここに骨組み(タブ選択 + 中身のディスパッチ)を先に用意しておくことで、後続タスクは
  * 該当タブのプレースホルダを実内容へ差し替えるだけで済む(シェルを作り直さない)。
@@ -12,6 +11,7 @@
 
 import { useTheme } from './theme';
 import { TABS, type TabId } from './catalog';
+import { LogsTab } from './LogsTab';
 
 /** 各タブの中身は後続タスクで差し込む。それまでは正直なプレースホルダを出す(偽データを置かない)。 */
 function TabPlaceholder({ label }: { label: string }): React.JSX.Element {
@@ -86,9 +86,9 @@ export function ControlPanelTabs({ tab, onSelectTab }: ControlPanelTabsProps): R
         })}
       </div>
 
-      {/* ── コンテンツ領域(各タブは後続タスクで差し込む) ───────────────────────────── */}
+      {/* ── コンテンツ領域(移植済みのタブから順に差し替える) ───────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '20px 16px 40px' }}>
-        <TabPlaceholder label={activeTab.label} />
+        {tab === 'logs' ? <LogsTab /> : <TabPlaceholder label={activeTab.label} />}
       </div>
     </div>
   );

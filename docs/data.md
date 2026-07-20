@@ -190,3 +190,29 @@ interface HookLogEntry {
   timestamp: string;   // ISO8601
 }
 ```
+
+> **実装(#11)**: この型の実体は `src/shared/hook-log.ts`、記録・保持・仮名化は
+> `src/main/logging/hook-event-log.ts`。以下は正本に明記が無く、実装時に決めてここへ書き足した事項。
+>
+> - **記録対象**: `CodeAdapter.handle()` の結果が `applied` と `ignored-inactive-adapter` のものだけ。
+>   後者を残すのは、ログが「灯里の反応の記録」ではなく**利用者の作業の記録**だから(Chat Adapterを
+>   選んでいる間も利用者は作業している)。逆に `ignored-unwatched-path` は**記録しない**——
+>   利用者自身が `watchedProjectPaths` で除外したプロジェクトのフルパスを7日間残すのは、
+>   除外した意図に反する。なおこの除外が実効するために、`CodeAdapter.handle()` は
+>   **監視パスの判定を `activeAdapter` の判定より先に**行う(逆順だと `activeAdapter` が
+>   `chat` の間は除外判定に到達せず、除外したプロジェクトのパスが記録される)。
+>   `ignored-unknown-event` は `hookEventName` が上の閉じた union に無いため記録しない。
+> - **`exit_code`**: Claude Code 2.1.205 のhooksドキュメントが示す stdin JSON は
+>   `session_id` / `tool_name` / `tool_input` / `tool_response`(PostToolUseのみ)であり、
+>   **`exit_code` は定義されていない**(実測)。付いていれば拾うが、**無いものを補わない**。
+>   成否の判定は `PostToolUseFailure` というイベント名そのものが担う。
+> - **`filePath`**: `tool_input.file_path` を第一候補にし(同ドキュメントの例、および本リポジトリの
+>   開発用hookが同じ位置を読んでいることで確認)、無ければ `cwd` に落とす。Notification/Stop のように
+>   ファイルを伴わないイベントでも、どのプロジェクトの出来事かは残すため。
+> - **仮名化の規則**: `watchedProjectPaths` を既知のルートとして `project-a` / `project-b` … に置換する
+>   (長いパスから照合するため入れ子でも深い方が勝つ)。どのルートにも属さないパスは
+>   `project-unknown/<ファイル名>` にし、ディレクトリ部分をすべて落とす。**アプリはプロジェクトの
+>   境界を知らないので推測で分類しない**(別プロジェクトが同じ仮名に潰れるのは情報の欠落であり、漏洩ではない)。
+> - **`logging.hookEventLogPath` の検証**: 利用者が編集しうるため、userData 配下に解決できることを
+>   毎回確認し、外を指す場合は既定値へ落として警告する(`resolveWithinBase`。security.md 6章と同じ考え方)。
+> - **保持期間の適用契機**: 起動時 + 6時間ごと。常駐アプリなので起動時だけでは古い行が残り続ける。

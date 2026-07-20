@@ -73,17 +73,22 @@ export class CodeAdapter {
 
     const config = this.deps.configStore.current;
 
+    // **監視対象の絞り込みを先に見る**(activeAdapterより前)。感情の駆動だけを考えるなら
+    // どちらが先でも結果は同じ(どちらも適用しない)だが、この戻り値は FR-11 のログが
+    // 「記録するか否か」の判断に使う。順序を逆にすると、activeAdapterがchat(既定値)の間は
+    // watchedProjectPaths の判定に到達せず、**利用者が明示的に除外したプロジェクトの
+    // フルパスがログに残る**(hook-event-log.ts の記録対象の判断が前提を失う)。
+    const cwd = typeof payload.cwd === 'string' ? payload.cwd : null;
+    if (!this.isWatchedProject(cwd)) {
+      return { status: 'ignored-unwatched-path', event, cwd: cwd ?? '' };
+    }
+
     // FR-1: 灯里が「何に」反応するかはユーザーが選ぶ。Chatを選んでいる間にCode側の
     // イベントで感情を動かすと、Chat AdapterのthinkingがPreToolUseに割り込まれる等の
     // 取り合いが起きる。適用しないだけで、受信そのものは成功として204を返す
     // (dispatch.sh側をエラーにしても利用者には何もできないため)。
     if (config.activeAdapter !== 'code') {
       return { status: 'ignored-inactive-adapter', event };
-    }
-
-    const cwd = typeof payload.cwd === 'string' ? payload.cwd : null;
-    if (!this.isWatchedProject(cwd)) {
-      return { status: 'ignored-unwatched-path', event, cwd: cwd ?? '' };
     }
 
     try {
