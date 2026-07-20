@@ -174,9 +174,18 @@ C-19でメニューバーアイコンを常設すると決めたのは、まさ�
 
 ## 実装時のTODO
 
-- [ ] **(要確認)** モード選択でCodeを選んだ際のhooks設定UIを実装する。**利用者側のプロジェクトの`.claude/settings.json`と、このリポジトリ自身の開発用hooksを混同しない**
-- [ ] `.claude/settings.json`は**上書きしない**(既存hooksを破壊しうる)。コピー用の提示に留める。`dispatch.sh`の配置のみアプリが行う
-- [ ] 完了画面の分岐(モデル0体 / hooks未設定 / mock)を実装する。「完了」とだけ出さない
-- [ ] メニューバーアイコンの位置を図示する素材を用意する(既定`clickThrough: true`の唯一の逃げ道であるため)
-- [ ] 呪紋リングの完了演出は既存の`seal-spin`/`breathe`のパラメータ操作で実装する(新規アセットを作らない)
-- [ ] オンボーディング完了フラグの保存先を決める(config.jsonに未定義。`schemaVersion`のマイグレーションと併せて検討)
+**すべて #10(2026-07-20)で解消済み。** 実装は `src/main/onboarding/onboarding-service.ts`(Main側)と `src/renderer/control-panel/src/Onboarding.tsx`(画面)。
+
+- [x] **(要確認)** モード選択でCodeを選んだ際のhooks設定UIを実装する。**利用者側のプロジェクトの`.claude/settings.json`と、このリポジトリ自身の開発用hooksを混同しない**
+  - 書き込み先を「利用者がネイティブダイアログで自ら選び、`watchedProjectPaths`に登録されたディレクトリ」に限定した(`OnboardingService.isWatchedProject`)。Rendererから任意のパスを渡されても書き込まない
+- [x] `.claude/settings.json`は**上書きしない**(既存hooksを破壊しうる)。コピー用の提示に留める。`dispatch.sh`の配置のみアプリが行う
+  - 加えて`dispatch.sh`も、既存の内容が異なる場合は`exists-differs`を返して書き込まない。上書きは明示的な再要求のみ(利用者が手を入れている可能性があるため)
+- [x] 完了画面の分岐(モデル0体 / hooks未設定 / mock)を実装する。「完了」とだけ出さない
+  - 「hooks設定済み」と言えるのは**dispatch.shの配置と`settings.json`の参照が両方確認できた場合のみ**。`settings.json`が壊れて判定できないときは`probeError`で「確認できなかった」と示し、`false`(未設定)と断定しない
+- [x] メニューバーアイコンの位置を図示する素材を用意する(既定`clickThrough: true`の唯一の逃げ道であるため)
+  - 画像アセットではなく**インラインSVG**で描いた(`MenuBarDiagram`)。配布物を増やさず、配色テーマにも追従する
+- [x] 呪紋リングの完了演出は既存の`seal-spin`/`breathe`のパラメータ操作で実装する(新規アセットを作らない)
+  - **正本との差分**: 本書は「憑坐状態帯のリング」を回すと書いているが、オンボーディングはウィンドウ全面のオーバーレイであり、その間は憑坐状態帯が見えない。完了画面自身に同じ表現のリングを置いた(使う`keyframes`は既存のものそのまま)
+- [x] オンボーディング完了フラグの保存先を決める(config.jsonに未定義。`schemaVersion`のマイグレーションと併せて検討)
+  - **`config.onboarding.completed` / `completedAt` を新設**(Notion基本設計書6.1・`docs/data.md`・`config-schema.ts`に反映済み)。設定内容から推測しないのは、モデル0体・hooks未設定・mockがいずれも**正当な完了状態**であり、未通過と区別できないため
+  - `schemaVersion`は**1のまま上げない**。既存configにこの節が無くても`.prefault({})`と`.default()`が補完するため、マイグレーション関数を要さない(実測で確認: 節を削ったv1 configがそのまま未完了として読める)

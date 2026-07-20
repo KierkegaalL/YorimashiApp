@@ -67,6 +67,23 @@ export const AppConfigSchema = z.object({
     controlPanelCollapsed: z.boolean().default(false), // Control Panel(設定画面)側の折りたたみ状態(FR-15/C-23)。既定は展開(false)=C-21
   }).prefault({}),
 
+  /**
+   * オンボーディング(FR-14)の完了状態。detailed-design/onboarding.md の実装時TODO
+   * 「完了フラグの保存先を決める(config.jsonに未定義)」への回答(#10で決定)。
+   *
+   * 状態から推測せず**明示的に持つ**。モデル0体・hooks未設定・mockはいずれも
+   * 「正当な完了状態」であり(onboarding.md: 全ステップが必須ではない)、
+   * 設定内容からは「まだ通っていない」と区別できないため。
+   *
+   * schemaVersion は 1 のまま上げない。既存configにこのセクションが無くても
+   * `.prefault({})` と各 `.default()` が補完するので、マイグレーションを要さない
+   * (未完了として扱われ、初回起動フローが1度だけ出る)。
+   */
+  onboarding: z.object({
+    completed: z.boolean().default(false), // スキップして完了した場合も true
+    completedAt: z.string().nullable().default(null), // ISO8601。未完了は null
+  }).prefault({}),
+
   notion: z.object({
     connected: z.boolean().default(false),
     requirementsPageId: z.string().nullable().default(null),

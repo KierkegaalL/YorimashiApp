@@ -185,7 +185,22 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証**: typecheck/build通過。**オフスクリーン53/53**(実EmotionEngine/実ConfigStore/実LocalServer使用)。イベント名解決、api.md 1.1の対応表全6種、thinkingが一過性で自然消滅すること、Stop半減(3→idle / 6→confident維持→idle)、StopがReactionを消さないこと、**UserPromptSubmitの短縮クールダウンが既定値なら抑制される時刻で受理されること(判別力のある検証に作り直した)**、ゲート2種(app-backup誤一致の否定を含む)、不正ペイロード・dispose後でも例外を投げないこと、`POST /hook`のE2E(401では感情が動かない)、そして**dispatch.shを実際にbashで実行**(exit 0・空stdin・アプリ未起動・サーバー停止中(<3s)・不正`.port`・空白と`'`を含むパス)
   - **チェックループ**: reviewer 1周目で0件。ただし1周目0件は疑い、生成される`dispatch.sh`の実物を目視確認した
   - **未実装(意図的)**: dispatch.shの**配置**とhooks設定の案内はオンボーディング(#10)、イベントログ記録は#11(`HookHandleResult`を返す形にしてあるので配線するだけ)
-- **次**: Phase 2継続 → #10(オンボーディング FR-14)。#6の右ペインタブ中身は#11/#13および モード設定タブで差し込む
+- **完了 #10: オンボーディング(FR-14)** — 初回起動時に Control Panel 全面へ4ステップ(ようこそ→モデル→モード→完了)のオーバーレイを出す。**別ウィンドウにしない**(完了時にホームタブへ遷移する決定=onboarding.md 論点4 が同一ウィンドウを前提にしている)
+  - **新規**: `src/shared/onboarding.ts`(Main↔Renderer共有型)、`src/main/onboarding/onboarding-service.ts`(Main側)、`src/main/code-adapter/hooks-settings.ts`(settings.jsonテンプレート生成)、`src/renderer/control-panel/src/Onboarding.tsx`(画面)。**変更**: `config-schema.ts`(`onboarding`節)、`ipc.ts`・`preload/index.ts`・`main/index.ts`・`control-panel-window.ts`・`App.tsx`、`docs/api.md`・`docs/data.md`・`docs/basic-design.md`・`docs/detailed-design/onboarding.md`、**Notion基本設計書6.1**
+  - **完了フラグの保存先を決定(onboarding.md の実装時TODO)**: **`config.onboarding.completed` / `completedAt` を新設**。状態から推測しないのは、モデル0体・hooks未設定・mockが**いずれも正当な完了状態**であり、未通過と区別できないため。`schemaVersion`は**1のまま**(既存configにこの節が無くても`.prefault({})`+`.default()`が補完する。節を削ったv1 configがそのまま読めることを実測で確認)。Notion → docs → 実装 の順で反映した
+  - **アプリが書き込むのは`dispatch.sh`だけ**: `.claude/settings.json`は利用者の既存ファイルで既にhooksが入りうるため、**クリップボードへのコピー提示に留める**(正本の決定)。テンプレートは手書きせず`HOOK_EVENT_NAMES`から生成(`Record<HookEventName,…>`なのでイベントを増やすと型エラーになり、受信側だけ実装して案内に出し忘れる事故を防ぐ)
+  - **書き込み先を利用者の明示選択に限定**: `installDispatchScript()`は**`watchedProjectPaths`に登録済みのパスにしか書かない**。同リストの入口はネイティブのディレクトリ選択ダイアログだけ。Rendererから任意パスを渡されても書き込まない(このリポジトリ自身の`.claude/`を含む)。既存の`dispatch.sh`の内容が異なる場合も`exists-differs`を返して**書き込まず**、上書きは明示的な再要求のみ(利用者が手を入れている可能性)
+  - **完了画面は実測だけを根拠にする**: 「hooks設定済み」と言えるのは**dispatch.shの配置と`settings.json`の参照が両方確認できたときのみ**。`settings.json`が壊れて判定できないときは`probeError`で「確認できなかった」と示し、**`false`(未設定)と断定しない**。実行権の落ちた`dispatch.sh`も「配置済み」と言わない(Claude Codeが実行できないため)
+  - **既存挙動の変更(理由を明記)**: モデル0体のときキャラクターウィンドウを**開かない**ようにした(onboarding.md 論点4)。正本はその理由を「開いても何も見えない」と書いているが、#5で「モデル未導入」の正直な表示が入ったため**現在は見えないのではなく、操作できない表示が出続ける**。理由は変わったが結論は同じなので正本に従った。完了時に`startCharacterWindow()`を呼び、モデルがあればそこで灯里が現れる
+  - **正本との差分(明記)**: 完了演出の呪紋リングは、正本が指す「憑坐状態帯のリング」ではなく**完了画面自身に置いたリング**を回す。オンボーディングは全面オーバーレイで、その間は憑坐状態帯が見えないため。`keyframes`(`seal-spin`/`breathe`)は既存のものをそのまま使い、新規アセットは作っていない。メニューバーアイコンの図示も画像ではなく**インラインSVG**(配布物を増やさず配色テーマに追従する)
+  - **起動引数で未完了を渡す**: `ONBOARDING_PENDING_ARG`。IPC(非同期)で読むと**Control Panelの中身が一瞬描かれてからオンボーディングが被さる**。折りたたみ状態(#7)と同じ理由・同じ手口
+  - **検証**: typecheck/build通過。**オフスクリーン46/46**(実ConfigStore/実OnboardingService)。テンプレートの6イベント全数とmatcherの有無・commandパス、`onboarding`節を削ったv1 configが読めること、**未登録パスへは書き込まないこと(ファイルが作られないことまで確認)**、配置の冪等性、手を加えた既存ファイルを潰さないこと、probeの各分岐(未配置/settings無し/hooks無し/壊れたJSON/実行権なし)、完了フラグのディスク永続化、そして**配置された`dispatch.sh`をshebang+実行権だけで直接実行**(exit 0)
+  - **⚠️ reviewer 1周目が実バグを検出(重大)**: 「スキップ」と「いま『モデル』タブを開く」が**完了画面を経由せずに即 `completed=true` を確定**していた。正本(論点1)は「**スキップは完了画面へ直行する**」と明記しており、完了画面の最重要の役割はメニューバーアイコンの告知(既定`clickThrough:true`の唯一の逃げ道)。この経路を通ると、**操作できないキャラクターと逃げ道を知らないユーザーが生まれ、オンボーディングは二度と出ない**。修正: `finish()`(=`complete()`を呼んで閉じる)の呼び出しを**完了画面の2つのボタンだけ**に限定し、他の経路は`setStep('done')`にした。モデルタブへの導線は正本どおり完了画面側に置く(モデルステップからは直行させない)
+  - **reviewer が挙げたその他2件も修正**: (1)アダプタ選択が`snapshot`だけを見ており、`setConfig`が fire-and-forget かつこの画面は`onConfigChanged`未購読のため**押しても選択枠が動かなかった** → 楽観的stateを持たせ、configが追いついたら正本へ収束させる (2)クリップボードコピーが`getSnapshot()`経由で監視対象すべてに同期I/Oのプローブを走らせていた → `getSettingsSnippet()`を分離
+  - **チェックループ**: 2周(1周目4件[重大1/中1/軽微1/情報1] → 修正 → **2周目コード面0件**)。1周目の修正直後にセッション利用枠へ到達して2周目を起動できず、一度 Memory.md に「未完了」と記録して中断したうえで、次セッション冒頭に2周目を実行して閉じた
+    - 2周目の唯一の指摘は Memory.md の記述矛盾(「#10は未完了」と書きながら直後に「次: #11」と書いていた)。この記述自体を修正して解消した
+  - **未実装(意図的)**: モデル管理タブ本体(#未定)へ送るところまでがこの画面の役割。real接続の案内は#12、権利表示は#13
+- **次**: Phase 2継続 → #11(ログ管理 FR-11)。#6の右ペインタブ中身は#11/#13および モード設定タブで差し込む
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**

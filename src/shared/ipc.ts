@@ -59,6 +59,25 @@ export const IPC = {
   ChatConfigSet: 'chat-config:set',
   /** Main→Renderer: モード類の変化通知(Trayからの activeAdapter 切替にも追従するため)。 */
   ChatConfigChanged: 'chat-config:changed',
+
+  /**
+   * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:
+   * ネイティブのディレクトリ選択・dispatch.shの配置・hooks設定状況の実測
+   * (detailed-design/onboarding.md / main/onboarding/onboarding-service.ts)。
+   */
+  /** invoke: 現在の状態(完了フラグ・モデル数・hooks設定状況・貼り付け用JSON)。 */
+  OnboardingGet: 'onboarding:get',
+  /** invoke: 監視するプロジェクトをネイティブダイアログで選ぶ。選ばれたパス or null。 */
+  OnboardingChooseProject: 'onboarding:choose-project',
+  /** invoke: 選んだプロジェクトへ dispatch.sh を配置する({projectPath, overwrite})。 */
+  OnboardingInstallDispatch: 'onboarding:install-dispatch',
+  /**
+   * invoke: hooks設定JSONをクリップボードへコピーする。**本文をRendererから受け取らない**
+   * (Mainが生成した同じ文字列をコピーするので、画面の表示とコピー内容が必ず一致する)。
+   */
+  OnboardingCopySnippet: 'onboarding:copy-snippet',
+  /** invoke: 完了として記録する(スキップ経由でも呼ぶ)。 */
+  OnboardingComplete: 'onboarding:complete',
 } as const;
 
 /**
@@ -71,6 +90,16 @@ export const IPC = {
  * sandbox:true のpreloadでも `process.argv` から読めることは実測で確認済み。
  */
 export const CONTROL_PANEL_COLLAPSED_ARG = '--yorimashi-collapsed=';
+
+/**
+ * オンボーディング(FR-14)が未完了かどうかを Main → preload へ**同期的に**渡す起動引数
+ * (`--yorimashi-onboarding-pending=true|false`)。
+ *
+ * 折りたたみ状態(上)と同じ理由で起動引数にする。IPC(非同期)で読むと、初回起動時に
+ * **Control Panel の中身が一瞬描かれてからオンボーディングが被さる**。preload は初回描画より
+ * 前に走るため、起動引数なら最初のフレームからオンボーディングを描ける。
+ */
+export const ONBOARDING_PENDING_ARG = '--yorimashi-onboarding-pending=';
 
 /** character:drag-move / character:begin-drag(戻り値)で運ぶ座標。 */
 export interface WindowPoint {

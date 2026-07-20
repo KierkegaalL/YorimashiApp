@@ -1,4 +1,4 @@
-import { app, ipcMain, type Tray } from 'electron';
+import { app, clipboard, ipcMain, type Tray } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -11,6 +11,7 @@ import { ControlPanelWindow } from './control-panel-window';
 import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
 import { writeEndpointFile } from './local-server/endpoint-file';
+import { OnboardingService } from './onboarding/onboarding-service';
 import { buildAppMenu, createTray, type AppMenuDeps } from './tray-menu';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
 import { IPC } from '../shared/ipc';
@@ -39,6 +40,9 @@ import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
  *   thinking(sustain)→release→分類 を駆動する(chat-pane.md 論点3)。real は #12。
  * - Code Adapter(FR-2/#9): `POST /hook` で受けたhooksイベントをEmotionEngineへ橋渡しする
  *   (api.md 1.1)。dispatch.sh の配置自体はオンボーディング(#10)が行う。
+ * - オンボーディング(FR-14/#10): 初回起動時に Control Panel 上へ4ステップのフローを出す。
+ *   Main側は「ネイティブのディレクトリ選択」「dispatch.sh の配置」「hooks設定状況の実測」
+ *   だけを担う(onboarding/onboarding-service.ts)。`.claude/settings.json` は**書き換えない**。
  *
  * 未実装:
  * - CharacterRenderer(FR-5/#5): キャラクターウィンドウ内の実描画(Live2D/スプライトセット)。
@@ -56,6 +60,7 @@ let characterWindow: CharacterWindow | null = null;
 let controlPanelWindow: ControlPanelWindow | null = null;
 let chatAdapter: ChatAdapter | null = null;
 let codeAdapter: CodeAdapter | null = null;
+let onboarding: OnboardingService | null = null;
 let tray: Tray | null = null;
 let unsubscribeEmotion: (() => void) | null = null;
 
@@ -71,6 +76,12 @@ function initCore(): void {
   // Code Adapter(FR-2)はローカルサーバーより先に用意する。サーバー起動時に
   // onHookEvent へ渡す必要があり、かつサーバーが落ちていても生成自体は害がないため。
   codeAdapter = new CodeAdapter({ engine, configStore });
+  // オンボーディング(FR-14)。config だけに依存するのでここで用意する。
+  onboarding = new OnboardingService({
+    configStore,
+    userDataDir: app.getPath('userData'),
+    getParentWindow: controlPanelBrowserWindow,
+  });
 }
 
 async function startLocalServer(): Promise<void> {
@@ -155,6 +166,70 @@ function controlPanelBrowserWindow(): Electron.BrowserWindow | null {
 }
 
 /**
+ * IPC の送信元が Control Panel ウィンドウか。**全ての invoke/on で必ず通す**
+ * (キャラクターウィンドウとは preload を共有しているため、Main側で送信元を検証する。
+ * preload/index.ts の注記と対になる)。
+ */
+function isPanelSender(sender: Electron.WebContents): boolean {
+  const win = controlPanelBrowserWindow();
+  return win !== null && !win.isDestroyed() && win.webContents === sender;
+}
+
+/**
+ * オンボーディング(FR-14)のIPCを配線する。
+ * 書き込み系(dispatch.sh の配置)を含むため、送信元の検証を欠かさない。
+ */
+function registerOnboardingIpc(): void {
+  ipcMain.handle(IPC.OnboardingGet, (event) => {
+    if (!isPanelSender(event.sender) || !onboarding) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return onboarding.getSnapshot();
+  });
+
+  ipcMain.handle(IPC.OnboardingChooseProject, async (event) => {
+    if (!isPanelSender(event.sender) || !onboarding) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    return onboarding.chooseProject();
+  });
+
+  ipcMain.handle(IPC.OnboardingInstallDispatch, (event, payload: unknown) => {
+    if (!isPanelSender(event.sender) || !onboarding) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    if (typeof payload !== 'object' || payload === null) {
+      throw new Error('配置先が指定されていません');
+    }
+    const { projectPath, overwrite } = payload as { projectPath?: unknown; overwrite?: unknown };
+    if (typeof projectPath !== 'string' || projectPath.length === 0) {
+      throw new Error('配置先が指定されていません');
+    }
+    // 任意パスを受け付けないための検証は OnboardingService 側にもある
+    // (watchedProjectPaths = ネイティブダイアログで選ばれたパス、に限定する)。
+    return onboarding.installDispatchScript(projectPath, overwrite === true);
+  });
+
+  ipcMain.handle(IPC.OnboardingCopySnippet, (event) => {
+    if (!isPanelSender(event.sender) || !onboarding) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    // 本文はRendererから受け取らず、画面に出しているのと同じ値をMainで作り直す。
+    clipboard.writeText(onboarding.getSettingsSnippet());
+    return true;
+  });
+
+  ipcMain.handle(IPC.OnboardingComplete, (event) => {
+    if (!isPanelSender(event.sender) || !onboarding) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    onboarding.complete();
+    // モデルが導入済みならここで灯里が「降りてくる」(0体なら開かない。onboarding.md 論点4)。
+    startCharacterWindow();
+  });
+}
+
+/**
  * Chat Adapter(FR-3)と憑坐状態帯への感情配信を配線する。
  *
  * 感情の配信先が2系統あるのは意図的:
@@ -177,11 +252,6 @@ function startChatAdapter(): void {
 
   const currentEngine = engine;
   const currentStore = configStore;
-
-  const isPanelSender = (sender: Electron.WebContents): boolean => {
-    const win = controlPanelBrowserWindow();
-    return win !== null && !win.isDestroyed() && win.webContents === sender;
-  };
 
   ipcMain.handle(IPC.EmotionGet, (event): EmotionSnapshot => {
     if (!isPanelSender(event.sender)) {
@@ -272,13 +342,31 @@ function buildMenuDeps(): AppMenuDeps {
   };
 }
 
-/** キャラクターウィンドウを生成する。prod はサーバー必須(WebCodecs)のため port が要る。 */
+/**
+ * キャラクターウィンドウを生成する。prod はサーバー必須(WebCodecs)のため port が要る。
+ *
+ * **モデルが解決できないときは開かない**(onboarding.md 論点4)。透過・枠なし・クリックスルーの
+ * ウィンドウを中身なしで前面に出すと、操作もできない小さな文字が画面に居座るだけになる。
+ * オンボーディング完了時にも呼ばれるため、生成済みなら何もしない。
+ *
+ * > 補足: onboarding.md はこの判断の理由を「開いても画面上に何も見えない」と書いているが、
+ * > #5 の CharacterRenderer 実装で「モデル未導入」の正直な表示が入ったため、現在は
+ * > **見えないのではなく、操作できない表示が出続ける**。理由は変わったが結論は同じなので
+ * > 正本の決定に従う(モデル追加後に開く導線はオンボーディングとモデル管理タブが持つ)。
+ */
 function startCharacterWindow(): void {
+  if (characterWindow) {
+    return;
+  }
   const canLoad = Boolean(rendererUrl) || localServer?.port != null;
   if (!configStore || !canLoad) {
     console.warn(
       '[character] ローカルサーバー未起動のためキャラクターウィンドウを開けません(サーバー復旧後に再起動が必要)',
     );
+    return;
+  }
+  if (!resolveActiveModel(configStore.current)) {
+    console.log('[character] モデルが未導入のためキャラクターウィンドウは開きません');
     return;
   }
   characterWindow = new CharacterWindow({
@@ -306,6 +394,7 @@ void app.whenReady().then(async () => {
   openControlPanel();
   // Chat Adapter は Control Panel ウィンドウへ実況を送るため、生成後に配線する。
   startChatAdapter();
+  registerOnboardingIpc();
   startCharacterWindow();
   // メニューバーアイコンは常設(要件定義書 C-19)。クリックスルーONでも操作面を確保する。
   tray = createTray(buildMenuDeps());
@@ -328,6 +417,12 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.EmotionGet);
   ipcMain.removeHandler(IPC.ChatConfigGet);
   ipcMain.removeAllListeners(IPC.ChatConfigSet);
+  ipcMain.removeHandler(IPC.OnboardingGet);
+  ipcMain.removeHandler(IPC.OnboardingChooseProject);
+  ipcMain.removeHandler(IPC.OnboardingInstallDispatch);
+  ipcMain.removeHandler(IPC.OnboardingCopySnippet);
+  ipcMain.removeHandler(IPC.OnboardingComplete);
+  onboarding = null;
   engine?.dispose();
   characterWindow?.dispose();
   controlPanelWindow?.dispose();

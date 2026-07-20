@@ -28,6 +28,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { THEMES, ThemeProvider } from './theme';
 import { ConversationPane } from './ConversationPane';
 import { ControlPanelTabs } from './ControlPanelTabs';
+import { Onboarding } from './Onboarding';
 import type { TabId } from './catalog';
 import type { AdapterMode, ChatMode } from './types';
 import type { MoodState } from '../../../shared/emotions';
@@ -105,6 +106,14 @@ export function App(): React.JSX.Element {
   // 選択中タブは App が保持する(モックアップと同様。L251)。折りたたみで ControlPanelTabs が
   // アンマウントされても選択タブが 'home' にリセットされないようにするため親に置く。
   const [tab, setTab] = useState<TabId>('home');
+
+  // オンボーディング(FR-14)。**未完了のときだけ**このウィンドウ全面に被せる
+  // (別ウィンドウにしない。完了時にホームタブへ遷移する決定=onboarding.md 論点4 が、
+  // 同一ウィンドウであることを前提にしているため)。
+  // 初期値は preload が起動引数から同期的に読む(IPCだと Control Panel の中身が一瞬見える)。
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => (typeof window !== 'undefined' ? window.yorimashi?.onboarding.pending : false) ?? false,
+  );
 
   // 憑坐状態帯に出す Mood(FR-4)。**権威ある状態は Main の EmotionEngine** にあり、ここは
   // その写し。固定値を描くと「灯里の状態」について嘘をつくことになるため、IPCで追従する
@@ -201,6 +210,24 @@ export function App(): React.JSX.Element {
         {/* ══ Control Panel(6タブ・FR-7)。既定で展開。タブバーの骨組みのみ。中身は後続タスクで移植 ══ */}
         {!controlPanelCollapsed && <ControlPanelTabs tab={tab} onSelectTab={setTab} />}
       </div>
+
+      {/* ══ オンボーディング(FR-14)。初回起動時のみウィンドウ全面に被せる ══ */}
+      {showOnboarding && (
+        <Onboarding
+          onFinish={() => {
+            setTab('home');
+            setShowOnboarding(false);
+          }}
+          onOpenModelTab={() => {
+            // 0体のまま完了した場合の導線(onboarding.md 論点4)。設定画面を畳んでいると
+            // タブを切り替えても見えないため、必ず展開してから送る。
+            setTab('model');
+            toggleControlPanel(false);
+            setShowOnboarding(false);
+          }}
+          onSetAdapterMode={requestAdapterMode}
+        />
+      )}
     </ThemeProvider>
   );
 }
