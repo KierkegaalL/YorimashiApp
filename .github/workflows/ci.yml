@@ -1,0 +1,73 @@
+# CI — develop / main への PR と push で、機械的に確認できるものをすべて通す。
+#
+# このプロジェクトは Electron の GUI を伴う動作確認を CI で行えない
+# (.claude/rules/constraints.md「実機能確認の制約」)。よって CI が保証するのは
+# **型・ビルド・生成物の鮮度**までで、画面の確認は引き続き人手で行う。
+# CI が通ったことを「動作確認済み」と読み替えないこと。
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# 同じブランチへ続けて push した場合、古い実行は打ち切る(無駄な実行を残さない)。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 最小権限(security.md/FR-13と同じ姿勢)。リポジトリ既定が read でも、それに依存せずここで明示する。
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # 対応OSは macOS のみ(要件定義書 C-01)。ランナーも合わせる。
+    # 加えて OSS ライセンス一覧(scripts/generate-oss-licenses.mjs)は
+    # **実際にインストールされた依存**を走査するため、プラットフォーム別の
+    # optionalDependencies を持つ依存が入ったとき、別OSでは結果がずれて
+    # 後段の「生成物が最新か」チェックが偽陽性で落ちる。
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # チェックアウト以降 git 認証情報を使わない(npm ci が依存の install スクリプトを
+          # 実行するため、万一の悪用時にトークンへ触れられる経路をここで断つ)。
+          persist-credentials: false
+
+      # ローカル開発と同じ Node を使う(.nvmrc が単一の情報源)。
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: 依存インストール
+        # npm 11 の allow-scripts(サプライチェーン監査機能)は install スクリプトを持つ依存を
+        # 列挙して警告するが、`ignore-scripts`/`strict-allow-scripts` を有効にしない既定では
+        # **実行はブロックしない**(esbuild 等の postinstall は実際に走ることをローカルで実測確認)。
+        # 現状の依存はネイティブビルド(node-gyp)を要さないため npm ci で足りるが、将来 sharp 等
+        # node-gyp 必須の依存を追加する場合は、macos-latest ランナーでのビルド可否を別途実測すること
+        # (推測で「動く」と書かない。.claude/rules/constraints.md)。
+        run: npm ci
+
+      # Main/Preload/shared と Renderer/shared は別 tsconfig。npm run typecheck が両方を順に実行する
+      # (片方だけ通っても安心しない。.claude/rules/build-commands.md)。
+      - name: 型チェック
+        run: npm run typecheck
+
+      # prebuild で generate:licenses も走る(権利情報タブのOSS一覧を実依存から再生成)。
+      - name: ビルド
+        run: npm run build
+
+      # 生成物(src/shared/oss-licenses.ts)はコミット対象。依存を足したのに再生成し忘れると
+      # 権利情報タブの表示が実体とずれる(FR-12 は法務的な正確性が要る)。ビルド後に差分が
+      # 出るなら、それは「コミットされた生成物が古い」ということ。
+      - name: OSSライセンス生成物が最新か
+        run: |
+          if ! git diff --exit-code -- src/shared/oss-licenses.ts; then
+            echo "::error::src/shared/oss-licenses.ts が古くなっています。ローカルで 'npm run generate:licenses' を実行してコミットしてください。"
+            exit 1
+          fi

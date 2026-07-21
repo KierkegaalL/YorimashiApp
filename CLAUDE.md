@@ -21,6 +21,8 @@
 YorimashiApp/
 ├── CLAUDE.md                  # 本ファイル(ルールの入口)
 ├── Memory.md                  # セッション間の状況記録(完了/未決事項10件/技術情報)
+├── .github/workflows/ci.yml   # CI(型・ビルド・OSSライセンス生成物の鮮度。build-commands.md参照)
+├── .nvmrc                     # Node バージョンの単一の情報源(ローカル/CI共通)
 ├── docs/
 │   ├── requirements.md        # 要件定義書(Notionのミラー)
 │   ├── basic-design.md        # 基本設計書(Notionのミラー)

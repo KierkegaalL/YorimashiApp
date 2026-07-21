@@ -33,6 +33,14 @@ gh pr create --base develop --head feature/character-window   # base は必ず d
 
 > マージ済みの作業ブランチは `git branch -d <branch>` で削除する。区切りのよいタイミングで `git branch --merged develop` を確認しまとめて削除するとよい。
 
+### CI との関係
+
+`develop`・`main` への PR と push で CI（`.github/workflows/ci.yml`）が自動実行される（詳細は [build-commands.md](build-commands.md)「CI（GitHub Actions）」）。
+
+- PR 作成後は **CI の結果を確認してからマージする**。手元の `npm run typecheck` / `npm run build` が通っていても、クリーンな環境（依存の再インストールから）で通ることまでは保証しない。
+- CI は型・ビルド・OSSライセンス生成物の鮮度のみを見る。**CI が緑でも「動作確認済み」ではない**（Electron の GUI 確認は引き続き人手。constraints.md「実機能確認の制約」）。実装後チェックループ（reviewer サブエージェント）と役割が異なり、どちらか一方で代替できない。
+- 依存を追加・変更した場合、`npm run generate:licenses` を実行して `src/shared/oss-licenses.ts` の差分をコミットに含めること。含め忘れると CI の鮮度チェックで落ちる。
+
 ## コミットメッセージ
 
 - **命令形の要約**（英語）+ 本文（日本語可）。本文には**なぜそう決めたか**を書く。

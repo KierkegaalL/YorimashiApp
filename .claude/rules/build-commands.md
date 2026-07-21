@@ -50,6 +50,21 @@ GUIを開けないだけで、**多くの検証は実行できる**。詳細設�
 
 各ツールが未整備の間は**グレースフルに no-op** する。型チェックが失敗した場合、Claude Code は先に進まず修正すること。
 
+## CI（GitHub Actions）
+
+`.github/workflows/ci.yml` が **`develop`・`main` への PR と push** で自動実行される。ランナーは `macos-latest`（対応OSがmacOSのみ=C-01であること、およびOSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれることによる）。Node は **`.nvmrc` が単一の情報源**（メジャーバージョンのみ固定。`actions/setup-node` の `node-version-file` はメジャー内の最新パッチを解決するため、ローカルのパッチバージョンとの完全一致は保証しない）。
+
+| ステップ | 内容 |
+|---|---|
+| `npm ci` | 依存インストール |
+| `npm run typecheck` | Main/Preload/shared と Renderer/shared の両方 |
+| `npm run build` | `prebuild` で `generate:licenses` も走る |
+| 生成物の鮮度チェック | ビルド後に `src/shared/oss-licenses.ts` に差分が出たら失敗（依存を足したのに再生成し忘れた検出。FR-12は法務的な正確性が要る） |
+
+> **CI が通っても「動作確認済み」ではない。** ElectronのGUIはCIでも起動しないため、CIが保証するのは型・ビルド・生成物の鮮度まで。画面確認は引き続き人手（constraints.md「実機能確認の制約」）。
+
+**CD（パッケージング/リリース）は未整備**。electron-builder は devDependency に入っているが**設定（`build` キー/設定ファイル）が存在せず**、署名・notarize（`config.distribution.macSigningIdentity` / `macNotarize`）も既定未設定で、environments.md が「配布フェーズで検討」としている。配布方針が決まるまでリリースワークフローは作らない（動かないCDを置かない）。
+
 ---
 
 ## 実装後チェックループ（必須フロー）
