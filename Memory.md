@@ -240,7 +240,12 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **チェックループ**: 3周(1周目3件[高:推移的依存の未走査/低:libvips注記・モックにないsub]→2周目1件[中:gh-pages依存43件混入]→**3周目0件**)
 - **次**: Phase 2継続 → **モデル管理タブ(FR-5、上記分解の順で)**・#(セキュリティ仕上げ FR-13)
 
-ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
+**CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
+  - **reviewerチェックループ2周実施**（1周目5件[permissions/persist-credentials未指定・npm installスクリプトの記述が実測と不一致だった等]→修正→**2周目0件**）。npmの`allow-scripts`警告を「installスクリプトがブロックされる」と誤って書いていたが、実測（`ignore-scripts`/`strict-allow-scripts`がいずれも`false`、esbuildのpostinstallバイナリが実在）で訂正した
+  - `.claude/rules/build-commands.md`「CI（GitHub Actions）」節・`git-workflow.md`「CIとの関係」節・CLAUDE.mdディレクトリ構成ツリーに反映済み
+  - Obsidian Vaultに計測1件・知見1件を追加（プロジェクト索引ノート`ヨリマシ.app.md`から参照。詳細はVault側、正本はリポジトリの上記rules）
+
+ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化 → CI整備）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**
 
 ## 技術情報
