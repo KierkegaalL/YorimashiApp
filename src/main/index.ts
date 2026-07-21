@@ -20,6 +20,7 @@ import type { CharacterBootstrapModel } from '../shared/bootstrap';
 import { IPC } from '../shared/ipc';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
+import type { RightsSnapshot } from '../shared/rights';
 
 /**
  * Mainプロセス。
@@ -347,6 +348,20 @@ function registerCodeSettingsIpc(): void {
   });
 }
 
+/**
+ * 権利情報タブ(FR-12)のIPCを配線する。config 由来の値(Live2D の利用区分)だけを返す
+ * (OSS 一覧はビルド時生成の shared/oss-licenses.ts を Renderer が直接 import する)。
+ * 読み取り専用だが、他のIPCと同様に送信元の検証を通す。
+ */
+function registerRightsIpc(): void {
+  ipcMain.handle(IPC.RightsGet, (event): RightsSnapshot => {
+    if (!isPanelSender(event.sender) || !configStore) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return { live2dCommercialLicense: configStore.current.distribution.live2dCommercialLicense };
+  });
+}
+
 /** ログの更新をControl Panelへ間引いて通知する(中身は載せない)。 */
 function scheduleLogsChanged(): void {
   if (logsChangedTimer !== null) {
@@ -534,6 +549,7 @@ void app.whenReady().then(async () => {
   registerOnboardingIpc();
   registerLogsIpc();
   registerCodeSettingsIpc();
+  registerRightsIpc();
   startCharacterWindow();
   // メニューバーアイコンは常設(要件定義書 C-19)。クリックスルーONでも操作面を確保する。
   tray = createTray(buildMenuDeps());
@@ -573,6 +589,7 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.CodeSettingsChooseProject);
   ipcMain.removeHandler(IPC.CodeSettingsRemoveProject);
   codeSettings = null;
+  ipcMain.removeHandler(IPC.RightsGet);
   if (logsChangedTimer !== null) {
     clearTimeout(logsChangedTimer);
     logsChangedTimer = null;

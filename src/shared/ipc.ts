@@ -97,6 +97,13 @@ export const IPC = {
   CodeSettingsRemoveProject: 'code-settings:remove-project',
 
   /**
+   * 権利情報タブ(FR-12)。config に由来する動的な値だけを返す(Live2D の利用区分)。
+   * OSS 一覧はビルド時生成の shared/oss-licenses.ts を Renderer が直接 import するため IPC を通さない。
+   */
+  /** invoke: 権利情報のうち config 由来の値(live2dCommercialLicense)。 */
+  RightsGet: 'rights:get',
+
+  /**
    * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:
    * ネイティブのディレクトリ選択・dispatch.shの配置・hooks設定状況の実測
    * (detailed-design/onboarding.md / main/onboarding/onboarding-service.ts)。

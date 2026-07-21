@@ -227,6 +227,7 @@ function score(state: EmotionState, candidate: string): number {
 1. **`displaySize`の範囲がモックアップとスキーマで食い違う。** モックアップのスライダーは`min="20" max="100"`(=0.2〜1.0)だが、スキーマは`z.number().min(0.1).max(2)`(=0.1〜2.0)。既定値は0.5で一致している。UIから設定できない範囲がスキーマ側にある状態。
 2. **`cubismVersion`のenumにcubism5が無い。** 要件定義書は3箇所で「Cubism 2/4/5両対応」と述べるが、スキーマは`z.enum(['cubism2', 'cubism4'])`(data.md・basic-design.md・config-schema.tsの3箇所とも)。Cubism 5モデルは`model3.json`形式でCubism 4ランタイムから読めるため`cubism4`が5を兼ねている可能性が高いが、**どこにもそう書かれていない**。enumに`cubism5`を足すか、`cubism4`が4/5を指すとコメントで明示するかの判断が要る。
 3. **権利情報タブのOSS一覧に`sharp` / `libvips`が無い**(モックアップL1061-1074)。spriteset-pipeline.mdで採用が確定したため追加が必要。libvipsはLGPL-3.0-or-laterで、既存の一覧(MIT/ISCのみ)とライセンス種別が異なる点にも注意。
+   - **FR-12実装時の補足(2026-07-21)**: OSS一覧は`scripts/generate-oss-licenses.mjs`が`dependencies`を推移的に辿って自動生成する方式にした。`sharp`を`dependencies`へ足せば、その**npmパッケージ**(と`@img/sharp-*`等のJS依存)は自動で一覧に載る。ただし**`libvips`自体はネイティブライブラリでnpmのpackage.jsonを持たない**ため、依存ツリー走査(license-checkerでも同様)では原理的に拾えない。**LGPL-3.0の表記・同梱条件は配布NOTICE段階で別途対応が必要**(「自動生成したから権利表示は完了」と誤解しないこと)。
 4. **フォントをGoogle Fontsから`@import`している**(モックアップL105)。security.md のCSPと、オフライン動作・外部リクエストの発生(要件定義書8章はテレメトリ非収集を掲げている)に関わる。SIL OFLはバンドルを許諾しているため、ローカル同梱への変更を検討する余地がある。
 
 ## 実装時のTODO
