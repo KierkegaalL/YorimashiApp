@@ -11,6 +11,7 @@ import { ControlPanelWindow } from './control-panel-window';
 import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
 import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
+import { ModelService, modelsRootOf, parseModelId } from './model/model-service';
 import { writeEndpointFile } from './local-server/endpoint-file';
 import { OnboardingService } from './onboarding/onboarding-service';
 import { HookEventLog } from './logging/hook-event-log';
@@ -21,6 +22,7 @@ import { IPC } from '../shared/ipc';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
 import type { RightsSnapshot } from '../shared/rights';
+import type { ModelManageSnapshot } from '../shared/model-manage';
 
 /**
  * Mainプロセス。
@@ -68,6 +70,7 @@ let controlPanelWindow: ControlPanelWindow | null = null;
 let chatAdapter: ChatAdapter | null = null;
 let codeAdapter: CodeAdapter | null = null;
 let codeSettings: CodeAdapterSettings | null = null;
+let modelService: ModelService | null = null;
 let onboarding: OnboardingService | null = null;
 let hookEventLog: HookEventLog | null = null;
 let logActions: LogActions | null = null;
@@ -353,6 +356,71 @@ function registerCodeSettingsIpc(): void {
  * (OSS 一覧はビルド時生成の shared/oss-licenses.ts を Renderer が直接 import する)。
  * 読み取り専用だが、他のIPCと同様に送信元の検証を通す。
  */
+/**
+ * モデル管理タブ(FR-5)のIPCを配線する。
+ * 削除はファイル実体を消す不可逆操作を含むため、送信元の検証を欠かさない。
+ *
+ * 各操作のあとに `syncCharacterModel()` を通し、**解決結果が変わったらキャラクターウィンドウへ
+ * 反映する**(反映しないと「使用中」表示と実際に出ている絵が食い違う=嘘になる)。
+ */
+function registerModelIpc(): void {
+  if (!configStore) {
+    console.warn('[model] config 未初期化のため配線をスキップします');
+    return;
+  }
+  modelService = new ModelService({
+    configStore,
+    modelsRoot: modelsRootOf(app.getPath('userData')),
+  });
+
+  /** 操作 → スナップショット返却の共通処理(送信元検証と反映をまとめる)。 */
+  const handle = (
+    channel: string,
+    run: (service: ModelService, payload: unknown) => ModelManageSnapshot,
+  ): void => {
+    ipcMain.handle(channel, (event, payload: unknown) => {
+      if (!isPanelSender(event.sender) || !modelService) {
+        throw new Error('この送信元からの操作は許可されていません');
+      }
+      const snapshot = run(modelService, payload);
+      syncCharacterModel();
+      return snapshot;
+    });
+  };
+
+  handle(IPC.ModelGet, (service) => service.getSnapshot());
+  handle(IPC.ModelDelete, (service, payload) => service.deleteModel(parseModelId(payload)));
+  handle(IPC.ModelSetAutoSwitch, (service, payload) => {
+    if (typeof payload !== 'boolean') {
+      throw new Error('自動切替の指定が不正です。');
+    }
+    return service.setAutoSwitch(payload);
+  });
+  handle(IPC.ModelSetActive, (service, payload) => service.setManualActive(parseModelId(payload)));
+  handle(IPC.ModelSwapAssignment, (service) => service.swapAssignment());
+}
+
+/**
+ * アクティブモデルの解決結果をキャラクターウィンドウへ反映する。
+ *
+ * モデル管理タブの操作だけでなく、**アダプタ切替(Tray / 会話ペイン / C-24の自動切替)**からも呼ぶ。
+ * `autoSwitchByMode` がONのときはアダプタが変わるだけで描画すべきモデルが変わるため
+ * (character-window.ts resolveActiveModel の3)。
+ * モデルが無くなればウィンドウを閉じ、逆に**閉じたあとモデルが戻れば開き直す**
+ * (取り込み経路が入ったときにそのまま効くよう、復帰側もここで面倒を見る)。
+ */
+function syncCharacterModel(): void {
+  if (!characterWindow) {
+    startCharacterWindow();
+    return;
+  }
+  // 戻り値は「アクティブモデルが在るか」。在るのに実ウィンドウが無い(= 以前 close した)なら開き直す。
+  const hasActiveModel = characterWindow.applyActiveModel();
+  if (hasActiveModel && characterWindow.browserWindow === null) {
+    startCharacterWindow();
+  }
+}
+
 function registerRightsIpc(): void {
   ipcMain.handle(IPC.RightsGet, (event): RightsSnapshot => {
     if (!isPanelSender(event.sender) || !configStore) {
@@ -472,6 +540,11 @@ function broadcastChatConfig(): void {
   if (win && !win.isDestroyed()) {
     win.webContents.send(IPC.ChatConfigChanged, readChatConfig());
   }
+  // **アダプタが変わると描画すべきモデルも変わりうる**(autoSwitchByMode がONのとき。
+  // character-window.ts resolveActiveModel の3)。ここは Tray・会話ペイン・C-24の自動切替の
+  // すべてが通る唯一の合流点なので、モデル反映もここに集約する。解決結果が変わっていなければ
+  // applyActiveModel() が何もしないため、モード変更のたびに再読込が走ることはない。
+  syncCharacterModel();
 }
 
 /** メニューバー・右クリック共通メニューの依存。呼び出し時点の config を読む/書く。 */
@@ -507,7 +580,10 @@ function buildMenuDeps(): AppMenuDeps {
  * > 正本の決定に従う(モデル追加後に開く導線はオンボーディングとモデル管理タブが持つ)。
  */
 function startCharacterWindow(): void {
-  if (characterWindow) {
+  // **実ウィンドウの有無で判定する**(インスタンスの有無ではない)。モデルを全部消すと
+  // applyActiveModel() が close() でウィンドウだけ破棄し、characterWindow(インスタンス)は
+  // 残る。インスタンスで判定すると、その後モデルが戻っても二度と開けなくなる。
+  if (characterWindow?.browserWindow) {
     return;
   }
   const canLoad = Boolean(rendererUrl) || localServer?.port != null;
@@ -521,7 +597,9 @@ function startCharacterWindow(): void {
     console.log('[character] モデルが未導入のためキャラクターウィンドウは開きません');
     return;
   }
-  characterWindow = new CharacterWindow({
+  // 破棄後の再オープンではインスタンスを使い回す(close() は listeners/IPC を teardown 済みで、
+  // create() が張り直すため二重登録にならない。character-window.ts teardownListeners 参照)。
+  characterWindow ??= new CharacterWindow({
     configStore,
     rendererUrl,
     serverPort: localServer?.port ?? null,
@@ -550,6 +628,7 @@ void app.whenReady().then(async () => {
   registerLogsIpc();
   registerCodeSettingsIpc();
   registerRightsIpc();
+  registerModelIpc();
   startCharacterWindow();
   // メニューバーアイコンは常設(要件定義書 C-19)。クリックスルーONでも操作面を確保する。
   tray = createTray(buildMenuDeps());
@@ -590,6 +669,12 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.CodeSettingsRemoveProject);
   codeSettings = null;
   ipcMain.removeHandler(IPC.RightsGet);
+  ipcMain.removeHandler(IPC.ModelGet);
+  ipcMain.removeHandler(IPC.ModelDelete);
+  ipcMain.removeHandler(IPC.ModelSetAutoSwitch);
+  ipcMain.removeHandler(IPC.ModelSetActive);
+  ipcMain.removeHandler(IPC.ModelSwapAssignment);
+  modelService = null;
   if (logsChangedTimer !== null) {
     clearTimeout(logsChangedTimer);
     logsChangedTimer = null;

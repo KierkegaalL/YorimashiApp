@@ -10,6 +10,11 @@
 
 import { z } from 'zod';
 
+// 上限2体の単一の情報源は model-manage.ts(zod非依存の軽いモジュール)。
+// **この向きでimportする**。逆向きにすると Renderer がこの定数のために Zod 一式を
+// バンドルへ取り込む(model-manage.ts の注記参照)。
+import { MAX_MODEL_SLOTS } from './model-manage';
+
 export const ModelSlotSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -45,7 +50,7 @@ export const AppConfigSchema = z.object({
 
   model: z.object({
     // clips(感情↔クリップ対応の実体)はここに持たせない。正本はモデルごとのmanifest.json
-    slots: z.array(ModelSlotSchema).max(2).default([]),
+    slots: z.array(ModelSlotSchema).max(MAX_MODEL_SLOTS).default([]),
     autoSwitchByMode: z.boolean().default(false),
     manualActiveId: z.string().nullable().default(null),
   }).prefault({}),

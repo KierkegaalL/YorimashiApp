@@ -19,7 +19,8 @@
 import { app, BrowserWindow, ipcMain, screen, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 
 import type { ConfigStore } from './config-store';
-import type { AppConfig, ModelSlot } from '../shared/config-schema';
+import { resolveActiveModel } from './model/active-model';
+import type { AppConfig } from '../shared/config-schema';
 import { IPC, type WindowPoint } from '../shared/ipc';
 import {
   resolvePosition,
@@ -48,24 +49,9 @@ export interface CharacterWindowDeps {
   onContextMenu?: (win: BrowserWindow) => void;
 }
 
-/**
- * config から今アクティブなモデルスロットを1つ選ぶ。
- * v1は最小限: manualActiveId 一致 → そのスロット、無ければ先頭スロット、スロット無しなら null。
- * autoSwitchByMode 等の本格的な選択ロジックはモデル管理(#5/model-mapping-ui.md)側で精緻化する。
- */
-export function resolveActiveModel(config: AppConfig): ModelSlot | null {
-  const { slots, manualActiveId } = config.model;
-  if (slots.length === 0) {
-    return null;
-  }
-  if (manualActiveId) {
-    const found = slots.find((s) => s.id === manualActiveId);
-    if (found) {
-      return found;
-    }
-  }
-  return slots[0] ?? null;
-}
+// アクティブモデルの解決は Electron 非依存の model/active-model.ts に置く
+// (モデル管理サービスと同じ判定を共有するため。詳細はそちらの冒頭コメント)。
+export { resolveActiveModel };
 
 /** アクティブモデルの baseResolution × displaySize でウィンドウの物理サイズを決める。 */
 export function resolveWindowSize(config: AppConfig): Size {
@@ -83,6 +69,11 @@ export class CharacterWindow {
   private win: BrowserWindow | null = null;
   private savePositionTimer: NodeJS.Timeout | null = null;
   private quitting = false;
+  /**
+   * 現在ウィンドウへ実際に読み込んでいるモデルの id。applyActiveModel() が
+   * 「解決結果が変わったときだけ張り直す」判定に使う(config の変更すべてで再読込しない)。
+   */
+  private appliedModelId: string | null = null;
   private readonly onDisplayChange = () => this.reapplyPositionOnDisplayChange();
   private readonly onBeforeQuit = () => {
     this.quitting = true;
@@ -150,8 +141,61 @@ export class CharacterWindow {
     screen.on('display-removed', this.onDisplayChange);
     screen.on('display-metrics-changed', this.onDisplayChange);
 
+    // 生成時点のアクティブモデルを記録しておく(以降 applyActiveModel() が差分で判定する)。
+    this.appliedModelId = resolveActiveModel(config)?.id ?? null;
     void win.loadURL(this.resolveLoadUrl());
     return win;
+  }
+
+  /**
+   * アクティブモデルの変更を実ウィンドウへ反映する(モデル管理タブでの選択・削除・自動切替、
+   * および自動切替オン時のアダプタ切替から呼ぶ)。
+   *
+   * **再読込が要る理由**: 描画対象のモデルは `/character` のHTMLに埋め込まれた bootstrap
+   * (index.ts の getCharacterBootstrap)で決まるため、config を変えただけでは表示は変わらない。
+   * サイズも `baseResolution × displaySize` で決まるので、モデルが変われば張り直す必要がある。
+   *
+   * @returns アクティブモデルが無くなった(=ウィンドウを閉じた)なら false。
+   */
+  applyActiveModel(): boolean {
+    const win = this.browserWindow;
+    if (!win) {
+      return resolveActiveModel(this.deps.configStore.current) !== null;
+    }
+    const config = this.deps.configStore.current;
+    const active = resolveActiveModel(config);
+    if (!active) {
+      // モデルが無い状態でウィンドウを残さない(onboarding.md 論点4と同じ判断。
+      // 透過・枠なし・クリックスルーのウィンドウに「モデル未導入」だけが residual に出続ける)。
+      this.close();
+      return false;
+    }
+    if (active.id === this.appliedModelId) {
+      return true; // 解決結果が変わっていないなら張り直さない(無用な再読込を避ける)
+    }
+    this.appliedModelId = active.id;
+    const size = resolveWindowSize(config);
+    win.setSize(size.width, size.height);
+    void win.loadURL(this.resolveLoadUrl());
+    return true;
+  }
+
+  /**
+   * ウィンドウを閉じる(アプリ終了ではなくモデルが無くなった場合)。
+   * `close` ガードは終了時以外の破棄を防ぐため、ここでは一時的に外してから destroy する。
+   * 再びモデルが入れば index.ts 側が create() し直す。
+   */
+  private close(): void {
+    this.clearSaveTimer();
+    this.teardownListeners();
+    const win = this.win;
+    this.appliedModelId = null;
+    if (win && !win.isDestroyed()) {
+      this.quitting = true; // closeガードを外す(destroyは'close'を発火しないが意図を明示する)
+      win.destroy();
+      this.quitting = false;
+    }
+    this.win = null;
   }
 
   /** クリックスルーを切り替え、config へ保存する(メニューバーのチェックボックスから呼ぶ)。 */
@@ -294,6 +338,8 @@ export class CharacterWindow {
     this.clearSaveTimer();
     this.teardownListeners();
     this.win = null;
+    // 次に create() したとき差分判定が「変更なし」と誤判定しないよう、読み込み済みの記録も落とす。
+    this.appliedModelId = null;
   }
 
   private clearSaveTimer(): void {

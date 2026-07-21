@@ -14,6 +14,7 @@ import { TABS, type TabId } from './catalog';
 import { LogsTab } from './LogsTab';
 import { AdapterTab } from './AdapterTab';
 import { RightsTab } from './RightsTab';
+import { ModelTab } from './ModelTab';
 
 /** 各タブの中身は後続タスクで差し込む。それまでは正直なプレースホルダを出す(偽データを置かない)。 */
 function TabPlaceholder({ label }: { label: string }): React.JSX.Element {
@@ -96,6 +97,8 @@ export function ControlPanelTabs({ tab, onSelectTab }: ControlPanelTabsProps): R
           <AdapterTab />
         ) : tab === 'licenses' ? (
           <RightsTab />
+        ) : tab === 'model' ? (
+          <ModelTab />
         ) : (
           <TabPlaceholder label={activeTab.label} />
         )}
