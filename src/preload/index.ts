@@ -15,6 +15,7 @@ import type {
   ChatStreamEvent,
 } from '../shared/chat';
 import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../shared/code-settings';
+import type { RightsSnapshot } from '../shared/rights';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
 import type {
@@ -140,6 +141,13 @@ const api = {
     /** 監視対象プロジェクトを1件外す。 */
     removeProject: (projectPath: string): Promise<CodeSettingsSnapshot> =>
       ipcRenderer.invoke(IPC.CodeSettingsRemoveProject, projectPath),
+  },
+  /**
+   * 権利情報タブ(FR-12)。config 由来の値(Live2D の利用区分)だけを取る。
+   * OSS 一覧はビルド時生成の shared/oss-licenses.ts を Renderer が直接 import する。
+   */
+  rights: {
+    get: (): Promise<RightsSnapshot> => ipcRenderer.invoke(IPC.RightsGet),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

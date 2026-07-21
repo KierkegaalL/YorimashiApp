@@ -7,7 +7,10 @@
     "doc": "docs"
   },
   "scripts": {
+    "generate:licenses": "node scripts/generate-oss-licenses.mjs",
+    "predev": "npm run generate:licenses",
     "dev": "electron-vite dev",
+    "prebuild": "npm run generate:licenses",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",

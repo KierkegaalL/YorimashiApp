@@ -230,7 +230,15 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 - **モデル管理タブ(FR-5)を別トラックへ分解(2026-07-21・ユーザー承認)**: モックアップ(805-1179行)の裏にある基盤がほぼ未実装で規模が桁違い。**Main側インフラを先に作らないとUIだけ置いても動かない**:
   - 必要な基盤: モデル一覧/削除/自動切替のIPC(`config.model.slots`はあるが専用IPCなし)、取り込みパイプライン(Live2D=Cubism2/4列挙+自動マッピング / spriteset=画像→AI生成→mp4取込→色キー抜き→WebP変換=spriteset-pipeline.md丸ごと)、感情↔モーション編集UI、Control Panel内プレビュー枠(`CharacterRenderer` mount)
   - 進め方(推奨): まずMain側インフラ(スロット一覧/削除/自動切替IPC)→取り込みパイプライン→マッピング編集、の順。新規ファイルが多い工程はOpus 4.8で着手。model-mapping-ui.md / spriteset-pipeline.md が正本
-- **次**: Phase 2継続 → **モデル管理タブ(FR-5、上記分解の順で)**・#(権利情報タブ FR-12)・#(セキュリティ仕上げ FR-13)
+- **完了 権利情報タブ(FR-12)** — Live2D利用区分/外部AIサービス注意/OSSライセンス一覧/フォント/持ち込みモデル/Anthropic APIの6区分を表示
+  - **新規**: `scripts/generate-oss-licenses.mjs`(OSS一覧のビルド時自動生成)、`src/shared/oss-licenses.ts`(**自動生成物・コミット対象・手編集禁止**)、`src/shared/rights.ts`(`RightsSnapshot`)、`src/renderer/control-panel/src/RightsTab.tsx`。**変更**: `package.json`(`generate:licenses`/`predev`/`prebuild`)、`ipc.ts`(`RightsGet`)、`preload/index.ts`(`rights.get`)、`main/index.ts`(`registerRightsIpc`+will-quit片付け)、`ControlPanelTabs.tsx`、`docs/detailed-design/model-mapping-ui.md`(不整合3へ追記)
+  - **OSS一覧は実際にビルド時自動生成**(要件4.12/9章)。`dependencies`を**推移的にBFS走査**+`electron`を葉として1件(そのnpm依存=インストール時ツールは辿らない)。ビルドツール(vite/typescript等devDeps)は配布物でないため除外。手書きにせず`sharp`等は導入時に自動反映。**スコープ外**=同梱Electronランタイム自身の第三者ライセンス(Chromium/Node)とネイティブlibvips(package.jsonを持たず走査不可)は配布NOTICE段階で対応(generate-oss-licenses.mjs・model-mapping-ui.md不整合3に明記)
+  - **gh-pagesを除外**(reviewer 2周目指摘): `pixi-live2d-display`が誤って`dependencies`に含む`gh-pages`は、environments.md「distバンドルには痕跡がなくランタイムには使われない」と確定済み。除外ルートにし、そこ経由でしか到達しない依存(計42件)を落とす(他経路でも到達する`object-assign`等は保持)。121→**79件**
+  - **嘘をつかないための意図的逸脱(モックアップから)**: (1)Live2D利用区分は`config.distribution.live2dCommercialLicense`を`RightsGet` IPCで反映(ハードコードで断定しない。読めない経路は「確認できません」)。(2)**外部AIサービスの「現在の利用区分: 個人利用(無償枠)」バッジは削除**(アプリは利用者がPika/Canva等をどの料金枠で使ったか知り得ないため断定しない。注意喚起に置換)。理由をRightsTab.tsx冒頭に明記
+  - **対称性(正当な非対称)**: Live2D利用区分はLive2D形式のみ、外部AIはスプライトセット生成のみに関係(要件9章)。**両形式ぶんのセクションを対で用意**しているため対称は保たれる。symmetry-reminderフックが実装中に何度も反応したが、いずれもこの正当な非対称/パッケージ名の「live2d」文字列への誤検知
+  - **検証**: typecheck/build(prebuildで生成実行)通過。オフスクリーン: 生成スクリプト8件(推移走査・electron葉扱い・インストール時ツール除外・重複なし・スコープ注記)+gh-pages除外4件、RightsTab SSR 15件(6セクション・OSS実体描画・利用区分の断定回避・外部AI誤ステータス不在)
+  - **チェックループ**: 3周(1周目3件[高:推移的依存の未走査/低:libvips注記・モックにないsub]→2周目1件[中:gh-pages依存43件混入]→**3周目0件**)
+- **次**: Phase 2継続 → **モデル管理タブ(FR-5、上記分解の順で)**・#(セキュリティ仕上げ FR-13)
 
 ハーネス整備は完了（たそがれ日記ベースへの移行 → Obsidian Vault導入 → 対称性フックの差分ベース化）。
 A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）も完了。**実装着手をブロックする未決事項は無い。**
