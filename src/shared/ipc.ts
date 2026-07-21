@@ -104,6 +104,24 @@ export const IPC = {
   RightsGet: 'rights:get',
 
   /**
+   * モデル管理タブ(FR-5/FR-7)の**スロット管理**。取り込み(Live2D/スプライトセット生成)と
+   * 感情↔モーション対応の編集は後続タスクで別チャンネルとして足す。
+   *
+   * いずれも更新後のスナップショットを返す。**Renderer にファイルパスは渡さない**
+   * (表示に不要で、Renderer 由来のパスを信じる経路を作らないため。shared/model-manage.ts)。
+   */
+  /** invoke: スロット一覧・自動切替・解決済みアクティブモデル。 */
+  ModelGet: 'model:get',
+  /** invoke: スロットを1件削除する(引数はモデルid。ファイル実体も消す)。 */
+  ModelDelete: 'model:delete',
+  /** invoke: モードによる自動切替の ON/OFF(引数は boolean)。 */
+  ModelSetAutoSwitch: 'model:set-auto-switch',
+  /** invoke: 自動切替オフ時に使うモデルを選ぶ(引数はモデルid)。 */
+  ModelSetActive: 'model:set-active',
+  /** invoke: Code / Chat の担当を入れ替える。 */
+  ModelSwapAssignment: 'model:swap-assignment',
+
+  /**
    * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:
    * ネイティブのディレクトリ選択・dispatch.shの配置・hooks設定状況の実測
    * (detailed-design/onboarding.md / main/onboarding/onboarding-service.ts)。

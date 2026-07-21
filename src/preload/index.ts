@@ -16,6 +16,7 @@ import type {
 } from '../shared/chat';
 import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../shared/code-settings';
 import type { RightsSnapshot } from '../shared/rights';
+import type { ModelManageSnapshot } from '../shared/model-manage';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
 import type {
@@ -148,6 +149,24 @@ const api = {
    */
   rights: {
     get: (): Promise<RightsSnapshot> => ipcRenderer.invoke(IPC.RightsGet),
+  },
+  /**
+   * モデル管理(FR-5)のスロット操作。取り込みと感情↔モーション編集は後続タスクで足す
+   * (このAPIからはスロットを増やせない)。いずれも更新後のスナップショットを返す。
+   */
+  models: {
+    get: (): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelGet),
+    /** スロットを1件削除する(モデルファイルの実体も消える)。 */
+    delete: (id: string): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelDelete, id),
+    /** モードによる自動切替の ON/OFF。 */
+    setAutoSwitch: (enabled: boolean): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.ModelSetAutoSwitch, enabled),
+    /** 自動切替オフ時に使うモデルを選ぶ。 */
+    setActive: (id: string): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.ModelSetActive, id),
+    /** Code / Chat の担当を入れ替える。 */
+    swapAssignment: (): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.ModelSwapAssignment),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

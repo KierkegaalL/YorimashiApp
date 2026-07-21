@@ -238,7 +238,16 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **対称性(正当な非対称)**: Live2D利用区分はLive2D形式のみ、外部AIはスプライトセット生成のみに関係(要件9章)。**両形式ぶんのセクションを対で用意**しているため対称は保たれる。symmetry-reminderフックが実装中に何度も反応したが、いずれもこの正当な非対称/パッケージ名の「live2d」文字列への誤検知
   - **検証**: typecheck/build(prebuildで生成実行)通過。オフスクリーン: 生成スクリプト8件(推移走査・electron葉扱い・インストール時ツール除外・重複なし・スコープ注記)+gh-pages除外4件、RightsTab SSR 15件(6セクション・OSS実体描画・利用区分の断定回避・外部AI誤ステータス不在)
   - **チェックループ**: 3周(1周目3件[高:推移的依存の未走査/低:libvips注記・モックにないsub]→2周目1件[中:gh-pages依存43件混入]→**3周目0件**)
-- **次**: Phase 2継続 → **モデル管理タブ(FR-5、上記分解の順で)**・#(セキュリティ仕上げ FR-13)
+- **完了 モデル管理タブ 第1段階: スロット管理(FR-5/FR-7)** — 一覧・削除・アクティブ選択・モードによる自動切替。**取り込みとマッピング編集は第2/第3段階**(UI上は正直なプレースホルダ)
+  - **新規**: `src/shared/model-manage.ts`(共有型+`MAX_MODEL_SLOTS`)、`src/main/model/active-model.ts`(`resolveActiveModel`。**Electron非依存**)、`src/main/model/model-service.ts`(`ModelService`。Electron非依存)、`src/renderer/control-panel/src/ModelTab.tsx`。**変更**: `character-window.ts`(`applyActiveModel`/`close`/`appliedModelId`追加、resolveActiveModelを移動+再export)、`config-schema.ts`(`.max(MAX_MODEL_SLOTS)`)、`ipc.ts`(Model* 5チャンネル)、`preload/index.ts`、`main/index.ts`、`ControlPanelTabs.tsx`
+  - **⚠️ 既存の欠落を修正(今回の中核)**: `resolveActiveModel`が`manualActiveId`しか見ておらず**`autoSwitchByMode`/`assignedAdapter`を無視していた**。UIだけ作ると「自動切替をONにしても切り替わらない」嘘になるため実装。解決順は 0体→null / 1体→常にそれ / 2体+autoSwitch→`assignedAdapter===activeAdapter` / それ以外→manualActiveId→先頭(モックアップL809-811と一致)
+  - **実ウィンドウへの反映**: `applyActiveModel()`が解決結果の変化時のみ`setSize`+`loadURL`(bootstrapはHTML埋め込みなので再読込が要る)。0体になれば閉じ、モデルが戻れば開き直す。**`broadcastChatConfig()`に`syncCharacterModel()`を入れて Tray/会話ペイン/C-24自動切替のすべてのアダプタ変更を拾う**(autoSwitch ON時はアダプタ変更だけで描画モデルが変わるため)
+  - **削除の安全性**: `resolveWithinBase(modelsRoot, installedDir)`を通してから`fs.rmSync`。models配下外なら消さない。**消せなかった場合は`snapshot.warning`でUIに申告**(Mainのconsoleだけだと利用者には「消えた」ようにしか見えない)
+  - **⚠️ reviewer 2周目が実測でバンドル肥大化を検出**: `MAX_MODEL_SLOTS`の単一情報源化を`config-schema.ts`側に置いて`model-manage.ts`から値re-exportしたところ、**Rendererが定数1つのためにZodスキーマ一式(schemas chunk 698.83kB)を取り込んでいた**(control-panel/index.htmlがmodulepreloadしていた)。依存の向きを逆にして解消(定数はzod非依存の`model-manage.ts`に置き、config-schemaがimportする)。両ファイルに理由を明記
+  - **検証**: typecheck/build通過。**バンドル実測**(schemasチャンク消失・control-panel 148.55→143.83kB)。オフスクリーン28件(resolveActiveModel 9件[0/1/2体・autoSwitch両モード・フォールバック]、ModelService 13件[**models外を指すinstalledDirで外部ファイルを消さないこと**含む]、parseModelId 2件、修正確認4件[warning/autoSwitch解除])。ModelTab SSR 3件。active-model/model-serviceのバンドルでelectron参照0件
+  - **チェックループ**: 3周(1周目6件[中2:再オープン経路の破綻・削除失敗が伝わらない / 低2 / 軽微2]→2周目1件[高:上記バンドル肥大化]→**3周目0件**)
+  - **次段階(未着手)**: 第2段階=取り込みパイプライン(Live2D=Cubism2/4列挙+自動マッピング / spriteset=spriteset-pipeline.md)、第3段階=感情↔モーション編集UI+プレビュー枠。**取り込みが入るまで実機ではスロットが増えないため、モデルタブは通常「空きスロット」表示になる**
+- **次**: Phase 2継続 → **モデル管理タブ 第2段階(取り込みパイプライン)**・#(セキュリティ仕上げ FR-13)
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
   - **reviewerチェックループ2周実施**（1周目5件[permissions/persist-credentials未指定・npm installスクリプトの記述が実測と不一致だった等]→修正→**2周目0件**）。npmの`allow-scripts`警告を「installスクリプトがブロックされる」と誤って書いていたが、実測（`ignore-scripts`/`strict-allow-scripts`がいずれも`false`、esbuildのpostinstallバイナリが実在）で訂正した
