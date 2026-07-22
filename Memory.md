@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-21
+**最終更新**: 2026-07-22
 
 ## 現在地
 
@@ -256,7 +256,15 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証**: typecheck/build通過。electron参照0件(live2d-import/model-importer両方)。オフスクリーン20件(コア9=normalize/自動マッピングがdoc実測表と全10状態一致/実モデル列挙Haru・Shizuku/manifest生成、オーケストレーション8=フルインポート複製+manifest+スロット/cubism2/上限チェックでコピー前拒否/**逸脱モデル拒否・Haruは通す**/キャンセル/snapshot、ModelTab SSR 3)
   - **チェックループ**: 2周(1周目7件[高1:正本齟齬(baseResolution前提の訂正)/中3:陳腐化コメント・同一タブ内メッセージ矛盾/低3:TODOチェック漏れ・冗長条件・定数二重化]→2周目0件)
   - **未実装(意図的)**: zip取り込み・スプライトセット生成(第2段階b)・感情↔モーション編集UI+プレビュー枠(第3段階)。**取り込みが1形式入ったので実機ではLive2Dフォルダを選べばモデルが増える**
-- **次**: Phase 2継続 → **モデル管理タブ 第2段階b(スプライトセット生成: sharp/WebCodecs/色キー抜き)**・第3段階(マッピング編集+プレビュー)・#(セキュリティ仕上げ FR-13)
+- **完了 モデル管理タブ 第2段階b-1: スプライトセット生成のMain側コア(FR-5)** — spriteset-pipeline.md 手順2/手順4中段・後段のコア。ユーザー選択で「Main側の生成コアを先行」(RendererのWebCodecs+取り込みUIはb-2に分離)
+  - **重要な訂正(引き継ぎメモが古かった)**: 前回まで「ローカルサーバー未実装」と記録していたが、**実際には`src/main/local-server/local-server.ts`が実装済み**で、character-windowはprodで`http://127.0.0.1:<port>/character`(secure context)から読む。よって**WebCodecsの前提(secure context)は満たされており、b-2はブロックされていない**
+  - **新規(すべてElectron非依存・0件確認)**: `src/shared/spriteset/color-key.ts`(境界連結フラッドフィル`keyOutBackground`+1px膨張。**内部の緑の島を保護**。純粋関数でRendererがImageData上で使う)、`src/shared/spriteset/video-codec.ts`(`classifyVideoCodec`。実測表に基づくH.265弾きの事前フィルタ。最終判断は実行時の`VideoDecoder.isConfigSupported`=b-2)、`src/main/model/spriteset-encode.ts`(`compositeOnChromaGreen`=手順2 sharp合成/`encodeAnimatedWebp`=手順4後段 sharp join。loop:false→sharp loop:1)、`src/main/model/spriteset-importer.ts`(`SpritesetImporter`。キー抜き済みフレーム→感情ごとエンコード→`<emotion>.webp`書き出し→manifest生成・検証→スロット登録。`CLIP_DEFAULTS`はdata.md 2.2のloop/returnTo表)
+  - **sharp導入(0.35.3/libvips 8.18.3)**: 実測でN-APIプリビルド=Electron再ビルド不要を再確認。**Rendererへ漏れない**(`require("sharp")`/`libvips-cpp`=0件。RightsTabに出る`@img/sharp`はライセンス名の文字列データ)。Main側は**まだindex.tsへ未接続=未バンドル**(IPC配線はb-2。正当)
+  - **FR-12ライセンス自動収集を修正(実測に基づく訂正)**: `scripts/generate-oss-licenses.mjs`が**インストール済み`optionalDependencies`も辿る**ようにした。旧コメントは「libvipsはnpm package.jsonを持たず拾えない」としていたが誤りで、**`@img/sharp-libvips-darwin-arm64`はpackage.jsonでLGPL-3.0-or-laterを宣言**している。79→85件(sharp/@img/sharp-darwin-arm64=Apache-2.0/@img/sharp-libvips-darwin-arm64=**LGPL-3.0-or-later**/@img/colour/detect-libc/semver)。未インストールの他プラットフォームバイナリは自動的に落ちる。libvips**本体**のソース開示/全文表示は配布NOTICE段階
+  - **検証**: typecheck/build通過、electron参照0件×4モジュール。**オフスクリーン39件**(color-key 7=背景抜き/被写体保護/内部の緑島保護/1px膨張/短配列例外、codec 8、composite 2、encode 6=pages/loop/delay/アルファ保持/例外、importer 16=書き出し/baseResolution/loop&returnTo表/cubismVersion非付与/idle必須例外/寸法不一致例外/上限例外/生成webpがアニメーションWebP)
+  - **正当な非対称(明記済み)**: 生成パイプラインはスプライトセット専用でLive2Dに対応物なし(Live2Dは完成モデルをフォルダ取り込み=model-importer.ts)。上限チェック・スロット登録・manifest検証の**形式共通部は両importerで対称**(grep確認)。symmetry-reminderは実装中何度も反応したがいずれもこの正当な非対称
+  - **未実装(b-2で残す)**: WebCodecsデコード(手順4前段)・ImageDataへのkeyOutBackground適用+可逆圧縮IPC転送・静止画→background_key.png導線・動画取り込みUI+`importSpriteset`へのIPC配線・preload公開・ModelTab「準備中」置き換え。**asarUnpack**は配布フェーズ(electron-builder設定自体が未整備)、閾値/膨張量のチューニングは実素材で残タスク
+- **次**: Phase 2継続 → **モデル管理タブ 第2段階b-2(スプライトセット生成のRenderer/UI: WebCodecs+取り込みUI)**・第3段階(マッピング編集+プレビュー)・#(セキュリティ仕上げ FR-13)
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
   - **reviewerチェックループ2周実施**（1周目5件[permissions/persist-credentials未指定・npm installスクリプトの記述が実測と不一致だった等]→修正→**2周目0件**）。npmの`allow-scripts`警告を「installスクリプトがブロックされる」と誤って書いていたが、実測（`ignore-scripts`/`strict-allow-scripts`がいずれも`false`、esbuildのpostinstallバイナリが実在）で訂正した

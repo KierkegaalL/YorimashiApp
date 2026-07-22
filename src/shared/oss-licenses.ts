@@ -1,11 +1,12 @@
 /**
  * AUTO-GENERATED — このファイルは編集しない。
  * `npm run generate:licenses`(build/dev の pre スクリプトから自動実行)で再生成される。
- * 生成元: scripts/generate-oss-licenses.mjs / package.json の dependencies を推移的に辿ったもの + electron。
+ * 生成元: scripts/generate-oss-licenses.mjs / package.json の dependencies + インストール済み optionalDependencies を推移的に辿ったもの + electron。
  * 権利情報タブ(FR-12)の OSS 一覧の単一の情報源。
  *
- * スコープ: 配布物にバンドルされる JS 依存のみ。同梱 Electron ランタイム自身の第三者ライセンス
- * (Chromium/Node 等)やネイティブライブラリ(libvips 等)は含まない(配布 NOTICE 段階で扱う)。
+ * スコープ: 配布物にバンドルされる JS 依存 + ネイティブ実体の npm パッケージ(@img/sharp-* 等)。
+ * 同梱 Electron ランタイム自身の第三者ライセンス(Chromium/Node 等)や、libvips 本体(C ライブラリ)の
+ * ソース開示・全文表示は含まない(配布 NOTICE 段階で扱う。spriteset-pipeline.md 論点4)。
  */
 
 export interface OssLicense {
@@ -23,6 +24,18 @@ export const OSS_LICENSES: readonly OssLicense[] = [
   {
     "name": "@babel/runtime",
     "license": "MIT"
+  },
+  {
+    "name": "@img/colour",
+    "license": "MIT"
+  },
+  {
+    "name": "@img/sharp-darwin-arm64",
+    "license": "Apache-2.0"
+  },
+  {
+    "name": "@img/sharp-libvips-darwin-arm64",
+    "license": "LGPL-3.0-or-later"
   },
   {
     "name": "@pixi/accessibility",
@@ -189,6 +202,10 @@ export const OSS_LICENSES: readonly OssLicense[] = [
     "license": "MIT"
   },
   {
+    "name": "detect-libc",
+    "license": "Apache-2.0"
+  },
+  {
     "name": "dunder-proto",
     "license": "MIT"
   },
@@ -295,6 +312,14 @@ export const OSS_LICENSES: readonly OssLicense[] = [
   {
     "name": "scheduler",
     "license": "MIT"
+  },
+  {
+    "name": "semver",
+    "license": "ISC"
+  },
+  {
+    "name": "sharp",
+    "license": "Apache-2.0"
   },
   {
     "name": "side-channel",

@@ -11,8 +11,15 @@
  *  - 実行時 dependencies を**推移的に**辿る(react-dom → scheduler、pixi.js → @pixi/* 等、
  *    直下の依存が更に依存するパッケージも配布物へバンドルされるため。license-checker が
  *    依存ツリー全体を走査するのと同じ網羅性を、外部ツールを増やさず自前で確保する)。
- *    各パッケージの `dependencies` のみを辿り、`devDependencies` のサブツリーには入らない
- *    (ビルド時にしか使われないものを配布物として列挙しない)。
+ *    各パッケージの `dependencies` と**実際にインストール済みの `optionalDependencies`** を辿り、
+ *    `devDependencies` のサブツリーには入らない(ビルド時にしか使われないものを配布物として列挙しない)。
+ *  - **`optionalDependencies` を辿る理由(実測に基づく訂正)**: sharp のネイティブ実体は
+ *    `@img/sharp-darwin-arm64`(Apache-2.0)+ `@img/sharp-libvips-darwin-arm64`(**LGPL-3.0-or-later**)
+ *    という npm パッケージで、これらは sharp の `optionalDependencies`(プラットフォーム別)に置かれる。
+ *    実際にインストールされる=配布物に含まれるのは実行プラットフォームぶんだけで、未インストールの
+ *    ものは findPackageDir が null を返して自動的に一覧から落ちる。よって「dependencies だけ」だと
+ *    sharp 本体は拾えても実体(とりわけ LGPL の libvips)を取りこぼす(spriteset-pipeline.md 論点4 が
+ *    FR-12 に必須と定める分)。
  *  - `electron` 本体は**葉として1件だけ**足す(その npm パッケージの dependencies は
  *    @electron/get / extract-zip 等の**インストール時ツール**であって配布物に含まれないため
  *    辿らない)。electron-vite / vite / typescript / electron-builder 等の devDependencies も除外。
@@ -20,11 +27,12 @@
  * **この生成のスコープ外(配布 NOTICE 段階で別途扱う)**:
  *  - 同梱される Electron ランタイム自身の第三者ライセンス(Chromium / Node / V8 等)。
  *    これらは npm 依存ツリーには現れず、Electron 配布物の LICENSE ファイルで提供される。
- *  - ネイティブライブラリ(例: libvips。sharp が将来入っても、libvips 自体は npm パッケージの
- *    package.json を持たないため依存ツリー走査では拾えない。LGPL の扱いは配布 NOTICE で対応する。
- *    model-mapping-ui.md「検出した不整合」3 の核心はここで、自動生成だけでは解消しきらない)。
+ *  - libvips **本体**(C ライブラリ)のソース開示・全文表示。npm パッケージ
+ *    `@img/sharp-libvips-darwin-arm64` の package.json 由来で LGPL-3.0-or-later を**一覧には出せる**が、
+ *    LGPL が求めるライセンス全文・再リンクの案内は配布 NOTICE で対応する(独立した .dylib として
+ *    asar 外に置かれ差し替え可能=構成上の要件は満たす。spriteset-pipeline.md 論点4)。
  *
- * 利点: sharp 等を dependencies に足せば、その JS 依存は**手で書き換えずとも自動反映**される。
+ * 利点: sharp 等を dependencies に足せば、その JS 依存とネイティブ実体は**手で書き換えずとも自動反映**される。
  */
 
 import fs from 'node:fs';
@@ -86,9 +94,17 @@ function licenseOf(manifest) {
  */
 const EXCLUDED = new Set(['gh-pages']);
 
+/**
+ * dependencies + optionalDependencies の名前を返す。optionalDependencies を含めても、未インストールの
+ * ものは findPackageDir が null を返して一覧から落ちるため、実際に配布される分だけが残る(冒頭参照)。
+ */
+function depNames(manifest) {
+  return [...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.optionalDependencies ?? {})];
+}
+
 /** name -> license(null = 未インストール/未解決で一覧に出さない)。 */
 const resolved = new Map();
-const queue = Object.keys(pkg.dependencies ?? {})
+const queue = depNames(pkg)
   .filter((name) => !EXCLUDED.has(name))
   .map((name) => ({ name, from: root }));
 
@@ -106,8 +122,8 @@ while (queue.length > 0) {
   }
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
   resolved.set(name, licenseOf(manifest));
-  for (const child of Object.keys(manifest.dependencies ?? {})) {
-    if (!resolved.has(child)) {
+  for (const child of depNames(manifest)) {
+    if (!resolved.has(child) && !EXCLUDED.has(child)) {
       queue.push({ name: child, from: dir });
     }
   }
@@ -131,11 +147,12 @@ const header = [
   '/**',
   ' * AUTO-GENERATED — このファイルは編集しない。',
   ' * `npm run generate:licenses`(build/dev の pre スクリプトから自動実行)で再生成される。',
-  ' * 生成元: scripts/generate-oss-licenses.mjs / package.json の dependencies を推移的に辿ったもの + electron。',
+  ' * 生成元: scripts/generate-oss-licenses.mjs / package.json の dependencies + インストール済み optionalDependencies を推移的に辿ったもの + electron。',
   ' * 権利情報タブ(FR-12)の OSS 一覧の単一の情報源。',
   ' *',
-  ' * スコープ: 配布物にバンドルされる JS 依存のみ。同梱 Electron ランタイム自身の第三者ライセンス',
-  ' * (Chromium/Node 等)やネイティブライブラリ(libvips 等)は含まない(配布 NOTICE 段階で扱う)。',
+  ' * スコープ: 配布物にバンドルされる JS 依存 + ネイティブ実体の npm パッケージ(@img/sharp-* 等)。',
+  ' * 同梱 Electron ランタイム自身の第三者ライセンス(Chromium/Node 等)や、libvips 本体(C ライブラリ)の',
+  ' * ソース開示・全文表示は含まない(配布 NOTICE 段階で扱う。spriteset-pipeline.md 論点4)。',
   ' */',
 ].join('\n');
 

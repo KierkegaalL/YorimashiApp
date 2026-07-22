@@ -151,10 +151,19 @@ libvipsがLGPL-3.0-or-laterである点に注意。LGPLは利用者による差�
 
 ## 実装時のTODO
 
-- [ ] `npm install sharp` を本体に追加(現時点では未追加。scratchpadでの検証のみ)
-- [ ] electron-builder設定に`asarUnpack`を追加
-- [ ] FR-12の権利情報タブにsharp / libvipsのライセンスを追加
-- [ ] 取り込み時バリデーション: H.265等の非対応コーデックを弾くエラーハンドリング
-- [ ] 境界連結判定の色距離閾値・膨張量のチューニング(要件定義書「未確定事項」に残っている項目)
-- [ ] basic-design.md 9章「内部の白(髪飾り等)を保護」の記述をNotion正本側で確認・修正
-- [ ] universal build(darwin-x64同梱)の要否判断
+2026-07-22 に **第2段階b: Main側の生成コア**を実装(sharp導入・クロマグリーン合成・境界連結色キー抜き・アニメーションWebPエンコード・取り込みオーケストレーション・コーデック分類)。RendererのWebCodecsデコード+取り込みUIの配線は**第2段階b-2**として残す。
+
+- [x] `npm install sharp` を本体に追加(sharp 0.35.3 / libvips 8.18.3。実測でN-APIプリビルド=Electron再ビルド不要を再確認)
+- [ ] electron-builder設定に`asarUnpack`(`**/node_modules/@img/**` / `**/node_modules/sharp/**`)を追加 → **配布フェーズで対応**。現状 electron-builder の`build`設定自体を置いていない(build-commands.md「動かないCDを置かない」)ため、asarUnpackも配布設定の実装時にまとめて入れる
+- [x] FR-12の権利情報タブにsharp / libvipsのライセンスを追加 → `scripts/generate-oss-licenses.mjs` が**インストール済み `optionalDependencies`** も辿るよう修正し、`sharp`(Apache-2.0)/ `@img/sharp-darwin-arm64`(Apache-2.0)/ `@img/sharp-libvips-darwin-arm64`(**LGPL-3.0-or-later**)を自動収集(`src/shared/oss-licenses.ts`)。libvips**本体**のソース開示・全文表示は配布NOTICE段階(論点4)
+- [x] 取り込み時バリデーション: H.265等の非対応コーデックの分類 → `src/shared/spriteset/video-codec.ts`(実測表に基づく事前フィルタ)。**実行時の最終判断(`VideoDecoder.isConfigSupported`)はRenderer/WebCodecsで、第2段階b-2**
+- [ ] 境界連結判定の色距離閾値・膨張量のチューニング(要件定義書「未確定事項」)→ アルゴリズムは実装済み(`src/shared/spriteset/color-key.ts`)。既定値(CHROMA_GREEN / 距離80 / 膨張1)は暫定で、実素材でのチューニングは残タスク
+- [ ] basic-design.md 9章「内部の白(髪飾り等)を保護」の記述をNotion正本側で確認・修正(自動生成では解消しない正本の文言修正)
+- [ ] universal build(darwin-x64同梱)の要否判断 → 配布フェーズ。なおライセンス生成は**実行プラットフォームぶんのバイナリのみ**収集する(未インストールのx64は自動的に一覧から落ちる)ため、universal化する場合はその環境で再生成が要る
+
+### 第2段階b-2(Renderer/GUI依存・実機確認がユーザー)で残すもの
+
+- WebCodecs(`VideoDecoder`)での mp4/webm デコード(手順4前段。secure context = `http://127.0.0.1:<port>/character` から読む前提。実装済みのローカルサーバーで満たされる)
+- デコードした`ImageData`への `keyOutBackground` 適用(手順4中段。色キー抜きの純粋関数は実装済み)+ フレームの可逆圧縮IPC転送(生RGBAを送らない。手順4 step3)
+- 静止画アップロード → `compositeOnChromaGreen` で `background_key.png` 生成・ダウンロード導線(手順1-2)
+- 動画取り込みUI(感情ごと)と `SpritesetImporter.importSpriteset` へのIPC配線・preload公開・ModelTabの「準備中」置き換え
