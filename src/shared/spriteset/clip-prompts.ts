@@ -32,3 +32,26 @@ export const CLIP_PROMPTS: Record<EmotionState, ClipPrompt> = {
   curious: { label: 'curious', prompt: '小首をかしげて興味深そうにする' },
   sleepy: { label: 'sleepy', prompt: 'とろんとした目で、あくびをする' },
 };
+
+/**
+ * 外部AI動画生成ツールにそのまま貼り付ける完成形の指示文。
+ *
+ * `CLIP_PROMPTS[state].prompt` は感情ごとの動きの差分だけを表す短い文言で、
+ * それ単体を外部ツールに渡すと、背景やカメラまで動かされて色キー抜き
+ * (spriteset-pipeline.md 手順4中段の境界連結判定)が破綻することがある。
+ * ここでは色キー抜きが成立するための技術的な制約(背景・カメラの固定、
+ * 被写体のフレーミング)を毎回同じ文言で前置きし、そこに感情ごとの
+ * 動きの指示を続けた、外部ツールへ入力するだけで済む一続きの指示文にする。
+ *
+ * 「1〜3秒程度」はUX上の推奨値であり、実測や仕様上の制約ではない
+ * (decode-video.ts 側で長さを検証・強制してはいない。DEFAULT_MAX_FRAMES による
+ * 上限はあるが、それとは別の目安)。
+ */
+export function buildExternalInstruction(state: EmotionState): string {
+  const { prompt } = CLIP_PROMPTS[state];
+  return (
+    '背景は今の単色(クロマグリーン)のまま、色も位置も変えず完全に静止させてください。' +
+    'カメラも固定でパン・ズームをしないでください。キャラクター全身が画面の中央に収まったまま、' +
+    `次の動きだけを加えてください: ${prompt}。動画は1〜3秒程度の短い動きにしてください。`
+  );
+}

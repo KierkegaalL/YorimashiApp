@@ -18,12 +18,12 @@
  */
 
 import { useRef, useState } from 'react';
-import { CheckCircle2, Copy, ImagePlus, Sparkles, Upload } from 'lucide-react';
+import { CheckCircle2, ClipboardList, Copy, ImagePlus, Sparkles, Upload } from 'lucide-react';
 
 import { useTheme } from '../theme';
 import { Row, Section } from '../panel-ui';
 import { EMOTION_STATES, FALLBACK_STATE, type EmotionState } from '../../../../shared/emotions';
-import { CLIP_PROMPTS } from '../../../../shared/spriteset/clip-prompts';
+import { buildExternalInstruction, CLIP_PROMPTS } from '../../../../shared/spriteset/clip-prompts';
 import type { ModelManageSnapshot } from '../../../../shared/model-manage';
 import type { SpritesetImportPayload } from '../../../../shared/spriteset/import-payload';
 import { decodeAndKeyVideo, type DecodedClip } from './decode-video';
@@ -161,11 +161,19 @@ export function SpritesetAddFlow({ onImported, onError }: SpritesetAddFlowProps)
   }
 
   // 段2-3: 生成用の画像ができた。感情ごとに動画を取り込む。
+  // hint内の「正方形(1:1)・800×800px程度」は、実測や正本の決定事項ではない。
+  // spriteset-importer.tsはidleの実寸をそのままbaseResolutionにするだけで寸法の上限・
+  // アスペクト比を検証しておらず、docs/data.mdの800×800はmanifest.jsonのJSON記載例が
+  // たまたまその値というだけで推奨値の根拠ではない。ウィンドウサイズが
+  // `baseResolution × displaySize` で決まる(character-window.md 論点2決着済み)ため、
+  // 極端に大きい・縦横比の偏った画像を避けるための、この実装時点でのUX上の目安に過ぎない。
+  // **UI正本(docs/mockups/control-panel.jsx)のhintには解像度の言及が無い**。次回モックアップ
+  // 更新時に反映するかは未判断(Memory.mdの「選び直す」文言と同様の申し送り扱い)。
   return (
     <>
       <Section
         title="モーションをAIで生成"
-        hint="外部サービスに渡す画像は、背景を自動でクロマグリーンに合成しています(そのまま使ってください)。生成されたmp4/webmを「取り込む」で選ぶと、背景の色キー抜き+WebP変換を自動で行います。プロンプトはコピーして調整できます。idleだけは必須、他は未設定でもidleにフォールバックします。"
+        hint="外部サービスに渡す画像は、背景を自動でクロマグリーンに合成しています(そのまま使ってください)。画像の解像度は正方形(1:1)・800×800px程度を推奨します(idleの実寸がそのままキャラクター表示ウィンドウの基準解像度になるため、大きすぎるとメモリ・処理負荷が増えます)。生成されたmp4/webmを「取り込む」で選ぶと、背景の色キー抜き+WebP変換を自動で行います。プロンプトはコピーして調整できます。idleだけは必須、他は未設定でもidleにフォールバックします。"
       >
         <Row
           label="外部サービスへ渡す画像"
@@ -185,55 +193,84 @@ export function SpritesetAddFlow({ onImported, onError }: SpritesetAddFlowProps)
           const done = clip !== undefined;
           const isDecoding = decoding === state;
           const { label, prompt } = CLIP_PROMPTS[state];
+          const isLastRow = i === EMOTION_STATES.length - 1;
           return (
-            <Row
-              key={state}
-              label={label}
-              sub={
-                done
-                  ? `${state}.webp ・ ${clip.frames.length}フレーム ・ ${clip.width}×${clip.height}`
-                  : isDecoding
-                    ? progress && progress.total > 0
-                      ? `取り込み中… ${progress.done}/${progress.total}フレーム`
-                      : '取り込み中…'
-                    : `「${prompt}」・ mp4/webmを選ぶ`
-              }
-              last={i === EMOTION_STATES.length - 1}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {done ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: theme.mint, fontSize: 11.5 }}>
-                    <CheckCircle2 size={14} /> 取込済
-                  </span>
-                ) : (
-                  <>
-                    <button
-                      title="プロンプトをコピー"
-                      disabled={busy}
-                      onClick={() => {
-                        void navigator.clipboard.writeText(prompt).catch(() => {
-                          onError('プロンプトをコピーできませんでした。');
-                        });
-                      }}
-                      style={pillStyle(theme.line, busy ? theme.iconInactive : theme.inkDim, busy)}
-                    >
-                      <Copy size={11} /> コピー
-                    </button>
-                    <button
-                      disabled={busy}
-                      onClick={() => pickVideo(state)}
-                      style={{
-                        ...pillStyle(busy ? theme.line : theme.accent, busy ? theme.iconInactive : theme.accent, busy),
-                        background: busy ? 'transparent' : theme.accentTag,
-                        fontWeight: 600,
-                      }}
-                    >
-                      <Upload size={11} /> {isDecoding ? '取込中…' : '取り込む'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </Row>
+            <div key={state} style={{ borderBottom: isLastRow ? 'none' : `1px solid ${theme.line}` }}>
+              <Row
+                label={label}
+                sub={
+                  done
+                    ? `${state}.webp ・ ${clip.frames.length}フレーム ・ ${clip.width}×${clip.height}`
+                    : isDecoding
+                      ? progress && progress.total > 0
+                        ? `取り込み中… ${progress.done}/${progress.total}フレーム`
+                        : '取り込み中…'
+                      : `「${prompt}」・ mp4/webmを選ぶ`
+                }
+                last
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {done ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: theme.mint, fontSize: 11.5 }}>
+                      <CheckCircle2 size={14} /> 取込済
+                    </span>
+                  ) : (
+                    <>
+                      <button
+                        title="プロンプトをコピー"
+                        disabled={busy}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(prompt).catch(() => {
+                            onError('プロンプトをコピーできませんでした。');
+                          });
+                        }}
+                        style={pillStyle(theme.line, busy ? theme.iconInactive : theme.inkDim, busy)}
+                      >
+                        <Copy size={11} /> コピー
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() => pickVideo(state)}
+                        style={{
+                          ...pillStyle(busy ? theme.line : theme.accent, busy ? theme.iconInactive : theme.accent, busy),
+                          background: busy ? 'transparent' : theme.accentTag,
+                          fontWeight: 600,
+                        }}
+                      >
+                        <Upload size={11} /> {isDecoding ? '取込中…' : '取り込む'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </Row>
+              {/* 上のプロンプトは感情ごとの動きの差分のみの短文。外部AIツールにそのまま貼り付けて
+                  期待どおりのモーションを作らせるには、背景・カメラ固定などの技術的な制約
+                  (色キー抜きが成立する条件)を含む完成形の指示文が要る。取込済になったら不要。
+                  **UI正本(docs/mockups/control-panel.jsx L1007-1046)には無い要素**
+                  (モックアップは「コピー」「取り込む」の2ボタンのみ)。外部AIツール利用者から
+                  実際に要望があり追加した機能で、正本側への反映はまだ行っていない
+                  (次回モックアップ更新時に追記予定)。 */}
+              {!done && (
+                <div style={{ padding: '0 16px 14px 16px' }}>
+                  <button
+                    title="外部AIツール向けの指示文をコピー(背景・カメラ固定などの制約込み)"
+                    disabled={busy}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(buildExternalInstruction(state)).catch(() => {
+                        onError('指示文をコピーできませんでした。');
+                      });
+                    }}
+                    style={{
+                      ...pillStyle(theme.line, busy ? theme.iconInactive : theme.inkDim, busy),
+                      width: '100%',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <ClipboardList size={11} /> 指示文をコピー
+                  </button>
+                </div>
+              )}
+            </div>
           );
         })}
       </Section>
