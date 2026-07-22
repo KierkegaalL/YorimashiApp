@@ -69,6 +69,21 @@ const webp = await sharp(frameBuffers, { join: { animated: true } })
 - `loop`・フレームごとの`delay`が正しく書き込まれ、読み戻しで復元できる
 - **アルファチャンネルが保持される**(`hasAlpha: true` / `channels: 4`)。FR-6の透過要件を満たす
 
+> ## ⚠️ 実測による訂正(2026-07-22・第2段階b-2の実装時)
+>
+> 本節の**結論(Chromium内蔵コーデックで賄い ffmpeg を同梱しない)は維持**するが、以下3点は実測と食い違っていたため訂正する。いずれも Electron 43.1.1 / macOS arm64 の実機(オフスクリーン)で測定した。
+>
+> **① `VideoDecoder`(WebCodecs)は単体では使えない — デムックスを行わない**
+> `VideoDecoder` に mp4/webm の**ファイルのバイト列をそのまま渡してもデコードできない**。実測のエラー: `An EncodedVideoChunk was marked as type 'key' but wasn't a key frame`。WebCodecs はコンテナを解かないため、使うには mp4box.js 等のデムューサを別途抱える必要がある。
+> **採用**: `HTMLVideoElement`(Chromium の demux + decode をそのまま使う)+ **シーク方式**(`currentTime` を進めて `seeked` を待ち1枚ずつ取り出す)。実測で6点サンプルすべて要求時刻どおりのフレームが取れた。再生 + `requestVideoFrameCallback` でも取れるが、**フレームのPNG化が非同期**で、再生中に同じ canvas を使い回すと競合するため採らない。デコードしているコーデックは同じ Chromium のものなので、本節の結論は変わらない。
+>
+> **② H.265 は「非対応」ではない — 下の表を訂正する**
+> 下表は mp4/H.265(hvc1)を `no` としているが、実測では **`VideoDecoder.isConfigSupported` / `canPlayType` とも対応**(Apple Silicon の macOS が HEVC のハードウェアデコードを持ち、Chromium がそれを露出する)。
+> したがって**コーデック名のハードコードした許可/拒否リストは持たない**。持てば実際には再生できる動画を「非対応」と拒否することになり、アプリが自分の状態について嘘をつく(constraints.md)。判定は**実際に読み込めたか**という実地の結果だけを根拠にする(`shared/spriteset/video-codec.ts`)。
+>
+> **③ canvas の WebP は `quality:1` でも可逆ではない**
+> 後述の「フレーム単位に可逆圧縮してから送る」で例示している `convertToBlob({type:'image/webp', quality:1})` は、実測で**往復により画素が変化した**(可逆でない)。**PNG は往復でアルファが厳密に一致**したため、IPCへ渡すフレーム形式は **PNG** とする。生RGBAを送らないという趣旨(下記)はそのまま保つ。
+
 #### 動画デコードはChromiumで行う(ffmpeg同梱を回避)
 
 sharpの基盤であるlibvipsは**動画フォーマットを一切扱えない**(対応形式に動画コンテナが存在せず、mp4を渡すと`unsupported image format`で失敗することを確認済み)。よって手順3で外部AIが生成したmp4/webmのデコード手段が別途必要になる。
@@ -81,7 +96,7 @@ sharpの基盤であるlibvipsは**動画フォーマットを一切扱えない
 | webm / VP8 | `probably` |
 | webm / VP9 | `probably` |
 | webm / AV1 | `probably` |
-| mp4 / H.265 (hvc1) | `no` |
+| mp4 / H.265 (hvc1) | ~~`no`~~ → **実測で対応(上の訂正②)** |
 
 外部動画生成AIサービス(Pika・Canva等)の出力は実質H.264 mp4かVP9 webmなので、**H.265非対応は問題にならない**(取り込み時にバリデーションで弾き、ユーザーに再エンコードを促す)。
 
@@ -98,9 +113,9 @@ security.md 7章が「キャラクターウィンドウも`http://localhost:8765
 
 デコードはChromium(Renderer)、エンコードはsharp(Main)にあるため、工程がプロセスをまたぐ:
 
-1. **Renderer**: `VideoDecoder`でmp4/webmをデコード → `VideoFrame`をcanvasへ描画 → `ImageData`(RGBA)取得
+1. **Renderer**: ~~`VideoDecoder`で~~ **`HTMLVideoElement` + シーク方式で**(訂正①)mp4/webmをデコード → canvasへ描画 → `ImageData`(RGBA)取得
 2. **Renderer**: 論点2の境界連結フラッドフィル + 1px膨張をそのまま`ImageData`上で実行(既にRGBAなので変換不要)
-3. **Renderer → Main**: フレームをIPCで転送。**生RGBAのまま送らないこと** — 800×800×4 = 約2.5MB/フレームで、30フレームなら約77MBになる。`canvas.convertToBlob({ type: 'image/webp', quality: 1 })`等でフレーム単位に可逆圧縮してから送る
+3. **Renderer → Main**: フレームをIPCで転送。**生RGBAのまま送らないこと** — 800×800×4 = 約2.5MB/フレームで、30フレームなら約77MBになる。フレーム単位に可逆圧縮してから送る。~~`canvas.convertToBlob({ type: 'image/webp', quality: 1 })`等~~ → **PNG(`canvas.toBlob(..., 'image/png')`)を使う**。canvasのWebPは`quality:1`でも可逆ではなく、PNGはアルファが厳密に一致すると実測(訂正③)
 4. **Main**: sharpの`join`でアニメーションWebPへマックスし、`userData/models/<uuid>/<emotion>.webp`へ書き出す
 
 なお手順2のクロマグリーン合成(静止画1枚 → 緑背景合成)は動画デコードを伴わない単純な合成なので、Main側でsharpの`composite`で行う。
@@ -156,14 +171,16 @@ libvipsがLGPL-3.0-or-laterである点に注意。LGPLは利用者による差�
 - [x] `npm install sharp` を本体に追加(sharp 0.35.3 / libvips 8.18.3。実測でN-APIプリビルド=Electron再ビルド不要を再確認)
 - [ ] electron-builder設定に`asarUnpack`(`**/node_modules/@img/**` / `**/node_modules/sharp/**`)を追加 → **配布フェーズで対応**。現状 electron-builder の`build`設定自体を置いていない(build-commands.md「動かないCDを置かない」)ため、asarUnpackも配布設定の実装時にまとめて入れる
 - [x] FR-12の権利情報タブにsharp / libvipsのライセンスを追加 → `scripts/generate-oss-licenses.mjs` が**インストール済み `optionalDependencies`** も辿るよう修正し、`sharp`(Apache-2.0)/ `@img/sharp-darwin-arm64`(Apache-2.0)/ `@img/sharp-libvips-darwin-arm64`(**LGPL-3.0-or-later**)を自動収集(`src/shared/oss-licenses.ts`)。libvips**本体**のソース開示・全文表示は配布NOTICE段階(論点4)
-- [x] 取り込み時バリデーション: H.265等の非対応コーデックの分類 → `src/shared/spriteset/video-codec.ts`(実測表に基づく事前フィルタ)。**実行時の最終判断(`VideoDecoder.isConfigSupported`)はRenderer/WebCodecsで、第2段階b-2**
+- [x] 取り込み時バリデーション → **訂正②により方針変更**。H.265 も実測で対応していたため、**コーデック名によるハードコードの拒否リストは持たない**。`src/shared/spriteset/video-codec.ts` は「実際に読み込めなかったとき」の説明文言だけを持ち、判定は `decode-video.ts` が実地の読み込み結果で行う
 - [ ] 境界連結判定の色距離閾値・膨張量のチューニング(要件定義書「未確定事項」)→ アルゴリズムは実装済み(`src/shared/spriteset/color-key.ts`)。既定値(CHROMA_GREEN / 距離80 / 膨張1)は暫定で、実素材でのチューニングは残タスク
 - [ ] basic-design.md 9章「内部の白(髪飾り等)を保護」の記述をNotion正本側で確認・修正(自動生成では解消しない正本の文言修正)
 - [ ] universal build(darwin-x64同梱)の要否判断 → 配布フェーズ。なおライセンス生成は**実行プラットフォームぶんのバイナリのみ**収集する(未インストールのx64は自動的に一覧から落ちる)ため、universal化する場合はその環境で再生成が要る
 
-### 第2段階b-2(Renderer/GUI依存・実機確認がユーザー)で残すもの
+### 第2段階b-2(2026-07-22 実装済み)
 
-- WebCodecs(`VideoDecoder`)での mp4/webm デコード(手順4前段。secure context = `http://127.0.0.1:<port>/character` から読む前提。実装済みのローカルサーバーで満たされる)
-- デコードした`ImageData`への `keyOutBackground` 適用(手順4中段。色キー抜きの純粋関数は実装済み)+ フレームの可逆圧縮IPC転送(生RGBAを送らない。手順4 step3)
-- 静止画アップロード → `compositeOnChromaGreen` で `background_key.png` 生成・ダウンロード導線(手順1-2)
-- 動画取り込みUI(感情ごと)と `SpritesetImporter.importSpriteset` へのIPC配線・preload公開・ModelTabの「準備中」置き換え
+- [x] mp4/webm のデコード(手順4前段)→ **`HTMLVideoElement` + シーク方式**(訂正①)。`src/renderer/control-panel/src/spriteset/decode-video.ts`
+- [x] デコードした`ImageData`への `keyOutBackground` 適用(手順4中段)+ **PNG** でのフレームIPC転送(訂正③)
+- [x] 静止画選択 → `compositeOnChromaGreen` → `background_key.png` 保存(手順1-2)。`src/main/model/background-key.ts`。**選択も保存もネイティブダイアログ**で、Rendererからパスを渡さない
+- [x] 動画取り込みUI(感情ごと・プロンプトのコピー)と `SpritesetImporter.importSpriteset` へのIPC配線・preload公開。`SpritesetAddFlow.tsx` / ModelTab に「追加するモデルの形式」セレクタを追加(モックアップ L931-1080 準拠)
+
+**b-2 で残したもの**: Live2D の zip 取り込み、感情↔クリップの**再割り当て編集**(取り込み後に差し替える導線。第3段階)、モデル名の変更(モックアップどおり既定名で登録する)。

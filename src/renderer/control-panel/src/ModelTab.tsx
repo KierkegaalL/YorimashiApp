@@ -2,14 +2,16 @@
  * モデル管理タブ(FR-5/FR-7)。UIの正: docs/mockups/control-panel.jsx L805-1179。
  * 正本: docs/detailed-design/model-mapping-ui.md。
  *
- * **実装済み**(第1段階=スロット管理 / 第2段階a=Live2Dフォルダ取り込み):
+ * **実装済み**(第1段階=スロット管理 / 第2段階a=Live2D取り込み / 第2段階b=スプライトセット生成):
  *  - セット中のモデル一覧(形式バッジ・使用中表示・削除のインライン確認)
  *  - モードによる自動切替(2体セット時のみ。トグル + Code/Chat の入れ替え)
  *  - 0体のときの空状態
- *  - **Live2D モデルのフォルダ取り込み**(「モデルの追加」セクション。ネイティブダイアログ)
+ *  - **追加するモデルの形式**の選択(モックアップ L931-)。スプライトセットが標準の入口
+ *  - **Live2D モデルのフォルダ取り込み**(ネイティブダイアログ)
+ *  - **スプライトセットの生成フロー**(SpritesetAddFlow: 下絵→background_key.png→動画取り込み→登録)
  *
  * **未実装は正直にそう出す**(偽データ・使えないUIを置かない):
- *  - Live2D の **zip 取り込み**・**スプライトセットの生成パイプライン**(spriteset-pipeline.md)
+ *  - Live2D の **zip 取り込み**(フォルダのみ対応と画面に明記)
  *  - **感情↔モーション対応の編集**(全10状態のマッピングUI。model-mapping-ui.md)
  *  いずれも後続タスク。
  *
@@ -27,6 +29,15 @@ import { AlertTriangle, ArrowLeftRight, Circle, FolderOpen, Image, Layers, Trash
 import { useTheme } from './theme';
 import { Row, Section, Switch } from './panel-ui';
 import { MAX_MODEL_SLOTS, type ModelManageSnapshot, type ModelSlotView } from '../../../shared/model-manage';
+import { SpritesetAddFlow } from './spriteset/SpritesetAddFlow';
+
+/** 追加できるモデル形式(モックアップ L933-936)。スプライトセットを標準の入口にする。 */
+const ADD_FORMATS = [
+  { key: 'spriteset', label: 'スプライトセット', icon: Image, hint: '画像1枚から', badge: 'おすすめ' },
+  { key: 'live2d', label: 'Live2D モデル', icon: Layers, hint: 'フォルダ', badge: '上級者向け' },
+] as const;
+
+type AddFormat = (typeof ADD_FORMATS)[number]['key'];
 
 export function ModelTab(): React.JSX.Element {
   const theme = useTheme();
@@ -36,6 +47,8 @@ export function ModelTab(): React.JSX.Element {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   /** 取り込み中(ネイティブダイアログ→複製の間)。二重起動と誤操作を防ぐ。 */
   const [importing, setImporting] = useState(false);
+  /** 追加するモデルの形式(モックアップの addFormat。既定はスプライトセット)。 */
+  const [addFormat, setAddFormat] = useState<AddFormat>('spriteset');
 
   useEffect(() => {
     const api = window.yorimashi?.models;
@@ -107,8 +120,7 @@ export function ModelTab(): React.JSX.Element {
         {!isFull && (
           <Row
             label="空きスロット"
-            // 文言はモックアップ(L898)のまま。右側は「モデルの追加」セクションが実際に機能する
-            // ようになったため、"準備中" ではなく下の追加導線を指す(同一画面で矛盾したメッセージを出さない)。
+            // 文言はモックアップ(L898)のまま。右側は下の追加導線を指す(同一画面で矛盾したメッセージを出さない)。
             sub={slots.length === 0 ? '空きスロットが2つあります' : 'モデルはあと1体セットできます'}
             last
           >
@@ -119,7 +131,7 @@ export function ModelTab(): React.JSX.Element {
                 color: theme.iconInactive,
               }}
             >
-              ↓「モデルの追加」から
+              ↓「追加するモデルの形式」から
             </span>
           </Row>
         )}
@@ -166,46 +178,119 @@ export function ModelTab(): React.JSX.Element {
         </Section>
       )}
 
-      {/* モデルの追加。Live2Dのフォルダ取り込みは実装済み(第2段階a)。zip取り込みと
-          スプライトセット生成は後続。**未実装の導線は正直に「準備中」と出す**(偽UIを置かない)。 */}
-      <Section
-        title="モデルの追加"
-        hint="Live2Dはモデルフォルダ(model3.json/model.jsonを含む)を選ぶと取り込めます。zip取り込みとスプライトセットの生成フローは後続タスクで実装します。"
-      >
-        <Row
-          label="Live2D モデル"
-          sub={isFull ? 'スロットが埋まっています(先に削除してください)' : 'モデルフォルダを選んで取り込みます'}
+      {/* モデルの追加。モックアップ(L931-1080)どおり、まず形式を選ばせてから形式別のフローを出す。
+          スプライトセットを既定(標準の入口・おすすめ)にするのも正本の指定。 */}
+      {!isFull && (
+        <Section title="追加するモデルの形式" hint="迷ったら「スプライトセット」がおすすめです。画像1枚から始められます。">
+          <div style={{ display: 'flex', gap: 8, padding: '12px 16px' }}>
+            {ADD_FORMATS.map((opt) => {
+              const active = addFormat === opt.key;
+              const Icon = opt.icon;
+              const badgeColor = opt.badge === 'おすすめ' ? theme.mint : theme.accent;
+              const badgeTag = opt.badge === 'おすすめ' ? theme.mintTag : theme.accentTag;
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => setAddFormat(opt.key)}
+                  style={{
+                    flex: 1,
+                    cursor: 'pointer',
+                    borderRadius: 12,
+                    padding: '10px 8px',
+                    border: active ? `2px solid ${theme.accent}` : `1px solid ${theme.line}`,
+                    background: active ? theme.accentTag : 'transparent',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 6,
+                    position: 'relative',
+                  }}
+                >
+                  <span
+                    style={{
+                      position: 'absolute',
+                      top: -8,
+                      fontSize: 9.5,
+                      fontWeight: 700,
+                      color: badgeColor,
+                      background: badgeTag,
+                      borderRadius: 999,
+                      padding: '2px 7px',
+                    }}
+                  >
+                    {opt.badge}
+                  </span>
+                  <Icon size={16} color={active ? theme.accent : theme.iconInactive} style={{ marginTop: 6 }} />
+                  <span
+                    style={{
+                      fontFamily: "'M PLUS 1 Code', sans-serif",
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      color: active ? theme.ink : theme.inkDim,
+                    }}
+                  >
+                    {opt.label}
+                  </span>
+                  <span style={{ fontSize: 10, color: theme.iconInactive }}>{opt.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Live2D: フォルダ取り込み(実装済み)。**zip は未対応なので、そう書く**(モックアップは
+          「フォルダか zip」だが、無い機能を書くと偽UIになる。zip対応は後続タスク)。 */}
+      {!isFull && addFormat === 'live2d' && (
+        <button
+          disabled={importing}
+          onClick={() => {
+            setImporting(true);
+            void run((api) => api.importLive2d()).finally(() => setImporting(false));
+          }}
+          style={{
+            width: '100%',
+            padding: 16,
+            borderRadius: 14,
+            cursor: importing ? 'default' : 'pointer',
+            border: `1.5px dashed ${theme.dashedBorder}`,
+            background: 'transparent',
+            color: theme.inkDim,
+            fontFamily: "'M PLUS 1 Code', sans-serif",
+            fontSize: 13,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+          }}
         >
-          <button
-            disabled={isFull || importing}
-            onClick={() => {
-              setImporting(true);
-              void run((api) => api.importLive2d()).finally(() => setImporting(false));
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              background: 'transparent',
-              border: `1px solid ${isFull || importing ? theme.line : theme.accent}`,
-              borderRadius: 999,
-              padding: '5px 11px',
-              color: isFull || importing ? theme.iconInactive : theme.accent,
-              fontFamily: "'M PLUS 1 Code', sans-serif",
-              fontSize: 12,
-              cursor: isFull || importing ? 'default' : 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <FolderOpen size={13} /> {importing ? '取り込み中…' : 'フォルダを選ぶ'}
-          </button>
-        </Row>
-        <Row label="スプライトセット" sub="画像からの生成フローは後続タスクで実装します" last>
-          <span style={{ fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 11.5, color: theme.iconInactive }}>
-            準備中
+          <FolderOpen size={18} color={theme.iconInactive} />
+          {importing ? '取り込み中…' : 'モデルフォルダを選んで追加'}
+          <span style={{ fontSize: 11, color: theme.iconInactive }}>
+            model3.json(Cubism 4/5)か model.json(Cubism 2)を含むフォルダ ・ zip取り込みは後続
           </span>
-        </Row>
-      </Section>
+        </button>
+      )}
+
+      {!isFull && addFormat === 'spriteset' && (
+        <SpritesetAddFlow onImported={setSnapshot} onError={(m) => setError(m === '' ? null : m)} />
+      )}
+
+      {isFull && (
+        <div
+          style={{
+            fontFamily: "'M PLUS 1 Code', sans-serif",
+            fontSize: 12,
+            color: theme.iconInactive,
+            textAlign: 'center',
+            padding: '8px 4px',
+            lineHeight: 1.6,
+          }}
+        >
+          モデルは2体までです。入れ替えるには、どちらかを削除してください。
+        </div>
+      )}
 
       <Section title="感情とモーションの対応" hint="全10状態への割り当て編集は、モデルの取り込みと合わせて後続タスクで実装します。">
         <Row

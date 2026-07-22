@@ -264,7 +264,19 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証**: typecheck/build通過、electron参照0件×4モジュール。**オフスクリーン39件**(color-key 7=背景抜き/被写体保護/内部の緑島保護/1px膨張/短配列例外、codec 8、composite 2、encode 6=pages/loop/delay/アルファ保持/例外、importer 16=書き出し/baseResolution/loop&returnTo表/cubismVersion非付与/idle必須例外/寸法不一致例外/上限例外/生成webpがアニメーションWebP)
   - **正当な非対称(明記済み)**: 生成パイプラインはスプライトセット専用でLive2Dに対応物なし(Live2Dは完成モデルをフォルダ取り込み=model-importer.ts)。上限チェック・スロット登録・manifest検証の**形式共通部は両importerで対称**(grep確認)。symmetry-reminderは実装中何度も反応したがいずれもこの正当な非対称
   - **未実装(b-2で残す)**: WebCodecsデコード(手順4前段)・ImageDataへのkeyOutBackground適用+可逆圧縮IPC転送・静止画→background_key.png導線・動画取り込みUI+`importSpriteset`へのIPC配線・preload公開・ModelTab「準備中」置き換え。**asarUnpack**は配布フェーズ(electron-builder設定自体が未整備)、閾値/膨張量のチューニングは実素材で残タスク
-- **次**: Phase 2継続 → **モデル管理タブ 第2段階b-2(スプライトセット生成のRenderer/UI: WebCodecs+取り込みUI)**・第3段階(マッピング編集+プレビュー)・#(セキュリティ仕上げ FR-13)
+- **完了 モデル管理タブ 第2段階b-2: スプライトセット生成のRenderer/UI(FR-5)** — 下絵→background_key.png→感情ごとに動画取り込み(デコード+色キー抜き)→登録までが通した状態で動く
+  - **⚠️ 実測で正本(spriteset-pipeline.md 論点3)の3点を訂正**(いずれもElectron 43.1.1/macOS arm64のオフスクリーン実測。結論「Chromium内蔵コーデックで賄いffmpegを同梱しない」は維持):
+    1. **`VideoDecoder`(WebCodecs)は単体では使えない**。コンテナのデムックスをしないため生ファイルを渡すと `An EncodedVideoChunk was marked as type 'key' but wasn't a key frame`。→ **`HTMLVideoElement` + シーク方式**(`currentTime`→`seeked`を待ち1枚ずつ)を採用。実測で6点サンプルすべて要求時刻どおり。再生+rVFCでも取れるが**PNG化が非同期でcanvas使い回しが競合**するため不採用
+    2. **H.265は「非対応」ではなかった**(`isConfigSupported`/`canPlayType`とも対応。Apple SiliconのHEVCハードデコードをChromiumが露出)。→ **コーデック名のハードコード拒否リストを撤去**(実際に再生できるものを拒否=嘘をつくことになる)。判定は実地の読み込み結果のみ
+    3. **canvasのWebPは`quality:1`でも可逆ではない**(往復で画素が変化)。**PNGは往復でアルファ厳密一致**。→ IPCへ渡すフレーム形式は**PNG**
+  - **新規**: `shared/spriteset/clip-prompts.ts`(全10感情のラベル+外部AI用プロンプト。**モックアップ正本の写し**)、`shared/spriteset/import-payload.ts`(Renderer→Mainの契約+`BackgroundKeyResult`。preloadがmain/を参照しないようshared配置)、`main/model/background-key.ts`(下絵選択→合成→保存。**ダイアログ注入でElectron非依存**)、`renderer/control-panel/src/spriteset/decode-video.ts`(シーク方式デコード+`keyOutBackground`+PNG化)、`renderer/.../spriteset/SpritesetAddFlow.tsx`(3段フローUI)
+  - **変更**: `ipc.ts`(`SpritesetMakeBackgroundKey`/`SpritesetImport`)、`preload/index.ts`(`makeBackgroundKey`/`importSpriteset`)、`main/index.ts`(ハンドラ2件+`chooseSourceImage`/`chooseBackgroundKeyPath`+will-quit)、`spriteset-importer.ts`(`parseSpritesetImportPayload`を**index.tsではなくここに**置きオフスクリーン検証可能に。既存の`parseCodeSettingsPatch`/`parseModelId`と同じパターン)、`video-codec.ts`(訂正②で拒否リスト撤去)、`ModelTab.tsx`(**モックアップL931-1080どおり「追加するモデルの形式」セレクタ**+形式別フロー。「準備中」を置き換え)
+  - **検証42件**: Node 22(background-keyのキャンセル/壊れ画像で保存先を聞かない等 + ペイロード検証7ケース)、**ブラウザ実機12(オフスクリーンElectron・secure context)**=クロマグリーン動画を生成→デコード→**背景が透過・被写体が残る・内部の緑の島が保護される(境界連結判定が実動画で効く)**・PNGシグネチャ・壊れ動画で正直にエラー、SSR 8(**全10プロンプトがモックアップ正本と一致**)
+  - **依存の分離**: sharpはRendererに漏れず(`require("sharp")`/`libvips`=0件)、preloadの`sharp`一致は自分が書いたコメント文字列のみ。Main側は今回配線されバンドルに入った
+  - **チェックループ**: 2周(1周目4件[中〜高1: `waitForMetadata`にタイムアウトが無く無期限ハングしうる実バグ / 中1: ペイロード検証が緩い(delayのNaN・文字列・0以下、framesが非ArrayBuffer) / 低〜中1: 「保存」ボタンのラベルと実挙動の乖離 / 低1: 段1の到達不能な隠しinput]→2周目0件)
+  - **申し送り(任意・第3段階着手時に検討)**: 「外部サービスへ渡す画像」右のボタンを、モックアップの**「保存」から「選び直す」へ意図的に変更**した(実挙動が「元画像を選び直して合成・保存をやり直す」ため。モックアップ側はonClickを持たない静的モック)。理由はコード内コメントに残してあるが、**モックアップ正本側へ同期するか否かは未判断**
+  - **未実装(意図的)**: Live2Dのzip取り込み、**取り込み後の感情↔クリップ再割り当て編集**(第3段階)、モデル名の変更(モックアップどおり既定名`新しいモデル`で登録)
+- **次**: Phase 2継続 → **モデル管理タブ 第3段階(感情↔モーション/クリップのマッピング編集UI + プレビュー枠)**・#(セキュリティ仕上げ FR-13)
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
   - **reviewerチェックループ2周実施**（1周目5件[permissions/persist-credentials未指定・npm installスクリプトの記述が実測と不一致だった等]→修正→**2周目0件**）。npmの`allow-scripts`警告を「installスクリプトがブロックされる」と誤って書いていたが、実測（`ignore-scripts`/`strict-allow-scripts`がいずれも`false`、esbuildのpostinstallバイナリが実在）で訂正した

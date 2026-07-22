@@ -17,6 +17,7 @@ import type {
 import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../shared/code-settings';
 import type { RightsSnapshot } from '../shared/rights';
 import type { ModelManageSnapshot } from '../shared/model-manage';
+import type { BackgroundKeyResult, SpritesetImportPayload } from '../shared/spriteset/import-payload';
 import type { EmotionSnapshot } from '../shared/emotions';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
 import type {
@@ -151,9 +152,10 @@ const api = {
     get: (): Promise<RightsSnapshot> => ipcRenderer.invoke(IPC.RightsGet),
   },
   /**
-   * モデル管理(FR-5)のスロット操作 + 取り込み。**Live2Dのフォルダ取り込み(importLive2d)は
-   * 実装済み**(第2段階a)。zip取り込み・スプライトセット生成・感情↔モーション編集は後続タスク。
-   * いずれも更新後のスナップショットを返す。
+   * モデル管理(FR-5)のスロット操作 + 取り込み。**Live2Dのフォルダ取り込み(importLive2d)と
+   * スプライトセット生成(makeBackgroundKey / importSpriteset)は実装済み**(第2段階a/b)。
+   * zip取り込み・感情↔モーション編集は後続タスク。いずれも更新後のスナップショットを返す
+   * (makeBackgroundKey だけは保存結果を返す)。
    */
   models: {
     get: (): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelGet),
@@ -171,6 +173,18 @@ const api = {
     /** Live2D モデルをフォルダ選択で取り込む(ネイティブダイアログ→列挙→自動マッピング→複製→登録)。 */
     importLive2d: (): Promise<ModelManageSnapshot> =>
       ipcRenderer.invoke(IPC.ModelImportLive2d),
+    /**
+     * 静止画を選ばせ、クロマグリーン合成した background_key.png を保存する(手順1-2)。
+     * 選択も保存もネイティブダイアログで、Renderer からパスを渡さない。
+     */
+    makeBackgroundKey: (): Promise<BackgroundKeyResult> =>
+      ipcRenderer.invoke(IPC.SpritesetMakeBackgroundKey),
+    /**
+     * 色キー抜き済みフレーム(感情ごと・PNG)からスプライトセットモデルを登録する(手順4後段)。
+     * デコードと色キー抜きは Renderer 側(decode-video.ts)で終えてから呼ぶ。
+     */
+    importSpriteset: (payload: SpritesetImportPayload): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.SpritesetImport, payload),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

@@ -13,6 +13,8 @@ import { CodeAdapter } from './code-adapter/code-adapter';
 import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
 import { ModelService, modelsRootOf, parseModelId } from './model/model-service';
 import { ModelImporter } from './model/model-importer';
+import { SpritesetImporter, parseSpritesetImportPayload } from './model/spriteset-importer';
+import { makeBackgroundKey } from './model/background-key';
 import { writeEndpointFile } from './local-server/endpoint-file';
 import { OnboardingService } from './onboarding/onboarding-service';
 import { HookEventLog } from './logging/hook-event-log';
@@ -417,6 +419,60 @@ function registerModelIpc(): void {
     }
     return modelService.getSnapshot(result.warning);
   });
+
+  // スプライトセット生成(第2段階b)。手順1-2(合成)と手順4後段(エンコード+登録)がMain側。
+  // デコードと色キー抜きは Chromium にしかできないため Renderer が済ませてから呼ぶ。
+  ipcMain.handle(IPC.SpritesetMakeBackgroundKey, async (event) => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    return makeBackgroundKey({ chooseImage: chooseSourceImage, chooseSavePath: chooseBackgroundKeyPath });
+  });
+
+  const spritesetImporter = new SpritesetImporter({
+    configStore,
+    modelsRoot: modelsRootOf(app.getPath('userData')),
+  });
+  ipcMain.handle(IPC.SpritesetImport, async (event, payload: unknown) => {
+    if (!isPanelSender(event.sender) || !modelService) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const { name, inputs } = parseSpritesetImportPayload(payload);
+    const result = await spritesetImporter.importSpriteset(name, inputs);
+    if (result.imported) {
+      syncCharacterModel();
+    }
+    return modelService.getSnapshot(result.warning);
+  });
+}
+
+/** スプライトセットの元になる静止画をネイティブダイアログで選ばせる(キャンセルは null)。 */
+async function chooseSourceImage(): Promise<string | null> {
+  const parent = controlPanelBrowserWindow();
+  const options: Electron.OpenDialogOptions = {
+    title: 'スプライトセットの元になる画像を選ぶ',
+    message: '透過PNGを推奨します(背景は自動でクロマグリーンに合成されます)。',
+    filters: [{ name: '画像', extensions: ['png', 'jpg', 'jpeg', 'webp'] }],
+    properties: ['openFile'],
+  };
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
+/** background_key.png の保存先をネイティブダイアログで選ばせる(キャンセルは null)。 */
+async function chooseBackgroundKeyPath(defaultName: string): Promise<string | null> {
+  const parent = controlPanelBrowserWindow();
+  const options: Electron.SaveDialogOptions = {
+    title: '外部AIへ渡す画像を保存する',
+    defaultPath: join(app.getPath('downloads'), defaultName),
+    filters: [{ name: 'PNG', extensions: ['png'] }],
+  };
+  const result = parent
+    ? await dialog.showSaveDialog(parent, options)
+    : await dialog.showSaveDialog(options);
+  return result.canceled ? null : (result.filePath ?? null);
 }
 
 /**
@@ -711,6 +767,8 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.ModelSetActive);
   ipcMain.removeHandler(IPC.ModelSwapAssignment);
   ipcMain.removeHandler(IPC.ModelImportLive2d);
+  ipcMain.removeHandler(IPC.SpritesetMakeBackgroundKey);
+  ipcMain.removeHandler(IPC.SpritesetImport);
   modelService = null;
   if (logsChangedTimer !== null) {
     clearTimeout(logsChangedTimer);
