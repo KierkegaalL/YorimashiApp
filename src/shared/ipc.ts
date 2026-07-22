@@ -123,9 +123,30 @@ export const IPC = {
   /**
    * invoke: Live2D モデルを**フォルダ選択**で取り込む(第2段階a)。ネイティブダイアログで
    * フォルダを選ばせ、列挙・自動マッピング・複製・スロット追加まで行い、更新後のスナップショットを返す。
-   * zip 取り込みとスプライトセット生成は後続タスク。
+   * zip 取り込みは後続タスク。
    */
   ModelImportLive2d: 'model:import-live2d',
+
+  /**
+   * スプライトセット生成(第2段階b / spriteset-pipeline.md)。**工程がプロセスをまたぐ**:
+   * 動画のデコードと色キー抜きは Chromium にしかできないので Renderer(Control Panel)が行い、
+   * アニメーションWebPへのエンコードと保存は sharp を持つ Main が行う。
+   */
+  /**
+   * invoke: 静止画を選ばせ、クロマグリーン合成した `background_key.png` を保存する(手順1-2)。
+   * **選択も保存もネイティブダイアログ**で、Renderer からパスを受け取らない。
+   * 返り値は {saved, path}(キャンセルは saved=false)。
+   */
+  SpritesetMakeBackgroundKey: 'spriteset:make-background-key',
+  /**
+   * invoke: 色キー抜き済みフレーム(感情ごと・PNG)を受け取り、アニメーションWebPへエンコードして
+   * モデルとして登録する(手順4後段)。引数は {name, clips}、返り値は更新後のスナップショット。
+   *
+   * **フレームは Renderer で PNG 化してから渡す**(生RGBAは 800×800×4≒2.5MB/枚 になるため)。
+   * canvas の WebP は quality:1 でも可逆ではないと実測したため、可逆な PNG を使う
+   * (decode-video.ts 冒頭の訂正を参照)。
+   */
+  SpritesetImport: 'spriteset:import',
 
   /**
    * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:

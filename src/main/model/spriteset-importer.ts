@@ -73,6 +73,65 @@ export interface SpritesetImporterDeps {
   encode?: (frames: EncodedFrame[], options: AnimatedWebpOptions) => Promise<Buffer>;
 }
 
+/**
+ * Renderer から届いた取り込み要求を検証し、Main 側の型へ移す(`parseCodeSettingsPatch` /
+ * `parseModelId` と同じ役割)。**Renderer 由来の値をそのまま信じない**: フレームが空・delay 数の
+ * 不一致・寸法が非正といった壊れた要求はここで弾く。フレームは ArrayBuffer で届くので Buffer へ写す。
+ *
+ * electron に依存しないためオフスクリーンで検証できる(だから index.ts ではなくここに置く)。
+ */
+export function parseSpritesetImportPayload(payload: unknown): { name: string; inputs: SpritesetInputs } {
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error('取り込み要求が不正です。');
+  }
+  const { name, clips } = payload as { name?: unknown; clips?: unknown };
+  if (typeof name !== 'string' || name.trim() === '') {
+    throw new Error('モデル名を入力してください。');
+  }
+  if (typeof clips !== 'object' || clips === null) {
+    throw new Error('クリップが指定されていません。');
+  }
+  const source = clips as Partial<Record<EmotionState, {
+    frames?: unknown;
+    delayMs?: unknown;
+    width?: unknown;
+    height?: unknown;
+  }>>;
+  const inputs: SpritesetInputs = {};
+  for (const state of EMOTION_STATES) {
+    const clip = source[state];
+    if (clip === undefined || clip === null) {
+      continue;
+    }
+    const { frames, delayMs, width, height } = clip;
+    if (!Array.isArray(frames) || frames.length === 0) {
+      throw new Error(`${state} のフレームがありません。`);
+    }
+    // 各フレームが本当にバイト列か確かめる。Buffer.from は数値配列やプレーンオブジェクトも
+    // 例外なく受けてしまい、意図しないバイト列が sharp まで流れるため(Renderer由来を信じない)。
+    if (!frames.every((f) => f instanceof ArrayBuffer)) {
+      throw new Error(`${state} のフレームの形式が不正です。`);
+    }
+    if (!Array.isArray(delayMs) || delayMs.length !== frames.length) {
+      throw new Error(`${state} のフレーム数と表示時間の数が一致しません。`);
+    }
+    // NaN・文字列・0以下が混ざると WebP の delay が壊れる(長さ一致だけでは足りない)。
+    if (!delayMs.every((d) => typeof d === 'number' && Number.isFinite(d) && d > 0)) {
+      throw new Error(`${state} の表示時間が不正です。`);
+    }
+    if (!Number.isInteger(width) || !Number.isInteger(height) || (width as number) <= 0 || (height as number) <= 0) {
+      throw new Error(`${state} のフレーム寸法が不正です。`);
+    }
+    inputs[state] = {
+      frames: (frames as ArrayBuffer[]).map((f) => Buffer.from(f)),
+      delayMs: delayMs as number[],
+      width: width as number,
+      height: height as number,
+    };
+  }
+  return { name: name.trim(), inputs };
+}
+
 export class SpritesetImporter {
   constructor(private readonly deps: SpritesetImporterDeps) {}
 
