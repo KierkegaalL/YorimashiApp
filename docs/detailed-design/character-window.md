@@ -122,6 +122,8 @@ function defaultPosition(size: Size): Point {
 #### 決着済み(案2採用・実装済み): ウィンドウサイズの算出元が形式間で非対称
 
 > **決着(2026-07-19, #4)**: 下記の案2を採用した。`ModelSlotSchema.baseResolution`を**形式共通の必須フィールド**に変更済み(`src/shared/config-schema.ts` / `docs/data.md` 1章 / `docs/basic-design.md` 6.1 / Notion正本すべて反映済み)。ウィンドウサイズは両形式とも`baseResolution × general.displaySize`で決まり(`character-window.ts` `resolveWindowSize`)、形式による分岐は不要になった。モデル未導入時は`FALLBACK_BASE_RESOLUTION`(400×400)を使う。以下は決着に至った検討の記録。
+>
+> **⚠️ 前提の訂正(2026-07-22, 第2段階a Live2D取り込み実装時)**: 上記は「Live2Dの`baseResolution`を取り込み時に`model3.json`から読む」ことを前提にしていたが、**実測で`model3.json`にキャンバス寸法が無いことが判明**した(`CanvasInfo`フィールドを持たない)。正確な寸法は`moc3`バイナリにあるが、読むにはCubism Coreランタイム(`csmReadCanvasInfo`)が要り、Coreはnpmに無く現状バンドルもしていない。**そのため取り込み時は暫定でフォールバック(400×400)を`baseResolution`に入れている**(`model-importer.ts` `LIVE2D_IMPORT_FALLBACK_BASE_RESOLUTION`)。案2の結論(baseResolutionを形式共通・必須にしてウィンドウ生成前に確定させる)自体は維持するが、**Live2Dで正確なサイズをどう得るか(Cubism Core導入 / Rendererが初回ロード後に実サイズを報告して書き戻す)は未決**。下記論点2の「取り込み時に`model3.json`から読む」という記述はこの訂正で読み替えること。
 
 `defaultPosition`は`size`を引数に取るが、**その`size`をどう決めるかが形式間で揃っていない**(という問題があった)。
 

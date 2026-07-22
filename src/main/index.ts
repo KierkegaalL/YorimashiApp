@@ -1,4 +1,4 @@
-import { app, clipboard, ipcMain, net, type Tray } from 'electron';
+import { app, clipboard, dialog, ipcMain, net, type Tray } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -12,6 +12,7 @@ import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
 import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
 import { ModelService, modelsRootOf, parseModelId } from './model/model-service';
+import { ModelImporter } from './model/model-importer';
 import { writeEndpointFile } from './local-server/endpoint-file';
 import { OnboardingService } from './onboarding/onboarding-service';
 import { HookEventLog } from './logging/hook-event-log';
@@ -398,6 +399,41 @@ function registerModelIpc(): void {
   });
   handle(IPC.ModelSetActive, (service, payload) => service.setManualActive(parseModelId(payload)));
   handle(IPC.ModelSwapAssignment, (service) => service.swapAssignment());
+
+  // 取り込み(Live2D フォルダ)。ダイアログ→複製→スロット追加は非同期のため handle() の
+  // 同期版とは別に配線する。取り込み後は syncCharacterModel() で 0→1 体化に追従する。
+  const importer = new ModelImporter({
+    configStore,
+    modelsRoot: modelsRootOf(app.getPath('userData')),
+    chooseModelFolder: () => chooseModelFolder(),
+  });
+  ipcMain.handle(IPC.ModelImportLive2d, async (event) => {
+    if (!isPanelSender(event.sender) || !modelService) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const result = await importer.importLive2dFromDialog();
+    if (result.imported) {
+      syncCharacterModel();
+    }
+    return modelService.getSnapshot(result.warning);
+  });
+}
+
+/**
+ * Live2D モデルフォルダをネイティブダイアログで選ばせる(キャンセルは null)。
+ * dialog は onboarding の chooseProject と同じく Control Panel を親にして表示する。
+ */
+async function chooseModelFolder(): Promise<string | null> {
+  const parent = controlPanelBrowserWindow();
+  const options: Electron.OpenDialogOptions = {
+    title: 'Live2D モデルのフォルダを選ぶ',
+    message: 'model3.json(Cubism 4/5)または model.json(Cubism 2)を含むフォルダを選んでください。',
+    properties: ['openDirectory'],
+  };
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
 /**
@@ -674,6 +710,7 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.ModelSetAutoSwitch);
   ipcMain.removeHandler(IPC.ModelSetActive);
   ipcMain.removeHandler(IPC.ModelSwapAssignment);
+  ipcMain.removeHandler(IPC.ModelImportLive2d);
   modelService = null;
   if (logsChangedTimer !== null) {
     clearTimeout(logsChangedTimer);
