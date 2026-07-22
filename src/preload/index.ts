@@ -151,8 +151,9 @@ const api = {
     get: (): Promise<RightsSnapshot> => ipcRenderer.invoke(IPC.RightsGet),
   },
   /**
-   * モデル管理(FR-5)のスロット操作。取り込みと感情↔モーション編集は後続タスクで足す
-   * (このAPIからはスロットを増やせない)。いずれも更新後のスナップショットを返す。
+   * モデル管理(FR-5)のスロット操作 + 取り込み。**Live2Dのフォルダ取り込み(importLive2d)は
+   * 実装済み**(第2段階a)。zip取り込み・スプライトセット生成・感情↔モーション編集は後続タスク。
+   * いずれも更新後のスナップショットを返す。
    */
   models: {
     get: (): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelGet),
@@ -167,6 +168,9 @@ const api = {
     /** Code / Chat の担当を入れ替える。 */
     swapAssignment: (): Promise<ModelManageSnapshot> =>
       ipcRenderer.invoke(IPC.ModelSwapAssignment),
+    /** Live2D モデルをフォルダ選択で取り込む(ネイティブダイアログ→列挙→自動マッピング→複製→登録)。 */
+    importLive2d: (): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.ModelImportLive2d),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

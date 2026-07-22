@@ -232,10 +232,10 @@ function score(state: EmotionState, candidate: string): number {
 
 ## 実装時のTODO
 
-- [ ] `lucide-react`を依存に追加する
+- [x] `lucide-react`を依存に追加する(`package.json` に `^1.25.0` で追加済み。UI移植時)
 - [ ] モックアップの`EMOTION_STATES`を`src/shared/emotions.ts`へ寄せ、プロンプト文言は別テーブルへ分離する
 - [x] Cubism 2 / 4 の列挙処理を**実モデルで検証**した(A2、`dev-assets/live2d/` Shizuku/Haru)。上記「論点2/列挙元」の表を実測確認済み。表情の`Name`はファイル名と不一致・グループ名の命名規則が一定でない(作者慣習)点に注意(同節参照)
-- [ ] 自動検出時に**idleグループの存在を検証する**(Cubism4=`"Idle"` / Cubism2=`"idle"`)。無い場合、モーション終了後にフォールバック先が無く固まりうる(lipsync.md「尽きたときの挙動」①)。取り込み時に警告するか代替挙動を用意する
-- [ ] 取り込み時、**モデル定義ファイルが参照するパスが自身のモデルフォルダ内に閉じていることを検証する**(`../`等での逸脱を拒否)。security.md の`GET /models/*`パス検証と対になる入口側の検証。**公式サンプルHaru(`haru_greeter_t03.model3.json`)自体が`Sound`で兄弟フォルダ`../shizuku/sounds/`を相対参照する実例があり**、机上の懸念ではない(A2で発見)。**スプライトセットには対応物不要**(`clips`はアプリ自身が生成し、第三者が作成した定義ファイルのパス文字列を一切パースしないため。spriteset-pipeline.md)
+- [x] 自動検出時に**idleグループの存在を検証する**(Cubism4=`"Idle"` / Cubism2=`"idle"`)。無い場合、モーション終了後にフォールバック先が無く固まりうる(lipsync.md「尽きたときの挙動」①)。**実装済み(第2段階a)**: `live2d-import.ts` `autoMapLive2d` が `idleMotionMissing` を返し、`model-importer.ts` が取り込み時に警告としてUIへ伝える(取り込み自体は通す)
+- [x] 取り込み時、**モデル定義ファイルが参照するパスが自身のモデルフォルダ内に閉じていることを検証する**(`../`等での逸脱を拒否)。security.md の`GET /models/*`パス検証と対になる入口側の検証。**公式サンプルHaru(`haru_greeter_t03.model3.json`)自体が`Sound`で兄弟フォルダ`../shizuku/sounds/`を相対参照する実例があり**、机上の懸念ではない(A2で発見)。**スプライトセットには対応物不要**(`clips`はアプリ自身が生成し、第三者が作成した定義ファイルのパス文字列を一切パースしないため。spriteset-pipeline.md)。**実装済み(第2段階a)**: `live2d-import.ts` `assertPathsWithin` がレンダリング必須アセット(moc/textures/physics/pose/expressions/motions)の逸脱を弾く。Sound/DisplayInfo/UserDataは検証対象外(v1で使わず、Haruが正当に外部参照するため。除外理由をコード冒頭に明記)
 - [ ] プレビューの遅延マウント/destroyがメモリ目安(200MB前後)に収まるか実測する
 - [ ] 上記「検出した不整合」1〜4の決着

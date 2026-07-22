@@ -2,16 +2,16 @@
  * モデル管理タブ(FR-5/FR-7)。UIの正: docs/mockups/control-panel.jsx L805-1179。
  * 正本: docs/detailed-design/model-mapping-ui.md。
  *
- * **この段階で実装するのはスロット管理まで**(モデル管理タブの分解の第1段階):
+ * **実装済み**(第1段階=スロット管理 / 第2段階a=Live2Dフォルダ取り込み):
  *  - セット中のモデル一覧(形式バッジ・使用中表示・削除のインライン確認)
  *  - モードによる自動切替(2体セット時のみ。トグル + Code/Chat の入れ替え)
  *  - 0体のときの空状態
+ *  - **Live2D モデルのフォルダ取り込み**(「モデルの追加」セクション。ネイティブダイアログ)
  *
  * **未実装は正直にそう出す**(偽データ・使えないUIを置かない):
- *  - モデルの**取り込み**(Live2Dフォルダ/zip・スプライトセット生成パイプライン)
- *  - **感情↔モーション対応の編集**(全10状態のマッピングUI)
- *  いずれも後続タスク(model-mapping-ui.md / spriteset-pipeline.md)。取り込みが入るまでは
- *  実際にはスロットが増えないため、通常は空状態が表示される。
+ *  - Live2D の **zip 取り込み**・**スプライトセットの生成パイプライン**(spriteset-pipeline.md)
+ *  - **感情↔モーション対応の編集**(全10状態のマッピングUI。model-mapping-ui.md)
+ *  いずれも後続タスク。
  *
  * **「使用中」は解決結果(activeModelId)で描く**。manualActiveId から推測して描くと、
  * 自動切替オン時や未設定時のフォールバックとずれる(constraints.md「嘘をつかない」)。
@@ -22,7 +22,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, Circle, Image, Layers, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Circle, FolderOpen, Image, Layers, Trash2 } from 'lucide-react';
 
 import { useTheme } from './theme';
 import { Row, Section, Switch } from './panel-ui';
@@ -34,6 +34,8 @@ export function ModelTab(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   /** 削除確認中のモデルid(同時に1つだけ。モックアップの deleteConfirmId と同じ考え方)。 */
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  /** 取り込み中(ネイティブダイアログ→複製の間)。二重起動と誤操作を防ぐ。 */
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     const api = window.yorimashi?.models;
@@ -105,7 +107,8 @@ export function ModelTab(): React.JSX.Element {
         {!isFull && (
           <Row
             label="空きスロット"
-            // 文言はモックアップ(L898)のまま。右の「追加は準備中」だけが実装状況を示す差分。
+            // 文言はモックアップ(L898)のまま。右側は「モデルの追加」セクションが実際に機能する
+            // ようになったため、"準備中" ではなく下の追加導線を指す(同一画面で矛盾したメッセージを出さない)。
             sub={slots.length === 0 ? '空きスロットが2つあります' : 'モデルはあと1体セットできます'}
             last
           >
@@ -116,7 +119,7 @@ export function ModelTab(): React.JSX.Element {
                 color: theme.iconInactive,
               }}
             >
-              追加は準備中
+              ↓「モデルの追加」から
             </span>
           </Row>
         )}
@@ -163,9 +166,45 @@ export function ModelTab(): React.JSX.Element {
         </Section>
       )}
 
-      {/* 取り込み・マッピング編集は未実装。**偽のUIを置かず**、何が待っているかだけを正直に出す。 */}
-      <Section title="モデルの追加" hint="Live2Dフォルダ/zipの取り込みと、スプライトセットの生成フローは後続タスクで実装します。">
-        <Row label="準備中" sub="現在この画面からモデルを追加することはできません" last />
+      {/* モデルの追加。Live2Dのフォルダ取り込みは実装済み(第2段階a)。zip取り込みと
+          スプライトセット生成は後続。**未実装の導線は正直に「準備中」と出す**(偽UIを置かない)。 */}
+      <Section
+        title="モデルの追加"
+        hint="Live2Dはモデルフォルダ(model3.json/model.jsonを含む)を選ぶと取り込めます。zip取り込みとスプライトセットの生成フローは後続タスクで実装します。"
+      >
+        <Row
+          label="Live2D モデル"
+          sub={isFull ? 'スロットが埋まっています(先に削除してください)' : 'モデルフォルダを選んで取り込みます'}
+        >
+          <button
+            disabled={isFull || importing}
+            onClick={() => {
+              setImporting(true);
+              void run((api) => api.importLive2d()).finally(() => setImporting(false));
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              background: 'transparent',
+              border: `1px solid ${isFull || importing ? theme.line : theme.accent}`,
+              borderRadius: 999,
+              padding: '5px 11px',
+              color: isFull || importing ? theme.iconInactive : theme.accent,
+              fontFamily: "'M PLUS 1 Code', sans-serif",
+              fontSize: 12,
+              cursor: isFull || importing ? 'default' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <FolderOpen size={13} /> {importing ? '取り込み中…' : 'フォルダを選ぶ'}
+          </button>
+        </Row>
+        <Row label="スプライトセット" sub="画像からの生成フローは後続タスクで実装します" last>
+          <span style={{ fontFamily: "'M PLUS 1 Code', sans-serif", fontSize: 11.5, color: theme.iconInactive }}>
+            準備中
+          </span>
+        </Row>
       </Section>
 
       <Section title="感情とモーションの対応" hint="全10状態への割り当て編集は、モデルの取り込みと合わせて後続タスクで実装します。">

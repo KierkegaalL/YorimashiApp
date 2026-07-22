@@ -120,6 +120,12 @@ export const IPC = {
   ModelSetActive: 'model:set-active',
   /** invoke: Code / Chat の担当を入れ替える。 */
   ModelSwapAssignment: 'model:swap-assignment',
+  /**
+   * invoke: Live2D モデルを**フォルダ選択**で取り込む(第2段階a)。ネイティブダイアログで
+   * フォルダを選ばせ、列挙・自動マッピング・複製・スロット追加まで行い、更新後のスナップショットを返す。
+   * zip 取り込みとスプライトセット生成は後続タスク。
+   */
+  ModelImportLive2d: 'model:import-live2d',
 
   /**
    * オンボーディング(FR-14)。Rendererにできない3つだけをMainへ委譲する:
