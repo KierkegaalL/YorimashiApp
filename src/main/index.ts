@@ -13,8 +13,13 @@ import { CodeAdapter } from './code-adapter/code-adapter';
 import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
 import { ModelService, modelsRootOf, parseModelId } from './model/model-service';
 import { ModelImporter } from './model/model-importer';
-import { SpritesetImporter, parseSpritesetImportPayload } from './model/spriteset-importer';
+import { SpritesetImporter, parseSpritesetClip, parseSpritesetImportPayload } from './model/spriteset-importer';
 import { makeBackgroundKey } from './model/background-key';
+import {
+  MappingService,
+  parseEmotionState,
+  parseLive2dEntryPatch,
+} from './model/mapping-service';
 import { writeEndpointFile } from './local-server/endpoint-file';
 import { OnboardingService } from './onboarding/onboarding-service';
 import { HookEventLog } from './logging/hook-event-log';
@@ -26,6 +31,7 @@ import type { EmotionSnapshot } from '../shared/emotions';
 import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
 import type { RightsSnapshot } from '../shared/rights';
 import type { ModelManageSnapshot } from '../shared/model-manage';
+import type { ModelMappingDetail } from '../shared/model-mapping';
 
 /**
  * Mainプロセス。
@@ -444,6 +450,98 @@ function registerModelIpc(): void {
     }
     return modelService.getSnapshot(result.warning);
   });
+
+  // 感情↔モーション/クリップ対応の編集(第3段階 Track A / model-mapping-ui.md)。
+  // マッピングの正本は manifest.json で、編集後にそのモデルがアクティブなら**再読込して反映する**
+  // (id は変わらないので syncCharacterModel の差分判定では拾えない。reloadIfApplied を使う)。
+  const mappingService = new MappingService({
+    configStore,
+    modelsRoot: modelsRootOf(app.getPath('userData')),
+  });
+  /** 編集系(引数の id を検証し、実行後にアクティブなら再読込する)の共通処理。 */
+  const mapEdit = (
+    channel: string,
+    run: (service: MappingService, id: string, payload: unknown) => ModelMappingDetail,
+  ): void => {
+    ipcMain.handle(channel, (event, payload: unknown) => {
+      if (!isPanelSender(event.sender)) {
+        throw new Error('この送信元からの操作は許可されていません');
+      }
+      const { id, rest } = splitMappingPayload(payload);
+      const detail = run(mappingService, id, rest);
+      characterWindow?.reloadIfApplied(id);
+      return detail;
+    });
+  };
+
+  // 読み取り(get)は再読込不要。引数はモデルid そのもの。
+  ipcMain.handle(IPC.ModelMappingGet, (event, payload: unknown) => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return mappingService.getDetail(parseModelId(payload));
+  });
+  mapEdit(IPC.ModelMappingSetLive2d, (service, id, rest) => {
+    const { state, patch } = rest as { state?: unknown; patch?: unknown };
+    return service.setLive2dEntry(id, parseEmotionState(state), parseLive2dEntryPatch(patch));
+  });
+  mapEdit(IPC.ModelMappingAutoRestore, (service, id, rest) => {
+    const { state } = rest as { state?: unknown };
+    return service.autoRestoreState(id, parseEmotionState(state));
+  });
+  // AutoRestoreAll の引数はモデルid そのもの(state を持たない)。
+  ipcMain.handle(IPC.ModelMappingAutoRestoreAll, (event, payload: unknown) => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const id = parseModelId(payload);
+    const detail = mappingService.autoRestoreAll(id);
+    characterWindow?.reloadIfApplied(id);
+    return detail;
+  });
+  mapEdit(IPC.ModelMappingDeleteClip, (service, id, rest) => {
+    const { state } = rest as { state?: unknown };
+    return service.deleteSpritesetClip(id, parseEmotionState(state));
+  });
+
+  // クリップ差し替え(Track B)は WebP エンコード(sharp)を挟むため**非同期**。同期版の mapEdit では
+  // 扱えないので SpritesetImport と同じく個別に配線する(検証→実行→アクティブなら再読込は同じ)。
+  // Live2D 側の対応物は setLive2dEntry(モーション/表情の割り当て)で、そちらは同期のため mapEdit に乗る。
+  // この同期/非同期の差はエンコード工程の有無に由来する正当な非対称(Live2Dはフォルダ内の既存ファイルを
+  // 指すだけで、差し替え時にエンコードしない)。
+  ipcMain.handle(IPC.ModelMappingSetClip, async (event, payload: unknown) => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const { id, rest } = splitMappingPayload(payload);
+    const { state, clip } = rest as { state?: unknown; clip?: unknown };
+    const emotionState = parseEmotionState(state);
+    const input = parseSpritesetClip(clip, emotionState);
+    const detail = await mappingService.setSpritesetClip(id, emotionState, input);
+    characterWindow?.reloadIfApplied(id);
+    return detail;
+  });
+
+  // プレビュー描画(Track C / 論点1)用の配信情報を id で返す。トークンは /panel が HTML に埋め込む
+  // (window.__APP_TOKEN__)ので Main→Renderer では渡さず、ここは installedDir/mappingFile だけ返す。
+  // installedDir の露出はキャラクターウィンドウの bootstrap と同じ(描画に要る最小情報。model-manage の
+  // 「スナップショットにパスを載せない」= Renderer 由来のパスを信じる経路を作らない、とは別の話)。
+  // slot 検索・存在検証・パス検証は MappingService.getPreviewContext に一本化する(他のマッピング系と同じ経路)。
+  ipcMain.handle(IPC.ModelPreviewContext, (event, payload: unknown) => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return mappingService.getPreviewContext(parseModelId(payload));
+  });
+}
+
+/** {id, ...} 形のマッピング編集ペイロードから id を取り出し検証する(残りは各ハンドラが解釈)。 */
+function splitMappingPayload(payload: unknown): { id: string; rest: unknown } {
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error('操作の指定が不正です。');
+  }
+  const { id } = payload as { id?: unknown };
+  return { id: parseModelId(id), rest: payload };
 }
 
 /** スプライトセットの元になる静止画をネイティブダイアログで選ばせる(キャンセルは null)。 */

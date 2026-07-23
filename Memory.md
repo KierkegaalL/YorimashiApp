@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-22
+**最終更新**: 2026-07-24
 
 ## 現在地
 
@@ -276,7 +276,29 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **チェックループ**: 2周(1周目4件[中〜高1: `waitForMetadata`にタイムアウトが無く無期限ハングしうる実バグ / 中1: ペイロード検証が緩い(delayのNaN・文字列・0以下、framesが非ArrayBuffer) / 低〜中1: 「保存」ボタンのラベルと実挙動の乖離 / 低1: 段1の到達不能な隠しinput]→2周目0件)
   - **申し送り(任意・第3段階着手時に検討)**: 「外部サービスへ渡す画像」右のボタンを、モックアップの**「保存」から「選び直す」へ意図的に変更**した(実挙動が「元画像を選び直して合成・保存をやり直す」ため。モックアップ側はonClickを持たない静的モック)。理由はコード内コメントに残してあるが、**モックアップ正本側へ同期するか否かは未判断**
   - **未実装(意図的)**: Live2Dのzip取り込み、**取り込み後の感情↔クリップ再割り当て編集**(第3段階)、モデル名の変更(モックアップどおり既定名`新しいモデル`で登録)
-- **次**: Phase 2継続 → **モデル管理タブ 第3段階(感情↔モーション/クリップのマッピング編集UI + プレビュー枠)**・#(セキュリティ仕上げ FR-13)
+- **完了 モデル管理タブ 第3段階 Track A: マッピング編集(Main基盤 + UI)(FR-5)** — 「感情とモーションの対応」の準備中を実マッピング編集に置換。Live2Dはモーション/表情の割り当て+自動、スプライトセットはクリップ削除。**第3段階はユーザー承認で3トラックに分解**(A=マッピング編集<今回> / B=スプライトセットのクリップ差し替え「変更」=decode-video.ts再利用 / C=プレビュー枠。Live2DプレビューはPixiJS同梱+Cubismランタイム必須で描画がサンドボックス検証不可・メモリ実測TODO未決のためCを後回しにしAを先行)
+  - **新規**: `src/shared/model-mapping.ts`(契約: Live2d/SpritesetMappingDetail・Live2dEntryPatch。zod非依存)、`src/main/model/mapping-service.ts`(`MappingService`。**Electron非依存**。getDetail/setLive2dEntry/autoRestoreState/autoRestoreAll/deleteSpritesetClip + parseEmotionState/parseLive2dEntryPatch)、`src/renderer/control-panel/src/MappingEditor.tsx`(UI。Live2dRows/SpritesetRowsはSSR検証のためexport)。**変更**: `live2d-import.ts`(`autoMapLive2dState`=1状態だけ再検出。pickBest再利用で一括と食い違わない)、`ipc.ts`(ModelMapping* 5チャンネル)、`preload/index.ts`(models名前空間拡張)、`character-window.ts`(`reloadIfApplied`)、`index.ts`(registerModelIpc内に配線)、`ModelTab.tsx`(準備中→MappingEditor)
+  - **マッピングの正本はmanifest.json**(CLAUDE.md原則3): 編集はすべて`userData/models/<installedDir>/manifest.json`の読み書きで完結。config.jsonに複製しない。**書き込み前にManifestSchema.parse+tmp+renameで原子的**(既存の有効manifestを上書きするため。ConfigStoreと同方針)
+  - **嘘をつかない/セキュリティ**: (1)setLive2dEntryは`enumerateLive2d`の実列挙結果と突合してから書く(Renderer由来のmotion/expression名を候補に無くても信じない) (2)パス検証`resolveWithinBase`をmodelDir解決・manifest解決・クリップ削除の3箇所に通す (3)**idle削除拒否**(C-18。全状態のフォールバック先) (4)全ハンドラ`isPanelSender`+parseXxx検証
+  - **Live2Dの未割当**: 両方nullかつidle以外→emotionMapからキーごと外す(実行時idleフォールバック)。**idleは両方nullでもキーを残す**(C-18)。**自動マッピングはLive2Dのみ**(論点4。スプライトセットは生成フローがクリップを感情ごとに1:1で作るため候補・自動の概念が無い=正当な非対称)
+  - **キャラウィンドウ反映**: マッピング編集はmanifest書き換えのみで解決モデルidが変わらず`applyActiveModel`(id差分判定)では拾えない→`reloadIfApplied(id)`を新設。characterはbootstrapでinstalledDir/mappingFileだけ受けmanifestを毎回fetchするので同URL再読込で新manifestを読み直す
+  - **意図的に未実装(正直に後続表記)**: スプライトセットのクリップ**差し替え(「変更」)=Track B**(→**下記で完了**)、**プレビュー枠(論点1)=Track C**。偽ボタンを置かない
+  - **検証**: typecheck/build通過(control-panelにzod漏れ無し=schemasチャンク不在・0件確認)。**オフスクリーン Main 40件**(実ConfigStore/実Haruモデル使用: 列挙・手動設定・未割当復帰・存在しない候補拒否・idle空でも有効・autoRestoreStateがautoMapLive2dStateと一致・autoRestoreAll上書き・原子的書き込み・パス逸脱拒否・spriteset削除/idle削除拒否/冪等/未知returnToをnullに畳む/形式違い操作拒否・ペイロード検証)+**SSR 20件**(0体空状態・読込中・対象タブ・候補select・要設定・必須・削除確認・差し替え後続明記)
+  - **チェックループ**: reviewer 2周(1周目軽微1件[returnToを検証なしにEmotionStateへキャスト]→`toEmotionStateOrNull`で修正→2周目0件)。**実装フェーズのためreviewer修正もOpus 4.8継続**([[feedback_impl-phase-model-policy]])
+- **完了 モデル管理タブ 第3段階 Track B: スプライトセットのクリップ差し替え/設定「変更」(FR-5)** — Track Aの「差し替えは後続」プレースホルダを実機能に置換。取り込み(SpritesetAddFlow)と同じ`decodeAndKeyVideo`(Rendererでデコード+色キー抜き)→`setClip` IPC→Mainで`encodeAnimatedWebp`(sharp)。**idle=変更のみ(削除不可・C-18)/割当済み非idle=変更+削除/未割当=設定**(「要設定」の行き止まりを解消)
+  - **変更**: `spriteset-importer.ts`(`parseSpritesetClip(clip,state)`を切り出し取り込みと共有・`CLIP_DEFAULTS` export)、`mapping-service.ts`(`async setSpritesetClip`。deps に`encode?`注入)、`ipc.ts`(`ModelMappingSetClip`)、`preload/index.ts`(`models.setClip`)、`index.ts`(**非同期**ハンドラ配線=エンコードを挟むためmapEditの同期版に乗らない)、`MappingEditor.tsx`(変更/設定ボタン+file input+decode進捗)
+  - **書き込み順序の非対称(正当・明記済み)**: 設定=**先にファイル→後でmanifest**(manifest書込失敗時は孤児ファイル=無害) / 削除=**先にmanifest→後でファイル**(逆順)。どちらも「manifest参照に実体が伴わない状態を作らない」ため。`loop`/`returnTo`は状態の性質(CLIP_DEFAULTS)で、差し替え時は既存を保ち新規はデフォルト。**寸法はbaseResolutionと一致必須**(単一baseResolution前提。別解像度は作り直し)
+  - **設計訂正(reviewer指摘1)**: `model-mapping-ui.md`論点3の当初案「dialog.showOpenDialog+行へのドロップ両対応」を`<input type=file>`のみへ**訂正記録**(decode-video.mdのWebCodecs訂正と同構図)。理由=デコードはChromiumのみでFileが要る/showOpenDialogはMain側パス文字列を返し`<video>`に読ませられない/追加フローも`<input>`で揃う/パスをRendererに渡さない不変条件
+  - **レース修正(reviewer指摘2)**: モデル切替pillに`disabled={busy||decoding!==null}`。実行中(decodingはデコード開始〜setClip完了まで非null維持)は切替を封じ、runEditのsetDetailが常に現在の対象へ反映される
+  - **検証**: typecheck/build通過。**オフスクリーン Main +24件**(未割当→設定でmapped化・CLIP_DEFAULTS付与・差し替えでloop/returnTo維持・エンコードloop値・ファイル上書き/孤児回避・idle差し替え可・寸法不一致拒否・パス逸脱拒否・Live2Dへの形式ガード・parseSpritesetClip検証。encodeはフェイク注入)+**SSR +7件**(変更/設定/削除/idle必須理由/未割当設定/デコード進捗)。reviewer 2周(指摘2件→修正→**0件確定**)
+- **完了 モデル管理タブ 第3段階 Track C: プレビュー枠(FR-5 / 論点1)** — 「感情とモーションの対応」Section先頭に120×120程度のプレビュー枠。**両形式とも`CharacterRenderer`を通す**(本番=キャラウィンドウと同一経路。プレビュー専用の別描画を作らない)。各感情行に▶を置き`setState(state)`で再生。これで第3段階(A/B/C)完了
+  - **新規**: `src/renderer/control-panel/src/ModelPreview.tsx`(forwardRef+useImperativeHandleで`setState`公開。status=unavailable/loading/ready/error を正直表示)。**変更**: `ipc.ts`(`ModelPreviewContext`)、`preload`(`getPreviewContext`)、`index.ts`(ハンドラ)、`mapping-service.ts`(`getPreviewContext(id)`=resolveModelDir経由でslot検索一本化)、`MappingEditor.tsx`(Section先頭に`<ModelPreview>`・各行に▶`PreviewButton`・`previewReady`活性制御・runEdit成功で`reloadNonce++`)
+  - **プレビューのコンテキスト取得**: トークンは`/panel`がHTMLに埋め込む(`window.__APP_TOKEN__`)+オリジンは`window.location.origin`(readBootstrapがまとめ読み)。**installedDir/mappingFileは`getPreviewContext(id)`で取る**(/panelにはbootstrapを埋め込まない=プレビュー対象はアクティブと別選択のため)。installedDir露出はキャラウィンドウのbootstrapと同じ最小情報で、model-manageの「スナップショットにパスを載せない」とは別問題
+  - **編集の反映(嘘をつかない)**: 編集はmanifestを書き換えるので、`runEdit`成功で`reloadNonce`を増やしプレビューを最新manifestで作り直す(古い対応を映さない)。遅延マウント/destroyはeffectクリーンアップ(MappingEditorのマウント/アンマウントに追従)
+  - **⚠️ zod漏れ回帰を1度踏んで修正(reviewer指摘1・[[Memory.md:246]]と同型)**: 当初`createRenderer`/`loadManifest`/`readBootstrap`を**静的import**したため、zod入り`createRenderer`チャンク(709KB)がcontrol-panel起動時に**modulepreloadで先読み**されていた(モデルタブを開かなくても)。**修正**: これらをeffect内`await import()`の**動的import**へ、型のみ`import type`。ビルドで`control-panel/index.html`のmodulepreloadが`preload-helper`のみ・`createRenderer`チャンク709KB→5.15KBを確認。**教訓: 「遅延マウント」(実行時mount/destroy)とバンドル分割(いつコードを読むか)は別問題。エントリチャンク差分だけ見て「+6.7kB」と誤申告した→modulepreloadまで実測すること**
+  - **未検証(正直に後続/ユーザー確認)**: 実描画(WebGL/Cubismランタイム/PixiJS)と**遅延マウント/destroyのメモリ実測(200MB目安=論点1のTODO)はサンドボックス/devで検証不可**。dev(Vite)はトークン未注入で`unavailable`表示=配信ビルドでのみ描画。model-mapping-ui.md 実装TODOの「プレビューのメモリ実測」は未チェックのまま残す
+  - **検証**: typecheck/build通過。**SSR 35件**(Track A/B分岐+▶活性/非活性+ModelPreviewのSSRスモーク=import健全性)。reviewer 2周(指摘3件[modulepreload回帰・slot検索重複・docコメント]→修正→**0件確定**)
+- **次**: #(セキュリティ仕上げ FR-13)。**第3段階(モデル管理タブ Track A/B/C)は完了**。FR-13はローカルサーバー(`local-server.ts`実装済み)のトークン認証・CSP・パストラバーサル対策が中心でオフスクリーン検証しやすい。着手時のモデル方針(新規実装ならOpus/既存補強中心ならSonnet)は依頼時に確認
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
   - **reviewerチェックループ2周実施**（1周目5件[permissions/persist-credentials未指定・npm installスクリプトの記述が実測と不一致だった等]→修正→**2周目0件**）。npmの`allow-scripts`警告を「installスクリプトがブロックされる」と誤って書いていたが、実測（`ignore-scripts`/`strict-allow-scripts`がいずれも`false`、esbuildのpostinstallバイナリが実在）で訂正した

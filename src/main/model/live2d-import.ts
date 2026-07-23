@@ -180,6 +180,19 @@ function pickBest(state: EmotionState, candidates: string[]): string | null {
   return bestScore > 0 ? bestName : null;
 }
 
+/**
+ * 1状態ぶんの自動マッピング(model-mapping-ui.md 論点2「自動に戻す」= その状態だけ再検出)。
+ * `autoMapLive2d` と同じ pickBest を通すため、全10状態を一括で再検出したときと結果が一致する
+ * (状態単位のやり直しと Section 単位のやり直しで挙動が食い違わない)。
+ */
+export function autoMapLive2dState(
+  state: EmotionState,
+  motions: string[],
+  expressions: string[],
+): { motion: string | null; expression: string | null } {
+  return { motion: pickBest(state, motions), expression: pickBest(state, expressions) };
+}
+
 export interface AutoMapResult {
   emotionMap: Live2dManifest['emotionMap'];
   /** idle にモーションが割り当たらなかった(実行時のフォールバック先が固まりうる。要注意)。 */

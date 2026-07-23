@@ -128,6 +128,36 @@ export const IPC = {
   ModelImportLive2d: 'model:import-live2d',
 
   /**
+   * 感情↔モーション/クリップ対応の編集(第3段階 Track A / model-mapping-ui.md)。
+   * マッピングの正本は各モデルの manifest.json で、以下はその読み書き。編集後は編集対象が
+   * アクティブなら index.ts がキャラクターウィンドウを再読込する(表示と設定を食い違わせない)。
+   */
+  /** invoke: 指定モデルの現在のマッピング詳細(引数はモデルid)。Live2Dは候補も同梱。 */
+  ModelMappingGet: 'model:mapping:get',
+  /** invoke: Live2D の1状態の motion/expression を設定(引数は {id, state, patch})。 */
+  ModelMappingSetLive2d: 'model:mapping:set-live2d',
+  /** invoke: Live2D の1状態を自動検出でやり直す(引数は {id, state})。 */
+  ModelMappingAutoRestore: 'model:mapping:auto-restore',
+  /** invoke: Live2D の全10状態を自動検出でやり直す(引数はモデルid。確認はUI側)。 */
+  ModelMappingAutoRestoreAll: 'model:mapping:auto-restore-all',
+  /** invoke: スプライトセットの1クリップを削除=未割当に戻す(引数は {id, state}。idle不可)。 */
+  ModelMappingDeleteClip: 'model:mapping:delete-clip',
+  /**
+   * invoke: スプライトセットの1クリップを差し替え/新規設定する(第3段階 Track B / 論点3「変更」)。
+   * 引数は {id, state, clip}(clip は色キー抜き済みPNGフレーム。取り込みと同じ経路)。idle も差し替え可。
+   * デコード・色キー抜きは Renderer(Chromium)、WebPエンコードは Main(sharp)という工程分担は取り込みと同じ。
+   */
+  ModelMappingSetClip: 'model:mapping:set-clip',
+  /**
+   * invoke: プレビュー描画(第3段階 Track C / 論点1)用に、対象モデルの配信情報を返す(引数はモデルid)。
+   * 返り値は {installedDir, mappingFile}(= CharacterBootstrapModel)。Control Panel のプレビュー枠は
+   * これと `window.__APP_TOKEN__`(/panel が埋め込む) + `window.location.origin` から assetBaseUrl を組み、
+   * キャラクターウィンドウと同じ `/models/*` 経路で manifest/アセットを読む。**プレビュー対象はアクティブ
+   * モデルと別に選ぶ**ため /panel には bootstrap を埋め込まず、id 指定のこのIPCで解決する。
+   */
+  ModelPreviewContext: 'model:preview-context',
+
+  /**
    * スプライトセット生成(第2段階b / spriteset-pipeline.md)。**工程がプロセスをまたぐ**:
    * 動画のデコードと色キー抜きは Chromium にしかできないので Renderer(Control Panel)が行い、
    * アニメーションWebPへのエンコードと保存は sharp を持つ Main が行う。
