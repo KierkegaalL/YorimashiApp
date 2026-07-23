@@ -35,7 +35,7 @@ import type { ImportResult } from './model-importer';
  * idle / confident / tired / thinking / panic / sleepy は loop:true、
  * happy / proud / worried / curious は loop:false + returnTo:idle。
  */
-const CLIP_DEFAULTS: Record<EmotionState, { loop: boolean; returnTo?: EmotionState }> = {
+export const CLIP_DEFAULTS: Record<EmotionState, { loop: boolean; returnTo?: EmotionState }> = {
   idle: { loop: true },
   confident: { loop: true },
   tired: { loop: true },
@@ -74,11 +74,53 @@ export interface SpritesetImporterDeps {
 }
 
 /**
- * Renderer から届いた取り込み要求を検証し、Main 側の型へ移す(`parseCodeSettingsPatch` /
- * `parseModelId` と同じ役割)。**Renderer 由来の値をそのまま信じない**: フレームが空・delay 数の
- * 不一致・寸法が非正といった壊れた要求はここで弾く。フレームは ArrayBuffer で届くので Buffer へ写す。
+ * Renderer から届いた**1感情ぶんのクリップ**を検証し、Main 側の型へ移す。**Renderer 由来の値を
+ * そのまま信じない**: フレームが空・delay 数の不一致・寸法が非正といった壊れた要求はここで弾く。
+ * フレームは ArrayBuffer で届くので Buffer へ写す。`state` はエラーメッセージにのみ使う。
  *
- * electron に依存しないためオフスクリーンで検証できる(だから index.ts ではなくここに置く)。
+ * 取り込み(parseSpritesetImportPayload)と差し替え(mapping-service の setSpritesetClip 経由)の
+ * **両方から通す単一の検証経路**にする(片方だけ緩い検証にして細工フレームを sharp へ流さない)。
+ */
+export function parseSpritesetClip(clip: unknown, state: EmotionState): SpritesetEmotionInput {
+  if (typeof clip !== 'object' || clip === null) {
+    throw new Error(`${state} のクリップが不正です。`);
+  }
+  const { frames, delayMs, width, height } = clip as {
+    frames?: unknown;
+    delayMs?: unknown;
+    width?: unknown;
+    height?: unknown;
+  };
+  if (!Array.isArray(frames) || frames.length === 0) {
+    throw new Error(`${state} のフレームがありません。`);
+  }
+  // 各フレームが本当にバイト列か確かめる。Buffer.from は数値配列やプレーンオブジェクトも
+  // 例外なく受けてしまい、意図しないバイト列が sharp まで流れるため(Renderer由来を信じない)。
+  if (!frames.every((f) => f instanceof ArrayBuffer)) {
+    throw new Error(`${state} のフレームの形式が不正です。`);
+  }
+  if (!Array.isArray(delayMs) || delayMs.length !== frames.length) {
+    throw new Error(`${state} のフレーム数と表示時間の数が一致しません。`);
+  }
+  // NaN・文字列・0以下が混ざると WebP の delay が壊れる(長さ一致だけでは足りない)。
+  if (!delayMs.every((d) => typeof d === 'number' && Number.isFinite(d) && d > 0)) {
+    throw new Error(`${state} の表示時間が不正です。`);
+  }
+  if (!Number.isInteger(width) || !Number.isInteger(height) || (width as number) <= 0 || (height as number) <= 0) {
+    throw new Error(`${state} のフレーム寸法が不正です。`);
+  }
+  return {
+    frames: (frames as ArrayBuffer[]).map((f) => Buffer.from(f)),
+    delayMs: delayMs as number[],
+    width: width as number,
+    height: height as number,
+  };
+}
+
+/**
+ * Renderer から届いた取り込み要求を検証し、Main 側の型へ移す(`parseCodeSettingsPatch` /
+ * `parseModelId` と同じ役割)。各クリップの検証は parseSpritesetClip に委ね、ここは name と
+ * clips のトップ構造だけを見る。electron 非依存でオフスクリーン検証できる。
  */
 export function parseSpritesetImportPayload(payload: unknown): { name: string; inputs: SpritesetInputs } {
   if (typeof payload !== 'object' || payload === null) {
@@ -91,43 +133,14 @@ export function parseSpritesetImportPayload(payload: unknown): { name: string; i
   if (typeof clips !== 'object' || clips === null) {
     throw new Error('クリップが指定されていません。');
   }
-  const source = clips as Partial<Record<EmotionState, {
-    frames?: unknown;
-    delayMs?: unknown;
-    width?: unknown;
-    height?: unknown;
-  }>>;
+  const source = clips as Partial<Record<EmotionState, unknown>>;
   const inputs: SpritesetInputs = {};
   for (const state of EMOTION_STATES) {
     const clip = source[state];
     if (clip === undefined || clip === null) {
       continue;
     }
-    const { frames, delayMs, width, height } = clip;
-    if (!Array.isArray(frames) || frames.length === 0) {
-      throw new Error(`${state} のフレームがありません。`);
-    }
-    // 各フレームが本当にバイト列か確かめる。Buffer.from は数値配列やプレーンオブジェクトも
-    // 例外なく受けてしまい、意図しないバイト列が sharp まで流れるため(Renderer由来を信じない)。
-    if (!frames.every((f) => f instanceof ArrayBuffer)) {
-      throw new Error(`${state} のフレームの形式が不正です。`);
-    }
-    if (!Array.isArray(delayMs) || delayMs.length !== frames.length) {
-      throw new Error(`${state} のフレーム数と表示時間の数が一致しません。`);
-    }
-    // NaN・文字列・0以下が混ざると WebP の delay が壊れる(長さ一致だけでは足りない)。
-    if (!delayMs.every((d) => typeof d === 'number' && Number.isFinite(d) && d > 0)) {
-      throw new Error(`${state} の表示時間が不正です。`);
-    }
-    if (!Number.isInteger(width) || !Number.isInteger(height) || (width as number) <= 0 || (height as number) <= 0) {
-      throw new Error(`${state} のフレーム寸法が不正です。`);
-    }
-    inputs[state] = {
-      frames: (frames as ArrayBuffer[]).map((f) => Buffer.from(f)),
-      delayMs: delayMs as number[],
-      width: width as number,
-      height: height as number,
-    };
+    inputs[state] = parseSpritesetClip(clip, state);
   }
   return { name: name.trim(), inputs };
 }

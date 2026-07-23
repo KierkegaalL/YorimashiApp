@@ -2,18 +2,21 @@
  * モデル管理タブ(FR-5/FR-7)。UIの正: docs/mockups/control-panel.jsx L805-1179。
  * 正本: docs/detailed-design/model-mapping-ui.md。
  *
- * **実装済み**(第1段階=スロット管理 / 第2段階a=Live2D取り込み / 第2段階b=スプライトセット生成):
+ * **実装済み**(第1段階=スロット管理 / 第2段階a=Live2D取り込み / 第2段階b=スプライトセット生成 /
+ * 第3段階 Track A=マッピング編集):
  *  - セット中のモデル一覧(形式バッジ・使用中表示・削除のインライン確認)
  *  - モードによる自動切替(2体セット時のみ。トグル + Code/Chat の入れ替え)
  *  - 0体のときの空状態
  *  - **追加するモデルの形式**の選択(モックアップ L931-)。スプライトセットが標準の入口
  *  - **Live2D モデルのフォルダ取り込み**(ネイティブダイアログ)
  *  - **スプライトセットの生成フロー**(SpritesetAddFlow: 下絵→background_key.png→動画取り込み→登録)
+ *  - **感情↔モーション/クリップ対応の編集**(MappingEditor: Live2Dはモーション/表情の割り当て+自動、
+ *    スプライトセットはクリップ削除。model-mapping-ui.md 第3段階 Track A)
  *
  * **未実装は正直にそう出す**(偽データ・使えないUIを置かない):
  *  - Live2D の **zip 取り込み**(フォルダのみ対応と画面に明記)
- *  - **感情↔モーション対応の編集**(全10状態のマッピングUI。model-mapping-ui.md)
- *  いずれも後続タスク。
+ *  - スプライトセットの**クリップ差し替え(「変更」)**=Track B(MappingEditor 内に後続と明記)
+ *  - **プレビュー枠**(論点1)=Track C。いずれも後続タスク。
  *
  * **「使用中」は解決結果(activeModelId)で描く**。manualActiveId から推測して描くと、
  * 自動切替オン時や未設定時のフォールバックとずれる(constraints.md「嘘をつかない」)。
@@ -30,6 +33,7 @@ import { useTheme } from './theme';
 import { Row, Section, Switch } from './panel-ui';
 import { MAX_MODEL_SLOTS, type ModelManageSnapshot, type ModelSlotView } from '../../../shared/model-manage';
 import { SpritesetAddFlow } from './spriteset/SpritesetAddFlow';
+import { MappingEditor } from './MappingEditor';
 
 /** 追加できるモデル形式(モックアップ L933-936)。スプライトセットを標準の入口にする。 */
 const ADD_FORMATS = [
@@ -292,17 +296,9 @@ export function ModelTab(): React.JSX.Element {
         </div>
       )}
 
-      <Section title="感情とモーションの対応" hint="全10状態への割り当て編集は、モデルの取り込みと合わせて後続タスクで実装します。">
-        <Row
-          label="準備中"
-          sub={
-            slots.length === 0
-              ? 'モデルをセットすると、ここに割り当てが並びます'
-              : '現在この画面から割り当てを編集することはできません'
-          }
-          last
-        />
-      </Section>
+      {/* 感情↔モーション/クリップ対応の編集(第3段階 Track A)。0体のときは MappingEditor 内で
+          「モデルがまだありません」を出す。プレビュー枠(論点1)は Track C(後続)。 */}
+      <MappingEditor slots={slots} />
 
       {/* 直前の操作が部分的にしか達成できなかった場合の申告(例: 設定からは外せたがファイルが消せない)。
           Main のコンソールにだけ出すと、利用者には「消えた」ようにしか見えない(嘘をつかない)。 */}

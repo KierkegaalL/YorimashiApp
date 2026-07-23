@@ -17,8 +17,14 @@ import type {
 import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../shared/code-settings';
 import type { RightsSnapshot } from '../shared/rights';
 import type { ModelManageSnapshot } from '../shared/model-manage';
-import type { BackgroundKeyResult, SpritesetImportPayload } from '../shared/spriteset/import-payload';
-import type { EmotionSnapshot } from '../shared/emotions';
+import type { Live2dEntryPatch, ModelMappingDetail } from '../shared/model-mapping';
+import type { CharacterBootstrapModel } from '../shared/bootstrap';
+import type {
+  BackgroundKeyResult,
+  SpritesetClipPayload,
+  SpritesetImportPayload,
+} from '../shared/spriteset/import-payload';
+import type { EmotionSnapshot, EmotionState } from '../shared/emotions';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../shared/onboarding';
 import type {
   HookLogClearResult,
@@ -185,6 +191,34 @@ const api = {
      */
     importSpriteset: (payload: SpritesetImportPayload): Promise<ModelManageSnapshot> =>
       ipcRenderer.invoke(IPC.SpritesetImport, payload),
+    /** 指定モデルの現在のマッピング詳細(第3段階 Track A)。Live2Dは候補も同梱。 */
+    getMapping: (id: string): Promise<ModelMappingDetail> =>
+      ipcRenderer.invoke(IPC.ModelMappingGet, id),
+    /** Live2D の1状態の motion/expression を設定する(未割当に戻すには両方 null)。 */
+    setLive2dMapping: (
+      id: string,
+      state: EmotionState,
+      patch: Live2dEntryPatch,
+    ): Promise<ModelMappingDetail> =>
+      ipcRenderer.invoke(IPC.ModelMappingSetLive2d, { id, state, patch }),
+    /** Live2D の1状態を自動検出でやり直す。 */
+    autoRestoreMapping: (id: string, state: EmotionState): Promise<ModelMappingDetail> =>
+      ipcRenderer.invoke(IPC.ModelMappingAutoRestore, { id, state }),
+    /** Live2D の全10状態を自動検出でやり直す(確認はUI側)。 */
+    autoRestoreAllMapping: (id: string): Promise<ModelMappingDetail> =>
+      ipcRenderer.invoke(IPC.ModelMappingAutoRestoreAll, id),
+    /** スプライトセットの1クリップを削除=未割当に戻す(idle は不可)。 */
+    deleteClip: (id: string, state: EmotionState): Promise<ModelMappingDetail> =>
+      ipcRenderer.invoke(IPC.ModelMappingDeleteClip, { id, state }),
+    /**
+     * スプライトセットの1クリップを差し替え/新規設定する(Track B「変更」)。デコードと色キー抜きは
+     * Renderer(decode-video.ts)で終えてから、色キー抜き済みPNGフレームを渡す。idle も差し替え可。
+     */
+    setClip: (id: string, state: EmotionState, clip: SpritesetClipPayload): Promise<ModelMappingDetail> =>
+      ipcRenderer.invoke(IPC.ModelMappingSetClip, { id, state, clip }),
+    /** プレビュー描画(Track C)用に、対象モデルの配信情報 {installedDir, mappingFile} を返す。 */
+    getPreviewContext: (id: string): Promise<CharacterBootstrapModel> =>
+      ipcRenderer.invoke(IPC.ModelPreviewContext, id),
   },
   /**
    * オンボーディング(FR-14)。**Rendererにできないことだけ**をMainへ委譲する

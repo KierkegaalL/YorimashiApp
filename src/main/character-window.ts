@@ -181,6 +181,22 @@ export class CharacterWindow {
   }
 
   /**
+   * 指定モデルが今このウィンドウへ読み込まれているなら、再読込してマッピングの変更を反映する。
+   *
+   * マッピング編集(第3段階)は manifest.json を書き換えるだけで解決モデルの id は変わらないため、
+   * `applyActiveModel()`(id の差分でしか張り直さない)では拾えない。character ウィンドウは
+   * bootstrap で installedDir/mappingFile だけを受け取り、manifest はサーバーから毎回 fetch する
+   * (bootstrap.ts)ので、**同じ URL を再読込すれば書き換え後の manifest を読み直す**。
+   * アクティブでないモデルを編集したときは何もしない(表示に影響しない)。
+   */
+  reloadIfApplied(modelId: string): void {
+    const win = this.browserWindow;
+    if (win && this.appliedModelId === modelId) {
+      void win.loadURL(this.resolveLoadUrl());
+    }
+  }
+
+  /**
    * ウィンドウを閉じる(アプリ終了ではなくモデルが無くなった場合)。
    * `close` ガードは終了時以外の破棄を防ぐため、ここでは一時的に外してから destroy する。
    * 再びモデルが入れば index.ts 側が create() し直す。
