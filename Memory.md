@@ -304,7 +304,7 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **新規ウィンドウの扱いは意図的に非対称(明記済み)**: character=一律deny(リンク導線なし=多層防御)/panel=http/https外部起動(権利タブ等の正当リンク)。ウィンドウ単位の変更でLive2D/スプライトセット形式分岐とは無関係=その意味の対称性チェック対象外(コメント明記)
   - **`will-navigate`はアプリ起点`loadURL()`では発火しない**ためモデル切替(`applyActiveModel`)/マッピング反映(`reloadIfApplied`)の再読込を妨げない。同一オリジン(dev HMRの`location.reload`)は許可。`denyAllPermissions`はWebCodecs(動画デコード=権限不要)・Main側clipboardを壊さない(reviewer実測確認)
   - **⚠️ reviewer実測で重大バグ1件を検出・修正**: 初回`block()`が`getURL()`(初回loadURL中は`''`)で同一オリジン判定→`new URL('')`例外で`will-redirect`を誤ってpreventDefault→**302を挟む初回ロードでウィンドウが無言でハング**(実Electronで再現)。修正=未確定(空/about:blank)時はブロックせず許可。読み込み先はアプリが決めたlocalhost/Vite/fileのみなので安全。コミット後の別オリジン拒否は維持(実Electronで再確認)
-  - **basic-design.md 8章は据え置き**(要点抜粋方針。対策7=ログ0600も元々未記載の既存粒度差。詳細はsecurity.md。Notion要件変更ではないため原則2の対象外)。**Notion正本への昇格が要るかはユーザー判断待ち**
+  - **basic-design.md 8章は据え置き**(要点抜粋方針。対策7=ログ0600も元々未記載の既存粒度差。詳細はsecurity.md。Notion要件変更ではないため原則2の対象外)→**ユーザー指示によりNotion正本8章へ昇格済み(2026-07-24)**: Notion(`39fcd5c5312e811b938ff35e04246436`)8章に「ナビゲーション・新規ウィンドウ・権限要求の抑止」1文を追記、更新日を07-24へ。docs/basic-design.mdミラーも同時反映(原則2: Notion→ミラーの順)
   - **検証**: typecheck/build通過(`createRenderer`5.15KB=回帰なし)。オフスクリーン検証23件(electronをstub化した純Node: guard同一/別オリジン・will-redirect・初回未確定許可・about:blank・deny・openExternal http/https/file/js/不正URL・権限拒否)。reviewer 2周(1周目 高1[初回redirectハング・実測]+低1[見出し番号]+情報1→修正→**2周目0件**、実Electronでハング解消を再確認)
 - **次**: **第3段階(Track A/B/C)+ FR-13完了**。残る主な実装候補: Live2Dのzip取り込み、モデル名変更、@参照の文脈組立/添付(real・FR-15)、real接続導線(#12 未実装)、Live2Dプレビューのメモリ実測(200MB目安=論点1 TODO)、basic-design 8章のNotion昇格要否。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 
