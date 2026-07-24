@@ -236,7 +236,7 @@ Moodの2層構造はEmotionEngineの概念なので、**しきい値は`emotionE
 - [x] **(決着済み)** `chatAdapter`に無通信しきい値・`maxRetries`・`timeout`・`classifier`を追加(basic-design.md 6.1) — 同上
 - [x] **(決着済み)** `failStreakThreshold`/`successStreakThreshold`を`emotionEngine`へ移設 — 同上
 - [x] **(実装済み・#12)** `@anthropic-ai/sdk`(0.112.3)を`package.json`へ追加
-- [ ] 権利情報タブ(FR-12)のOSS一覧に`@anthropic-ai/sdk`を追加する(#13)
+- [x] **(実装済み)** 権利情報タブ(FR-12)のOSS一覧に`@anthropic-ai/sdk`を追加する — `generate-oss-licenses.mjs`の自動走査で`src/shared/oss-licenses.ts`に反映済み(手動追加不要)
 - [x] **(実装済み・#12)** 無通信ウォッチドッグを`src/main/chat-adapter/real-responder.ts`に実装。**SDKの`timeout`だけに頼らない**
 - [ ] 無通信しきい値(暫定30秒)の実使用でのチューニング(実接続を日常的に使い始めてから)
 - [x] **(実装済み・#12)** api.md 5章の「直叩き」の記述をSDK採用に合わせて更新(章番号はFR-8/9削除にともない6章→5章へ繰り上がっている)

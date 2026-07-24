@@ -120,7 +120,7 @@ engine.trigger('thinking');
 
 **`release()`の呼び忘れは`thinking`の永久固着を招く**。chat-adapter-errors.mdが確定させた無通信ウォッチドッグは、この観点でも必須である(SDKの`timeout`が凍ったstreamに効かないため、それが無いと応答が凍ったまま`release`が永久に呼ばれない)。成功・失敗・中断のすべての経路で`release`が呼ばれることを、実装時に必ず確認する。
 
-> **要決着**: `sustain`/`release`はEmotionEngineのAPI変更であり、basic-design.md 5.2 = **Notion正本の変更**を伴う。5.2は現在「Reactionはタイマー(3秒目安)でMoodに自動復帰」としか書いていない。本ドキュメントでは決定しない。
+> **決着済み**: `sustain`/`release`をNotion正本(basic-design.md 5.2)へ反映済み。`src/main/emotion-engine.ts`にも実装済み(`trigger()`の`sustain`オプション・`release(key)`)。
 
 `clips.thinking`の`loop`を`false`→`true`へ変更する点は、data.md 2.2が明示的に詳細設計へ委ねている事項なので本ドキュメントの決定に含め、data.md側も併せて更新する。
 
@@ -172,7 +172,7 @@ realに切り替えて初めて経路が動く、という状態を作らない�
 
 ## 実装時のTODO
 
-- [ ] **(要決着)** EmotionEngineに`sustain`/`release`を追加(basic-design.md 5.2 = Notion正本)
+- [x] **(決着済み・Notion基本設計書 5.2)** EmotionEngineに`sustain`/`release`を追加。`src/main/emotion-engine.ts`に実装済み
 - [ ] **持続中の再発火メカニズムを`sustain`/`release`とあわせて設計する**(③の帰結)。`sustain`はMoodへの復帰タイマーを止めるだけで、Live2Dのモーションは①で寿命前にidleへ戻ってしまう。**持続中に同じReactionのモーションを尽きるたび再トリガーする仕組み**(再発火の間隔・実装主体がEmotionEngineか`Live2DRenderer`か・スプライトセットの`loop`との責務分担)を決める必要がある。本文③に埋もれさせず独立項目として決着させる
 - [x] **(コード実測で判明・A2)** Live2Dで持続中にモーションが尽きたときの挙動を確定した。**尽きるとidleグループへ自動フォールバックし固まらない/個々のモーションはループしない**(上記のコード実測ブロック①②参照)。結論: `emotionMap`に`loop`相当は**足さない**。持続はEmotionEngine側の再発火で管理する(③)。**スプライトセット側だけ`loop: true`にして終わらせない**という警告は引き続き有効(Live2D側はEmotionEngineの再発火で担保する)。実描画での最終確認のみ実装時に残る
 - [x] data.md 2.2の`clips.thinking`を`loop: true`へ変更し、`loop`と寿命が直交する旨の説明に差し替える(本ドキュメントの決定に含む・反映済み)
