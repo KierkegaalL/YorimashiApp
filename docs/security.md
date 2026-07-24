@@ -105,9 +105,41 @@ fs.writeFileSync(hookEventLogPath, line, { mode: 0o600, flag: 'a' }); // 自分�
 
 ファイルパス・プロジェクト名を含めてフル保存する方針(要件定義書C-03)のため、パーミッション制御は必須。
 
-## 9. チェックリスト(要件定義書7章との対応)
+## 9. 対策8: ナビゲーション・新規ウィンドウ・権限要求の抑止
+
+5章(`contextIsolation`/`nodeIntegration:false`/`sandbox:true`)に加え、**通常のHTTPオリジン(`http://127.0.0.1:<port>`)から読み込む**以上残る露出面を塞ぐ。実装は `src/main/window-security.ts` に集約し、両ウィンドウ生成箇所と起動シーケンスから呼ぶ。
+
+```typescript
+// 1. 自オリジン外へのページ遷移を封じる(will-navigate / will-redirect)。
+//    レンダラー起点の遷移(リンク・window.location・万一のXSS)でのみ発火し、
+//    webContents.loadURL() のアプリ起点の再読込(モデル切替・マッピング反映)では発火しないため妨げない。
+//    同一オリジン(dev の HMR フルリロード等)は許可する。
+win.webContents.on('will-navigate', block);
+win.webContents.on('will-redirect', block);
+
+// 2. 新規ウィンドウ。キャラウィンドウは一律拒否(リンク導線を持たない=多層防御)。
+//    Control Panel は http/https のみ外部ブラウザで開き(それ以外のスキームは拒否)、
+//    Electron の子ウィンドウは開かせない。
+characterWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+panelWin.webContents.setWindowOpenHandler(({ url }) => {
+  if (isHttp(url)) void shell.openExternal(url);
+  return { action: 'deny' };
+});
+
+// 3. Web権限要求(カメラ/マイク/位置情報/通知等)を一律拒否。このアプリはどれも使わない
+//    (動画デコードはWebCodecsで権限不要、クリップボードはMain側のclipboard)。
+session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+session.defaultSession.setPermissionCheckHandler(() => false);
+```
+
+- **なぜ必要か**: 枠なし・最前面・クリックスルーのキャラウィンドウが自オリジン外へ乗っ取られると復帰手段が無い。`window.open`で`nodeIntegration`の付いた子ウィンドウを開かれる余地も断つ。
+- **`character-window`と`control-panel-window`の両方**に遷移ガードを適用する(片方だけにしない)。新規ウィンドウの扱いのみ、リンク導線の有無で意図的に非対称にしている(理由は上記コメント)。
+- Electron公式のセキュリティチェックリスト(navigationの制限・新規ウィンドウの拒否・権限要求のハンドリング)に沿う防御的強化で、機能要件は変えない。
+
+## 10. チェックリスト(要件定義書7章との対応)
 
 1. ローカルサーバーは127.0.0.1限定バインド → 2章
 2. 全リクエストにトークン認証を必須化(hooks含む、WSハンドシェイクも含む) → 3章
-3. 全レンダラーで`contextIsolation: true` → 5章
+3. 全レンダラーで`contextIsolation: true`(+ `nodeIntegration:false` / `sandbox:true`) → 5章
 4. アーカイブ展開時のパストラバーサル検証を必須化 → 6章、7章
+5. 自オリジン外へのナビゲーション・新規ウィンドウ・Web権限要求の抑止 → 9章

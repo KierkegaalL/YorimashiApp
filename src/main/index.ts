@@ -1,4 +1,4 @@
-import { app, clipboard, dialog, ipcMain, net, type Tray } from 'electron';
+import { app, clipboard, dialog, ipcMain, net, session, type Tray } from 'electron';
 import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
@@ -25,6 +25,7 @@ import { OnboardingService } from './onboarding/onboarding-service';
 import { HookEventLog } from './logging/hook-event-log';
 import { LogActions } from './logging/log-actions';
 import { buildAppMenu, createTray, type AppMenuDeps } from './tray-menu';
+import { denyAllPermissions } from './window-security';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
 import { IPC } from '../shared/ipc';
 import type { EmotionSnapshot } from '../shared/emotions';
@@ -801,6 +802,10 @@ function startCharacterWindow(): void {
 }
 
 void app.whenReady().then(async () => {
+  // Web 権限要求(カメラ/マイク/位置情報/通知等)を一律拒否する(FR-13 / security.md 対策8)。
+  // 両ウィンドウが読み込まれる前に、共有する既定セッションへ設定しておく。
+  denyAllPermissions(session.defaultSession);
+
   initCore();
 
   try {

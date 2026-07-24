@@ -55,8 +55,10 @@
  * (chat-pane.md「形式による分岐について」)。よって対称性チェック(CLAUDE.md原則4)の対象外。
  */
 
-import { BrowserWindow, ipcMain, screen, shell, type IpcMainEvent } from 'electron';
+import { BrowserWindow, ipcMain, screen, type IpcMainEvent } from 'electron';
 import { join } from 'node:path';
+
+import { guardNavigation, openExternalHttpOnly } from './window-security';
 
 import type { ConfigStore } from './config-store';
 import { IPC, CONTROL_PANEL_COLLAPSED_ARG, ONBOARDING_PENDING_ARG } from '../shared/ipc';
@@ -268,11 +270,11 @@ export class ControlPanelWindow {
       this.win = null;
     });
 
-    // レンダラー内のリンクは外部ブラウザで開き、Electronウィンドウを乗っ取らせない。
-    win.webContents.setWindowOpenHandler(({ url }) => {
-      void shell.openExternal(url);
-      return { action: 'deny' };
-    });
+    // レンダラー内のリンクは外部ブラウザで開き、Electronウィンドウを乗っ取らせない(FR-13 / security.md
+    // 対策8)。権利タブ等は正当な外部リンクを持つため http/https のみ外部で開き(それ以外のスキームは拒否)、
+    // 自オリジン外へのページ遷移自体も封じる。
+    win.webContents.setWindowOpenHandler(openExternalHttpOnly);
+    guardNavigation(win.webContents);
 
     this.load(win);
     return win;
