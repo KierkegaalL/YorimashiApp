@@ -30,6 +30,7 @@ import {
   type Rect,
   type Size,
 } from './window-position';
+import { denyWindowOpen, guardNavigation } from './window-security';
 
 /** モデル未導入時の基準解像度。導入後は ModelSlot.baseResolution が使われる(onboarding #10/#5)。 */
 export const FALLBACK_BASE_RESOLUTION: Size = { width: 400, height: 400 };
@@ -117,6 +118,12 @@ export class CharacterWindow {
       },
     });
     this.win = win;
+
+    // 外部ナビゲーション・新規ウィンドウを封じる(FR-13 / security.md 対策8)。枠なし・最前面・
+    // クリックスルーのマスコットが自オリジン外へ乗っ取られると復帰手段が無い。リンク導線を持たない
+    // 画面なので window.open は一律拒否(外部ブラウザすら開かせない=多層防御)。
+    win.webContents.setWindowOpenHandler(denyWindowOpen);
+    guardNavigation(win.webContents);
 
     // 最前面レベルは 'floating'。'screen-saver' は他アプリのフルスクリーンにまで居座るため使わない。
     win.setAlwaysOnTop(true, 'floating');
