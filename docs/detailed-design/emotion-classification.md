@@ -137,7 +137,7 @@ EmotionEngineの優先度は本来、**時間軸上で競合する複数のReact
 
 Haiku分類には**応答完了後に追加の往復が入る**ため、リアクションの発火が1秒前後遅れる点にも注意する。キャラクターの反応が遅れるのは体験上のコストであり、精度と引き換えになる。
 
-> **要決着(config schemaの変更が必要)**: 現在の`chatAdapter`は`{ mode, anthropicApiKey, model }`しか持たず、**分類器を選ぶフィールドが無い**。`classifier: z.enum(['keyword','haiku']).default('keyword')`と、分類用モデルID(本文用の`model`とは別)の追加が要る。basic-design.md 6.1 = Notion正本の変更を伴うため、本ドキュメントでは決定しない。
+> **決着済み**: `chatAdapter.classifier: z.enum(['keyword','haiku']).default('keyword')`と分類用モデルID`classifierModel`(本文用の`model`とは別)をNotion正本(basic-design.md 6.1)へ追加済み。`src/shared/config-schema.ts`にも実装済み。
 
 #### 参考: 将来の第3の選択肢
 
@@ -162,7 +162,7 @@ Haiku分類には**応答完了後に追加の往復が入る**ため、リア�
 
 ## 実装時のTODO
 
-- [ ] **(要決着)** `chatAdapter.classifier`と分類用モデルIDのスキーマ追加(Notion基本設計書 6.1)
+- [x] **(決着済み・Notion基本設計書 6.1)** `chatAdapter.classifier`と分類用モデルID(`classifierModel`)のスキーマ追加。`src/shared/config-schema.ts`に実装済み
 - [x] **(実装済み・2026-07-20 / #8)** `KEYWORDS`は`src/shared/`に置き、Mood/Reactionの定義(`emotions.ts`)とは別ファイルにする(分類はChat Adapter固有で、Code Adapterは使わない) → `src/shared/emotion-classification.ts`。本文の検証表11件を再現するテストを書き、**設計どおりの挙動(既知NGの「否定がスキャン窓の外」を含む)であることを確認済み**。同点決着に使う優先度は`emotions.ts`の`REACTION_PRIORITY`をEmotionEngineと共有する(順序が二重定義にならないよう単一の情報源にした)
 - [ ] 否定スキャン窓(暫定10文字)の実使用でのチューニング
 - [ ] 辞書は実際の会話ログを見ながら育てる。初期辞書は最小限で始め、憶測で語を増やさない
