@@ -145,6 +145,35 @@ engine.trigger('thinking');
 > **③ 帰結: 非idleのReaction(thinking等)の持続はモデル任せにできない。** モーションが尽きると①でidleへ戻ってしまうため、寿命ぶん同じ表出を続けたいなら**EmotionEngine側で寿命の間モーションを再発火する**必要がある。②のとおりライブラリのstartMotionはループ属性を持たないので、`emotionMap`に`loop`相当を足しても効かない。
 > → したがって当初想定した「**data.md 2.1(Live2Dのmanifest)に`loop`を足す**」対応は**不要**。持続の管理はEmotionEngineの責務に寄せる(スプライトセットの`loop`はあくまで素材の再生方法であり、Live2Dに対応物を持たせない = この非対称は正当)。
 
+#### 決着: 再発火は`Live2DRenderer`が`motionFinish`で行う(2026-07-27)
+
+③が残していた3点(**実装主体・再発火の間隔・スプライトセットの`loop`との責務分担**)を、`pixi-live2d-display` v0.4.0 のバンドル読解に基づいて決着させた。実装は `src/renderer/character/renderer/motion-refire.ts`(ポリシー)+ `Live2DRenderer.ts`(配線)。
+
+**1. 実装主体 = `Live2DRenderer`(Renderer側)。EmotionEngineではない。**
+
+③の本文は「EmotionEngine側で再発火する」と書いていたが、**これを訂正する**。理由:
+
+- EmotionEngineは**Mainプロセス**にあり、モーションの長さを知らない。Mainから WS 越しに撃つと、長さ不明のまま固定間隔で叩く**盲目的ポーリング**になり、再生中のモーションを切る/無駄な通信を生む。
+- `SpriteSetRenderer`では持続が「素材(アニメーションWebPのループ回数)」という**Renderer側に閉じた関心事**になっている。Live2Dも同じ層で閉じるのが対称。
+- `CharacterRenderer`インターフェースを変えずに済む(basic-design.md 5.1 に影響しない = **Notion正本の変更を伴わない**)。
+
+**2. 再発火の間隔 = 固定間隔ではなく`motionFinish`イベント駆動。**
+
+ライブラリが正確な終了通知を出すため、間隔を推測する必要がない。ただし実測から**2つの制約**がある。
+
+- **同期で撃ってはならない**。`motionFinish`は`MotionManager.update()`内で、`state.complete()`とidleフォールバック(`startRandomMotion(idle, IDLE)`)の**直前に同期発火**する。この時点では`state.currentGroup/currentIndex`がまだ**終了したモーションを指している**ため、ハンドラ内で同じモーションを撃つと`reserve()`が`"Motion is already playing"`で**拒否する**。感情に単一モーションを割り当てた場合は候補が尽き、**再発火が一切効かない**。→ 次のタスクへ回す。
+- **`MotionPriority.FORCE`(3)で撃つ**。`reserve()`は`priority >= 3`のとき優先度チェックを丸ごとスキップする。非同期に回した結果その間にライブラリがidleモーションを開始していても、FORCEなら**競合状態に依存せず確実に上書き**できる。
+
+**安全弁**: 長さ0/極端に短いモーションや割当先が壊れたモデルで毎tick撃ち続けると非機能要件(Reaction再生中もCPU10%未満)を破りうるため、**前回の再発火から`MIN_REFIRE_INTERVAL_MS`(200ms)未満なら撃たない**。当たった場合はidleへ落ちる=「表示は崩れないが持続しない」degradeで、黙って無限ループするより正直。
+
+**`idle`は再発火しない**: ライブラリ本来のidleグループのランダムローテーションに委ねる。idleのときにidleへフォールバックするのは正しい挙動で、1本を固定で撃ち続けると待機の多様性を殺す。
+
+**3. `loop`との責務分担**: **EmotionEngineが状態の寿命**(`sustain`/`release`・`reactionDurationMs`・`returnTo`)を持ち、**Rendererがその状態を映し続ける方法**を持つ。契約は両形式で対称 =「`setState`された状態を、次の`setState`まで映し続ける」。手段だけが素材の性質で異なる(spriteset=素材に焼き込んだ`loop` / Live2D=再発火)。**この非対称は正当**であり、「Live2D側だけ実装した」のではなく**スプライトセット側は素材で既に満たしている**ため差分が無い。③の結論(`emotionMap`に`loop`を足さない)は維持する。
+
+**採らなかった案: Cubism4の`setIsLoop`**。cubism4バンドルのmotionは`setIsLoop(true)`で**ネイティブにループ**でき(`isFinished()`が立たずidleフォールバック自体が起きない)理想的に見える。しかし**cubism2のモーション実体は外部ランタイム(`live2d.min.js`)のクラスでバンドルから存在を確認できない**(②と同じ限界)。採用すると検証できないまま**Cubism2/Cubism4の新たな非対称**を作る。`motionFinish`+FORCEは**両バージョン共通の基底`MotionManager`**の機能だけで成立するため、こちらを採った。
+
+> **未検証(ユーザー確認)**: 上記はいずれもライブラリのソース読解による決定で、**実描画(WebGL+Cubismランタイム)での確認は行えていない**(constraints.md)。オフスクリーンで検証したのは`MotionRefirer`のポリシー(撃つ/撃たない・取り消し・安全弁)のみ。実機では「持続中に灯里がidleへ戻らないか」「再発火の継ぎ目が不自然でないか」を確認する必要がある。
+
 ### 論点1・論点2について
 
 **論点1(同期の粒度: 1文字ごとか、単語単位か、一定間隔か)** および **論点2(`ParamMouthOpenY`の更新頻度)** は、リップシンクを実装しない決定により**v1では検討不要**となる。
@@ -173,8 +202,8 @@ realに切り替えて初めて経路が動く、という状態を作らない�
 ## 実装時のTODO
 
 - [x] **(決着済み・Notion基本設計書 5.2)** EmotionEngineに`sustain`/`release`を追加。`src/main/emotion-engine.ts`に実装済み
-- [ ] **持続中の再発火メカニズムを`sustain`/`release`とあわせて設計する**(③の帰結)。`sustain`はMoodへの復帰タイマーを止めるだけで、Live2Dのモーションは①で寿命前にidleへ戻ってしまう。**持続中に同じReactionのモーションを尽きるたび再トリガーする仕組み**(再発火の間隔・実装主体がEmotionEngineか`Live2DRenderer`か・スプライトセットの`loop`との責務分担)を決める必要がある。本文③に埋もれさせず独立項目として決着させる
-- [x] **(コード実測で判明・A2)** Live2Dで持続中にモーションが尽きたときの挙動を確定した。**尽きるとidleグループへ自動フォールバックし固まらない/個々のモーションはループしない**(上記のコード実測ブロック①②参照)。結論: `emotionMap`に`loop`相当は**足さない**。持続はEmotionEngine側の再発火で管理する(③)。**スプライトセット側だけ`loop: true`にして終わらせない**という警告は引き続き有効(Live2D側はEmotionEngineの再発火で担保する)。実描画での最終確認のみ実装時に残る
+- [x] **(決着・実装済み・2026-07-27)** 持続中の再発火メカニズム(③の帰結)。**実装主体=`Live2DRenderer`**(EmotionEngineではない。③本文を訂正)、**間隔=`motionFinish`イベント駆動**(固定間隔ではない)、**責務分担=EmotionEngineが寿命/Rendererが映し続ける方法**。実装は`motion-refire.ts`(ポリシー・pixi非依存)+`Live2DRenderer.ts`(配線)。同期で撃つと`reserve()`に拒否されるため次タスクへ回し、`MotionPriority.FORCE`でidleフォールバックを確実に上書きする。`idle`は再発火せずライブラリのローテーションに委ねる。安全弁として最小再発火間隔200ms。詳細と根拠は上記「決着」節。**実描画での確認はユーザー**
+- [x] **(コード実測で判明・A2)** Live2Dで持続中にモーションが尽きたときの挙動を確定した。**尽きるとidleグループへ自動フォールバックし固まらない/個々のモーションはループしない**(上記のコード実測ブロック①②参照)。結論: `emotionMap`に`loop`相当は**足さない**。持続は**`Live2DRenderer`の再発火**で管理する(③・下記「決着」節。**当初この項目は「EmotionEngine側の再発火」と書いていたが、実装主体はRenderer側へ訂正した**)。**スプライトセット側だけ`loop: true`にして終わらせない**という警告は引き続き有効(Live2D側は`Live2DRenderer`の再発火で担保する)。実描画での最終確認のみ実装時に残る
 - [x] data.md 2.2の`clips.thinking`を`loop: true`へ変更し、`loop`と寿命が直交する旨の説明に差し替える(本ドキュメントの決定に含む・反映済み)
 - [x] **(実装・確認済み・2026-07-20 / #8)** `release()`が成功・失敗・中断・無通信タイムアウトの全経路で呼ばれることを実装時に確認する(呼び忘れ=`thinking`の永久固着)。実装は`src/main/chat-adapter/chat-adapter.ts`の`runStream()`で、streaming本体を`try/catch/finally`で包み**finallyで必ず`release('thinking')`と終端イベント送出を行う**。オフスクリーン検証(実EmotionEngine使用)で、成功(done)・中断(aborted)・エラー(error)・**送信先ウィンドウが存在しない場合**・`dispose()`のいずれでも`thinking`が残らないことを確認済み。なお無通信タイムアウト経路の実体は#12(real)で入る(mockには無通信が起こりえない)ため、その時点で同じ`finally`に載ることを再確認する
 - [x] **(実装済み・2026-07-20 / #8)** mockの固定返答を擬似streamingで流す実装(`src/main/chat-adapter/mock-responder.ts`。2文字/30msでコードポイント単位に分割し、`AbortSignal`で即中断できる)

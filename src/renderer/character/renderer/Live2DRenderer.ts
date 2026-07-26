@@ -17,14 +17,42 @@
  * 認証方式見直し(WSと同じ ?token= 許容等)を**実機で切り分けて決める**。ここでは素のURLで組み立て、
  * この認証経路は未解決として残す(推測でローダ差し替えを書かない)。
  *
- * 持続の非対称(lipsync.md ③): Live2Dは `loop` の概念を持たず、モーションが尽きると idle グループへ
- * 自動フォールバックする。`thinking` 等を寿命ぶん持続させる「尽きるたび再発火」は EmotionEngine 責務で
- * **要決着**(lipsync.md 実装時TODO)。本Rendererの setState は指定モーションを1回発火するだけに留め、
- * 再発火は実装しない(黙って片方=スプライトセットのloopだけ対応する事故を避けるための明示)。
+ * 持続と再発火(lipsync.md ③・決着済み): Live2Dは `loop` の概念を持たず、モーションが尽きると idle
+ * グループへ自動フォールバックする。`thinking` 等を寿命ぶん持続させるため、**本Rendererが
+ * `motionFinish` を購読して同じ状態のモーションを撃ち直す**(再発火の実装主体は EmotionEngine では
+ * なく Renderer)。理由:
+ *  - EmotionEngine は Main プロセスにあり**モーションの長さを知らない**。Main から WS 越しに撃つと
+ *    長さ不明のまま固定間隔で叩く盲目的ポーリングになり、再生中のモーションを切る/無駄な通信を生む。
+ *  - SpriteSetRenderer では持続が「素材(アニメーションWebPのループ回数)」という Renderer 側に閉じた
+ *    関心事になっている。Live2D も同じ層で閉じるのが対称(下記「責務分担」)。
+ *  - `CharacterRenderer` インターフェースを変えずに済む(basic-design.md 5.1 に影響しない)。
+ *
+ * **責務分担(対称性チェック・CLAUDE.md原則4)**: EmotionEngine は状態の**寿命**(sustain/release・
+ * reactionDurationMs・returnTo)を持ち、Renderer は**その状態を映し続ける方法**を持つ。契約は両形式で
+ * 対称 =「setState された状態を、次の setState まで映し続ける」。手段だけが素材の性質で異なる
+ * (spriteset=素材に焼き込んだループ / Live2D=再発火)。この非対称は正当。SpriteSetRenderer 側にも
+ * 対応するコメントを置いてある。
+ *
+ * **実測(v0.4.0 のバンドル読解。ここでの再発火の作りはこの2点に依存する)**:
+ *  1. `motionFinish` はライブラリの `MotionManager.update()` 内で、`state.complete()` と idle
+ *     フォールバック(`startRandomMotion(idle, IDLE)`)の**直前に同期発火**する。この時点では
+ *     `state.currentGroup/currentIndex` がまだ**終了したモーションを指している**ため、ハンドラ内で
+ *     同期的に同じモーションを撃つと `reserve()` が "Motion is already playing" で**拒否する**
+ *     (感情に単一モーションを割り当てた場合は候補が尽き、再発火が一切効かなくなる)。
+ *     → よって再発火は**次のタスクへ回す**(同期で撃たない)。
+ *  2. `reserve()` は `priority >= FORCE(3)` のとき優先度チェックを丸ごとスキップする。
+ *     → **`MotionPriority.FORCE` で撃つ**ことで、その間にライブラリが開始した idle モーションを
+ *       競合状態に依存せず確実に上書きできる。
+ *
+ * **Cubism4 の `setIsLoop` を使わない理由**: cubism4 バンドルの motion は `setIsLoop(true)` で
+ * ネイティブにループでき(終了判定自体が立たない)魅力的だが、**cubism2 のモーション実体は外部ランタイム
+ * (`live2d.min.js`)のクラスでバンドルから存在を確認できない**(lipsync.md ②と同じ限界)。採用すると
+ * 検証できないまま Cubism2/Cubism4 の新たな非対称を作る。`motionFinish` + FORCE は**両バージョン共通の
+ * 基底 `MotionManager`** の機能だけで成立するため、こちらを採る。
  */
 
 import { Application, Ticker } from 'pixi.js';
-import { Live2DModel } from 'pixi-live2d-display';
+import { Live2DModel, MotionPriority } from 'pixi-live2d-display';
 
 import {
   type CharacterRenderer,
@@ -32,7 +60,12 @@ import {
   type SetStateOptions,
   toEmotionState,
 } from './CharacterRenderer';
-import { resolveLive2dMapping, type Live2dManifest } from '../../../shared/manifest';
+import {
+  hasOwnLive2dMapping,
+  resolveLive2dMapping,
+  type Live2dManifest,
+} from '../../../shared/manifest';
+import { MotionRefirer } from './motion-refire';
 import { FALLBACK_STATE, type EmotionState } from '../../../shared/emotions';
 
 // PixiJSのTickerを登録する(モーション更新に必要。ライブラリの要求)。
@@ -50,9 +83,29 @@ export class Live2DRenderer implements CharacterRenderer {
   private currentState: EmotionState = FALLBACK_STATE;
   private destroyed = false;
 
+  /** 持続中の再発火(lipsync.md ③)。判断はpixi非依存の motion-refire.ts に置いてある。 */
+  private readonly refirer: MotionRefirer;
+  /** motionFinish の購読解除に使う(destroy でリスナを残さない)。 */
+  private motionFinishHandler: (() => void) | null = null;
+
   constructor(manifest: Live2dManifest, ctx: RendererContext) {
     this.manifest = manifest;
     this.ctx = ctx;
+    this.refirer = new MotionRefirer({
+      // 自前の割当を持つ状態だけ再発火する。idle へフォールバックした状態(割当なし)は、映っているのが
+      // idle のモーションなので撃ち直さない(ライブラリのidleローテーションに委ねる。manifest.ts参照)。
+      resolveMotion: (state) =>
+        hasOwnLive2dMapping(this.manifest, state)
+          ? (resolveLive2dMapping(this.manifest, state).motion ?? null)
+          : null,
+      // FORCE で撃つ理由: reserve() は priority>=FORCE のとき優先度チェックをスキップするため、
+      // その間にライブラリが開始した idle モーションを競合状態に依存せず上書きできる(ヘッダの実測2)。
+      fireMotion: (motion) => {
+        void this.model?.motion(motion, undefined, MotionPriority.FORCE).catch((err: unknown) => {
+          console.error(`[live2d] motion の再発火に失敗しました(${this.currentState}/${motion}):`, err);
+        });
+      },
+    });
   }
 
   mount(container: HTMLElement): void {
@@ -72,6 +125,8 @@ export class Live2DRenderer implements CharacterRenderer {
   setState(stateKey: string, _opts?: SetStateOptions): void {
     // crossfade はモーション/表情のフェード(model3.json/pixi側のfade時間)に委ねるため opts は未使用。
     this.currentState = toEmotionState(stateKey);
+    // 保留中の再発火は「前の状態」のものなので捨てさせる(古い状態を映さない)。
+    this.refirer.setState(this.currentState);
     if (this.model) {
       this.applyState(this.currentState);
     }
@@ -79,7 +134,13 @@ export class Live2DRenderer implements CharacterRenderer {
 
   destroy(): void {
     this.destroyed = true;
+    // 保留中の再発火を取り消してから破棄する(破棄後のモデルへ撃たない)。
+    this.refirer.dispose();
     if (this.model) {
+      if (this.motionFinishHandler) {
+        this.model.internalModel.motionManager.off('motionFinish', this.motionFinishHandler);
+        this.motionFinishHandler = null;
+      }
       this.model.destroy();
       this.model = null;
     }
@@ -102,6 +163,11 @@ export class Live2DRenderer implements CharacterRenderer {
         return;
       }
       this.model = model;
+      // モーションが尽きたら同じ状態を撃ち直す(lipsync.md ③)。ハンドラ内では同期で撃たず、
+      // MotionRefirer が次のタスクへ回す(ヘッダの実測1)。
+      const handler = (): void => this.refirer.onMotionFinish();
+      model.internalModel.motionManager.on('motionFinish', handler);
+      this.motionFinishHandler = handler;
       this.app.stage.addChild(model);
       this.fitModel(model);
       this.applyState(this.currentState);
@@ -138,7 +204,8 @@ export class Live2DRenderer implements CharacterRenderer {
     // モデルごと error 表示に倒してキャラを隠すのは過剰なので、ここでは console.error で正直にログするに留める
     // (黙って握りつぶさない=constraints.md「嘘をつかない」)。致命的なモデルロード失敗は loadModel() が onError で扱う。
     if (mapping.motion) {
-      // 第2引数(priority)省略で通常再生。持続中の再発火は行わない(上記ヘッダ・lipsync.md③)。
+      // 状態変更による初回発火は通常優先度(index/priority 省略)。以降、モーションが尽きるたびの
+      // 再発火は MotionRefirer が FORCE で撃つ(上記ヘッダ・lipsync.md③)。
       void this.model.motion(mapping.motion).catch((err: unknown) => {
         console.error(`[live2d] motion 再生に失敗しました(${state}/${mapping.motion}):`, err);
       });

@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-24
+**最終更新**: 2026-07-27
 
 ## 現在地
 
@@ -306,7 +306,17 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **⚠️ reviewer実測で重大バグ1件を検出・修正**: 初回`block()`が`getURL()`(初回loadURL中は`''`)で同一オリジン判定→`new URL('')`例外で`will-redirect`を誤ってpreventDefault→**302を挟む初回ロードでウィンドウが無言でハング**(実Electronで再現)。修正=未確定(空/about:blank)時はブロックせず許可。読み込み先はアプリが決めたlocalhost/Vite/fileのみなので安全。コミット後の別オリジン拒否は維持(実Electronで再確認)
   - **basic-design.md 8章は据え置き**(要点抜粋方針。対策7=ログ0600も元々未記載の既存粒度差。詳細はsecurity.md。Notion要件変更ではないため原則2の対象外)→**ユーザー指示によりNotion正本8章へ昇格済み(2026-07-24)**: Notion(`39fcd5c5312e811b938ff35e04246436`)8章に「ナビゲーション・新規ウィンドウ・権限要求の抑止」1文を追記、更新日を07-24へ。docs/basic-design.mdミラーも同時反映(原則2: Notion→ミラーの順)
   - **検証**: typecheck/build通過(`createRenderer`5.15KB=回帰なし)。オフスクリーン検証23件(electronをstub化した純Node: guard同一/別オリジン・will-redirect・初回未確定許可・about:blank・deny・openExternal http/https/file/js/不正URL・権限拒否)。reviewer 2周(1周目 高1[初回redirectハング・実測]+低1[見出し番号]+情報1→修正→**2周目0件**、実Electronでハング解消を再確認)
-- **次**: **第3段階(Track A/B/C)+ FR-13完了(PR #9マージ済み)。FR-13対策8のNotion正本8章への昇格も完了**。残る主な実装候補(2026-07-24 reviewer棚卸しで再整理): Live2Dのzip取り込み、モデル名変更UI、会話ペインの@参照文脈組立/添付読み出し(real・FR-15/C-23。real接続導線自体は#12で実装済み、@参照/添付だけが未接続)、Live2D持続中Reactionの再発火メカニズム(lipsync.md論点③=未決着のまま残す。EmotionEngine側かLive2DRendererか要設計)、Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可)+メモリ実測(200MB目安)、`displaySize`範囲の不一致解消(未決事項C6)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 Live2D持続中Reactionの再発火メカニズム(lipsync.md 論点③・FR-4/FR-5)** — 未決着だった③の3点(実装主体・間隔・spritesetの`loop`との責務分担)を`pixi-live2d-display` v0.4.0のバンドル読解で決着させ実装。**`emotionMap`に`loop`を足さない③の結論は維持**
+  - **決定1: 実装主体は`Live2DRenderer`(Renderer側)。③本文の「EmotionEngine側で再発火」を訂正**。理由=EmotionEngineはMainでモーション長を知らず、WS越しの固定間隔は盲目的ポーリングになる/SpriteSetRendererでも持続はRenderer側(素材のloop)に閉じている/`CharacterRenderer`インターフェース不変=**basic-design 5.1に影響せずNotion正本の変更を伴わない**
+  - **決定2: 間隔は`motionFinish`イベント駆動**(固定間隔でない)。ただし**実測由来の制約2つ**: (a)`motionFinish`は`MotionManager.update()`内で`state.complete()`とidleフォールバックの**直前に同期発火**し、この時点で`currentGroup/currentIndex`が終了モーションを指すため**同期で撃つと`reserve()`が"Motion is already playing"で拒否**(単一モーション割当だと再発火が一切効かない)→**次タスクへ回す** (b)`reserve()`は`priority>=FORCE(3)`で優先度チェックを丸ごとスキップ→**`MotionPriority.FORCE`で撃ち**、間にidleが開始していても競合状態に依存せず上書き
+  - **決定3: 責務分担=EmotionEngineが状態の寿命(sustain/release・reactionDurationMs・returnTo)、Rendererがその状態を映し続ける方法**。契約は両形式で対称(「setStateされた状態を次のsetStateまで映し続ける」)、手段だけ素材の性質で異なる(spriteset=焼き込んだloop / Live2D=再発火)。**「Live2D側だけ実装した」のではなくspriteset側は素材で既に満たしている**(SpriteSetRenderer/manifest.tsに明記)
+  - **`idle`は再発火しない**(ライブラリのidleグループ・ランダムローテーションに委ねる)。**安全弁**=前回再発火から`MIN_REFIRE_INTERVAL_MS`(200ms)未満なら撃たず、長さ0/壊れたモーションでの毎tick発火(CPU10%未満のNFR違反)を防ぐ
+  - **採らなかった案: Cubism4の`setIsLoop`**。ネイティブループで理想的だが**cubism2のモーション実体は外部ランタイム(`live2d.min.js`)でバンドルから存在確認できず**(lipsync.md②と同じ限界)、検証できないままCubism2/4の新たな非対称を作るため。`motionFinish`+FORCEは**両バージョン共通の基底`MotionManager`**だけで成立
+  - **新規**: `src/renderer/character/renderer/motion-refire.ts`(`MotionRefirer`。**pixi非依存**に切り出し=Live2DRendererはCubismランタイム必須でNodeからimportできず、これが唯一のオフスクリーン検証手段)。**変更**: `Live2DRenderer.ts`(ヘッダに設計判断と実測・`MotionPriority`import・constructor/setState/loadModel購読/destroy解除)、`SpriteSetRenderer.ts`(責務分担コメントのみ・コード差分ゼロ)、`shared/manifest.ts`(`hasOwnLive2dMapping`新設)、`lipsync.md`(「決着」節+TODOチェック+A2項目の訂正)、`constraints.md`(既知の非対称の表から除外し決着記録へ)
+  - **⚠️ reviewer指摘2件→修正**: (1)lipsync.md内の矛盾(A2項目が「EmotionEngine側の再発火」のまま残存)→訂正の経緯ごと修正 (2)**実バグ**: `resolveLive2dMapping`は未割当/両方nullの状態をidleへフォールバックするため、**ラベルが非idleのままidle用モーションをFORCEで撃ち続ける**状態だった(idleローテーションを殺さないという意図と正反対)→`isAssignedLive2dEntry`で判定を一本化した`hasOwnLive2dMapping`をゲートにし、**自前の割当を持つ状態だけ再発火**するよう修正。reviewer 2周で**0件確定**
+  - **検証**: typecheck/build通過(`createRenderer` 5.15kB据え置き=軽量チャンクへの漏れ無し、増加は`Live2DRenderer`チャンクのみ)。**オフスクリーン37件**(motion-refire 23=同期で撃たない/idle除外/フォールバック除外/未割当/多重防止/状態変更で保留破棄/取り消し漏れの二重防御/安全弁と状態変更でのリセット/dispose、manifest 14=`hasOwnLive2dMapping`と`resolveLive2dMapping`の整合・expressionのみ・両方null・未定義キー・idle欠落manifest)
+  - **未検証(ユーザー確認)**: **実描画(WebGL+Cubismランタイム)での確認は不可**。すべてライブラリのソース読解による決定であり、実機で「持続中に灯里がidleへ戻らないか」「再発火の継ぎ目が不自然でないか」の確認が要る(lipsync.mdにも明記)
+- **次**: **第3段階(Track A/B/C)+ FR-13完了(PR #9マージ済み)。FR-13対策8のNotion正本8章への昇格も完了。lipsync.md論点③も決着・実装済み**。残る主な実装候補(2026-07-24 reviewer棚卸しで再整理): Live2Dのzip取り込み、モデル名変更UI、会話ペインの@参照文脈組立/添付読み出し(real・FR-15/C-23。real接続導線自体は#12で実装済み、@参照/添付だけが未接続)、Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。**再発火の実挙動もここに含む**)+メモリ実測(200MB目安)、`displaySize`範囲の不一致解消(未決事項C6)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

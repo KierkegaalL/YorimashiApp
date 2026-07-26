@@ -114,8 +114,31 @@ export function resolveLive2dMapping(
   state: EmotionState,
 ): Live2dEmotionEntry {
   const entry = manifest.emotionMap[state];
-  if (entry && (entry.motion != null || entry.expression != null)) {
+  if (entry && isAssignedLive2dEntry(entry)) {
     return entry;
   }
   return manifest.emotionMap[FALLBACK_STATE] ?? { motion: null, expression: null };
+}
+
+/** エントリが実質的な割当を持つか(motion/expressionのいずれかが非null)。 */
+function isAssignedLive2dEntry(entry: Live2dEmotionEntry): boolean {
+  return entry.motion != null || entry.expression != null;
+}
+
+/**
+ * その状態が**自前の**マッピングを持つか(= `resolveLive2dMapping` が idle へフォールバックしないか)。
+ * 判定条件を `resolveLive2dMapping` と共有し、両者が食い違わないようにしている。
+ *
+ * 用途: 持続中のモーション再発火(lipsync.md ③)。**フォールバックした状態では再発火しない**
+ * — 映っているのは idle のモーションであり、それをFORCEで撃ち直し続けると、ライブラリ本来の
+ * idleグループのランダムローテーションを殺してしまうため(`idle`自体を除外するのと同じ理由)。
+ *
+ * **スプライトセットに対応物を作らない理由(対称性チェック・CLAUDE.md原則4)**: `resolveClip` も同様に
+ * idle へフォールバックするが、スプライトセット側は**持続の判断自体が不要**(素材=アニメーションWebPの
+ * `loop` に焼き込み済みで、Renderer は再発火しない)。この関数は再発火専用の判断材料であり、
+ * 対応する `hasOwnSpritesetClip` は**使い道が無いため作らない**。この非対称は正当。
+ */
+export function hasOwnLive2dMapping(manifest: Live2dManifest, state: EmotionState): boolean {
+  const entry = manifest.emotionMap[state];
+  return entry != null && isAssignedLive2dEntry(entry);
 }

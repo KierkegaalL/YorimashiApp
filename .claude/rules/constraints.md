@@ -24,10 +24,11 @@ Live2D形式とスプライトセット形式は`CharacterRenderer`インター�
 
 | 内容 | 出典 |
 |---|---|
-| `loop`がspriteset専用のため、Live2Dで持続中にモーションが尽きた際の挙動が未定義 | detailed-design/lipsync.md |
 | リップシンクはスプライトセットで原理的に不可能（事前レンダリング済みのため） | detailed-design/lipsync.md |
 
 > **決着済み（表から除外）**: `baseResolution`の非対称（Live2Dはモデルをロードするまでウィンドウサイズが確定しない問題）は、#4で**案2**を採用して解消した。`baseResolution`を形式共通・必須フィールドへ変更し（config-schema.ts / data.md / basic-design.md 6.1 / Notion正本すべて反映済み）、ウィンドウサイズは両形式とも`baseResolution × displaySize`で決まる。detailed-design/character-window.md 論点2参照。
+
+> **決着済み（表から除外）**: `loop`がspriteset専用のため、Live2Dで持続中にモーションが尽きた際の挙動が未定義だった問題は、**`Live2DRenderer`が`motionFinish`を購読して同じ状態を撃ち直す**ことで解消した（2026-07-27）。**責務分担はEmotionEngine=状態の寿命 / Renderer=その状態を映し続ける方法**で、契約は両形式で対称（「setStateされた状態を次のsetStateまで映し続ける」）。手段だけが素材の性質で異なる（spriteset=素材に焼き込んだ`loop`／Live2D=再発火）ため、**この非対称は正当**。実装は`src/renderer/character/renderer/motion-refire.ts`＋`Live2DRenderer.ts`、根拠はdetailed-design/lipsync.md「決着」節。
 
 ## 検証ルール
 
