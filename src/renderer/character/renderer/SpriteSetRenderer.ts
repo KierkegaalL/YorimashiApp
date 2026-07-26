@@ -11,6 +11,15 @@
  * `returnTo`(状態遷移)は EmotionEngine の責務で、次のWSスナップショットが次の setState を駆動する
  * (lipsync.md「loopと寿命は直交」)。よってこのRendererは「今どの状態か」だけを描画する純粋な表示器。
  *
+ * **持続の責務分担(対称性チェック・CLAUDE.md原則4 / lipsync.md ③)**: EmotionEngine が状態の**寿命**
+ * (sustain/release・reactionDurationMs・returnTo)を持ち、Renderer が**その状態を映し続ける方法**を持つ、
+ * という分担は両形式で同じ。契約も対称 =「setState された状態を、次の setState まで映し続ける」。
+ * ただし**手段は素材の性質で異なり、この非対称は正当**:
+ *  - スプライトセット(ここ): 持続は素材に焼き込み済み(`loop`)。**Renderer 側の追加実装は不要**。
+ *  - Live2D: 素材にループ概念が無く、モーションが尽きるとライブラリが idle へ自動フォールバックして
+ *    しまうため、`Live2DRenderer` が `motionFinish` を購読して**同じ状態を撃ち直す**(MotionRefirer)。
+ * 「Live2D 側だけ実装した」のではなく、**スプライトセット側は素材で既に満たしている**ため差分が無い。
+ *
  * 非対称の明記(対称性チェック): リップシンクはスプライトセットでは**原理的に不可能**(口が焼き込み済み。
  * lipsync.md 論点3)。したがってインターフェースに口駆動APIは無く、Live2DRendererとの差はここでは現れない。
  */
