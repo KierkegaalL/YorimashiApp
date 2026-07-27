@@ -158,10 +158,10 @@ const api = {
     get: (): Promise<RightsSnapshot> => ipcRenderer.invoke(IPC.RightsGet),
   },
   /**
-   * モデル管理(FR-5)のスロット操作 + 取り込み。**Live2Dのフォルダ取り込み(importLive2d)と
-   * スプライトセット生成(makeBackgroundKey / importSpriteset)は実装済み**(第2段階a/b)。
-   * zip取り込み・感情↔モーション編集は後続タスク。いずれも更新後のスナップショットを返す
-   * (makeBackgroundKey だけは保存結果を返す)。
+   * モデル管理(FR-5)のスロット操作 + 取り込み。Live2Dの**フォルダ取り込み(importLive2d)・
+   * zip取り込み(importLive2dArchive)**、スプライトセット生成(makeBackgroundKey /
+   * importSpriteset)、感情↔モーション編集(mapEdit系)はいずれも実装済み。
+   * いずれも更新後のスナップショットを返す(makeBackgroundKey だけは保存結果を返す)。
    */
   models: {
     get: (): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelGet),
@@ -179,6 +179,12 @@ const api = {
     /** Live2D モデルをフォルダ選択で取り込む(ネイティブダイアログ→列挙→自動マッピング→複製→登録)。 */
     importLive2d: (): Promise<ModelManageSnapshot> =>
       ipcRenderer.invoke(IPC.ModelImportLive2d),
+    /**
+     * Live2D モデルを zip 選択で取り込む。展開先の検証(zip-slip・シンボリックリンクの拒否)は
+     * Main 側で完結し、Renderer はパスもファイル実体も扱わない(security.md 6章)。
+     */
+    importLive2dArchive: (): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.ModelImportLive2dArchive),
     /**
      * 静止画を選ばせ、クロマグリーン合成した background_key.png を保存する(手順1-2)。
      * 選択も保存もネイティブダイアログで、Renderer からパスを渡さない。

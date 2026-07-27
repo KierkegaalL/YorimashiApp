@@ -415,12 +415,25 @@ function registerModelIpc(): void {
     configStore,
     modelsRoot: modelsRootOf(app.getPath('userData')),
     chooseModelFolder: () => chooseModelFolder(),
+    chooseModelArchive: () => chooseModelArchive(),
   });
   ipcMain.handle(IPC.ModelImportLive2d, async (event) => {
     if (!isPanelSender(event.sender) || !modelService) {
       throw new Error('この送信元からの操作は許可されていません');
     }
     const result = await importer.importLive2dFromDialog();
+    if (result.imported) {
+      syncCharacterModel();
+    }
+    return modelService.getSnapshot(result.warning);
+  });
+  // zip 取り込み。フォルダ取り込みと**同じ後処理**(反映+スナップショット)にする。
+  // 展開・検証は ModelImporter 側で完結し、Renderer へパスを渡さない点も同じ。
+  ipcMain.handle(IPC.ModelImportLive2dArchive, async (event) => {
+    if (!isPanelSender(event.sender) || !modelService) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const result = await importer.importLive2dFromArchiveDialog();
     if (result.imported) {
       syncCharacterModel();
     }
@@ -584,6 +597,25 @@ async function chooseModelFolder(): Promise<string | null> {
     title: 'Live2D モデルのフォルダを選ぶ',
     message: 'model3.json(Cubism 4/5)または model.json(Cubism 2)を含むフォルダを選んでください。',
     properties: ['openDirectory'],
+  };
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
+/**
+ * Live2D モデルの zip を選ばせる(要件定義書「フォルダ/zipドロップで取り込み(zip-slip対策あり)」)。
+ * ここで得るのはパスだけで、展開と検証は ModelImporter / zip-archive.ts が行う
+ * (zip-slip・シンボリックリンクの拒否。security.md 6章)。
+ */
+async function chooseModelArchive(): Promise<string | null> {
+  const parent = controlPanelBrowserWindow();
+  const options: Electron.OpenDialogOptions = {
+    title: 'Live2D モデルの zip を選ぶ',
+    message: 'model3.json(Cubism 4/5)または model.json(Cubism 2)を含む zip を選んでください。',
+    properties: ['openFile'],
+    filters: [{ name: 'zip アーカイブ', extensions: ['zip'] }],
   };
   const result = parent
     ? await dialog.showOpenDialog(parent, options)
@@ -870,6 +902,7 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.ModelSetActive);
   ipcMain.removeHandler(IPC.ModelSwapAssignment);
   ipcMain.removeHandler(IPC.ModelImportLive2d);
+  ipcMain.removeHandler(IPC.ModelImportLive2dArchive);
   ipcMain.removeHandler(IPC.SpritesetMakeBackgroundKey);
   ipcMain.removeHandler(IPC.SpritesetImport);
   modelService = null;

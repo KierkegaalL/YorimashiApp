@@ -104,8 +104,8 @@ export const IPC = {
   RightsGet: 'rights:get',
 
   /**
-   * モデル管理タブ(FR-5/FR-7)の**スロット管理**。取り込み(Live2D/スプライトセット生成)と
-   * 感情↔モーション対応の編集は後続タスクで別チャンネルとして足す。
+   * モデル管理タブ(FR-5/FR-7)の**スロット管理**。取り込み(Live2D のフォルダ/zip・スプライトセット
+   * 生成)と感情↔モーション対応の編集は、それぞれ別チャンネルとして下記に実装済み。
    *
    * いずれも更新後のスナップショットを返す。**Renderer にファイルパスは渡さない**
    * (表示に不要で、Renderer 由来のパスを信じる経路を作らないため。shared/model-manage.ts)。
@@ -123,9 +123,11 @@ export const IPC = {
   /**
    * invoke: Live2D モデルを**フォルダ選択**で取り込む(第2段階a)。ネイティブダイアログで
    * フォルダを選ばせ、列挙・自動マッピング・複製・スロット追加まで行い、更新後のスナップショットを返す。
-   * zip 取り込みは後続タスク。
+   * zip 取り込みは `ModelImportLive2dArchive`(下記)。
    */
   ModelImportLive2d: 'model:import-live2d',
+  /** Live2D の zip 取り込み(フォルダ取り込みと同じ結果=更新後スナップショットを返す)。 */
+  ModelImportLive2dArchive: 'model:import-live2d-archive',
 
   /**
    * 感情↔モーション/クリップ対応の編集(第3段階 Track A / model-mapping-ui.md)。
