@@ -12,11 +12,13 @@
  *  - **スプライトセットの生成フロー**(SpritesetAddFlow: 下絵→background_key.png→動画取り込み→登録)
  *  - **感情↔モーション/クリップ対応の編集**(MappingEditor: Live2Dはモーション/表情の割り当て+自動、
  *    スプライトセットはクリップ削除。model-mapping-ui.md 第3段階 Track A)
+ *  - **モデル名の変更**(一覧の名前をクリックしてインライン編集。鉛筆アイコンで導線を示す)。
+ *    **モックアップ自体には編集導線が無い**(既定名のまま登録するのみ)が、変更手段が無いのは
+ *    FR-5の趣旨に合わない実装漏れだったため追加した。
  *
  * **未実装は正直にそう出す**(偽データ・使えないUIを置かない):
  *  - **ドラッグ&ドロップ**での取り込み。モックアップは「フォルダか zip をドロップして追加」だが、
  *    実装しているのは**ネイティブダイアログでの選択**なので、画面には「選んで追加」と書く。
- *  - **モデル名の変更**(既定名のまま登録する)。
  * (zip 取り込み・クリップ差し替え=Track B・プレビュー枠=Track C はいずれも実装済み)
  *
  * **「使用中」は解決結果(activeModelId)で描く**。manualActiveId から推測して描くと、
@@ -31,17 +33,25 @@ import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeftRight,
+  Check,
   Circle,
   FileArchive,
   FolderOpen,
   Image,
   Layers,
+  Pencil,
   Trash2,
+  X,
 } from 'lucide-react';
 
 import { useTheme } from './theme';
 import { Row, Section, Switch } from './panel-ui';
-import { MAX_MODEL_SLOTS, type ModelManageSnapshot, type ModelSlotView } from '../../../shared/model-manage';
+import {
+  MAX_MODEL_NAME_LENGTH,
+  MAX_MODEL_SLOTS,
+  type ModelManageSnapshot,
+  type ModelSlotView,
+} from '../../../shared/model-manage';
 import { SpritesetAddFlow } from './spriteset/SpritesetAddFlow';
 import { MappingEditor } from './MappingEditor';
 
@@ -59,6 +69,12 @@ export function ModelTab(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   /** 削除確認中のモデルid(同時に1つだけ。モックアップの deleteConfirmId と同じ考え方)。 */
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  /**
+   * 名前編集中のモデルid(同時に1つだけ)。**モックアップ自体に編集導線は無い**(既定名固定で
+   * 登録するのみ)が、既定名`新しいモデル`のまま変更手段が無いのはFR-5の趣旨に合わない実装漏れの
+   * ため、削除確認と同じ「行内で完結する一時状態」のパターンで追加する。
+   */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
   /** 取り込み中(ネイティブダイアログ→複製の間)。二重起動と誤操作を防ぐ。 */
   // どちらの取り込みが実行中か(両方のボタンを同時に押させない)。null=実行中でない。
   const [importing, setImporting] = useState<'folder' | 'zip' | null>(null);
@@ -123,12 +139,19 @@ export function ModelTab(): React.JSX.Element {
             showAssignedTag={slots.length === MAX_MODEL_SLOTS && autoSwitchByMode}
             single={slots.length === 1}
             confirming={deleteConfirmId === slot.id}
+            renaming={renamingId === slot.id}
             onSelect={() => void run((api) => api.setActive(slot.id))}
             onAskDelete={() => setDeleteConfirmId(slot.id)}
             onCancelDelete={() => setDeleteConfirmId(null)}
             onConfirmDelete={() => {
               setDeleteConfirmId(null);
               void run((api) => api.delete(slot.id));
+            }}
+            onStartRename={() => setRenamingId(slot.id)}
+            onCancelRename={() => setRenamingId(null)}
+            onConfirmRename={(name) => {
+              setRenamingId(null);
+              void run((api) => api.rename(slot.id, name));
             }}
           />
         ))}
@@ -368,6 +391,88 @@ export function Live2dImportButton({
   );
 }
 
+interface ModelNameEditorProps {
+  initial: string;
+  onConfirm: (name: string) => void;
+  onCancel: () => void;
+}
+
+/**
+ * モデル名のインライン編集。**最終的な検証(前後空白の除去・空文字拒否・上限長)は Main 側**
+ * (`parseModelName`)が正であり、二重に実装しない。ただし**上限文字数だけは`maxLength`で
+ * UI側にも反映する**(検証ロジックの複製ではなく、Main側が許す範囲をそもそも入力させない
+ * ためのUX。上限を超えて入力→確定→Main側で拒否→入力内容が消える、という事故を防ぐ)。
+ *
+ * ここで扱う「送信するかどうか」の分岐(Enterで確定・Escapeでキャンセル・blurは確定扱い)は
+ * `parseModelName`の空文字拒否とは**別の関心事**: 空欄のまま確定しようとした場合、Main側の
+ * エラー(「モデル名を入力してください」)を一往復させるのではなく、**その場でキャンセル扱いに
+ * 畳んで無変更として振る舞う**(空欄はほぼ確実に「消しかけて確定し忘れた」であり、エラー表示より
+ * 「元に戻す」方が自然なため)。
+ *
+ * SSR検証のため export する。
+ */
+export function ModelNameEditor({ initial, onConfirm, onCancel }: ModelNameEditorProps): React.JSX.Element {
+  const theme = useTheme();
+  const [value, setValue] = useState(initial);
+
+  const submit = (): void => {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      onCancel(); // 空欄での確定は「消しかけ」とみなし、無変更(キャンセル)として扱う
+      return;
+    }
+    onConfirm(trimmed);
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      {/* eslint 的な自動フォーカスの代わりに autoFocus を使う(このタブに専用フォーカス管理は無い)。 */}
+      <input
+        autoFocus
+        maxLength={MAX_MODEL_NAME_LENGTH}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            submit();
+          } else if (e.key === 'Escape') {
+            onCancel();
+          }
+        }}
+        onBlur={submit}
+        style={{
+          font: 'inherit',
+          fontFamily: "'M PLUS 1 Code', sans-serif",
+          fontSize: 14,
+          color: theme.ink,
+          background: theme.bgRaised,
+          border: `1px solid ${theme.accent}`,
+          borderRadius: 6,
+          padding: '2px 6px',
+          width: 160,
+        }}
+      />
+      {/* mousedown で確定/取消を先に処理する(input の blur が先に発火して submit と競合するのを防ぐ)。 */}
+      <button
+        aria-label="名前を確定"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={submit}
+        style={{ display: 'flex', cursor: 'pointer', background: 'transparent', border: 'none', padding: 2 }}
+      >
+        <Check size={14} color={theme.mint} />
+      </button>
+      <button
+        aria-label="名前の変更を取り消す"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onCancel}
+        style={{ display: 'flex', cursor: 'pointer', background: 'transparent', border: 'none', padding: 2 }}
+      >
+        <X size={14} color={theme.iconInactive} />
+      </button>
+    </div>
+  );
+}
+
 interface ModelRowProps {
   slot: ModelSlotView;
   last: boolean;
@@ -379,10 +484,16 @@ interface ModelRowProps {
   /** 1体だけのとき(常に使用中)。 */
   single: boolean;
   confirming: boolean;
+  /** 名前編集中か。true の間はラベルをテキスト入力に差し替える。 */
+  renaming: boolean;
   onSelect: () => void;
   onAskDelete: () => void;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
+  onStartRename: () => void;
+  onCancelRename: () => void;
+  /** 確定時に呼ぶ。前後空白の除去・空文字/上限長の拒否は Main 側(parseModelName)で行う。 */
+  onConfirmRename: (name: string) => void;
 }
 
 function ModelRow({
@@ -393,10 +504,14 @@ function ModelRow({
   showAssignedTag,
   single,
   confirming,
+  renaming,
   onSelect,
   onAskDelete,
   onCancelDelete,
   onConfirmDelete,
+  onStartRename,
+  onCancelRename,
+  onConfirmRename,
 }: ModelRowProps): React.JSX.Element {
   const theme = useTheme();
   const isLive2d = slot.renderType === 'live2d';
@@ -416,7 +531,30 @@ function ModelRow({
 
   return (
     <Row
-      label={slot.name}
+      label={
+        renaming ? (
+          <ModelNameEditor initial={slot.name} onConfirm={onConfirmRename} onCancel={onCancelRename} />
+        ) : (
+          <button
+            onClick={onStartRename}
+            aria-label={`${slot.name}の名前を変更`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              font: 'inherit',
+              color: 'inherit',
+            }}
+          >
+            {slot.name}
+            <Pencil size={11} color={theme.iconInactive} />
+          </button>
+        )
+      }
       sub={
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
           <span

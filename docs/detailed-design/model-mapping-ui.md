@@ -233,6 +233,16 @@ function score(state: EmotionState, candidate: string): number {
 
 なお`normalize()`が`Idle` → `idle`(完全一致1000点)、`exp_smile_soft` → `smilesoft`と正しく畳めることも実測で確認済み。
 
+### 論点5: モデル名の変更(モックアップに無い機能を追加した判断)
+
+**モックアップ(docs/mockups/control-panel.jsx)には名前変更の導線が無い**。既定名`新しいモデル`(またはLive2Dのフォルダ/zipファイル名)で登録したまま、変更する手段が無い状態だった。
+
+要件定義書・basic-design.mdのFR-5は「モデル管理」を包括的に定義しており、削除やスロット選択と同様に**個別のUI操作としてモックアップに明示されていない**が、既定名のまま変更できないのはFR-5の趣旨(モデルを管理する)に反する実装漏れと判断し、**モックアップに存在しない機能として追加した**。要件レベルの変更(Notion正本の更新)を伴うほどの新規要件とは考えていない(削除機能も同様の粒度でモックアップの明示なしに実装済みの前例がある)。
+
+**決定**: モデル一覧の名前ラベルをクリックするとインライン編集(鉛筆アイコンで導線を示す)。Enter確定・Escapeキャンセル・blurは確定として扱う。**名前は`config.model.slots[].name`のみが正本**で、manifest.json・ファイルシステムには一切触れない(`installedDir`とは独立)。検証(前後空白除去・空文字拒否・上限40文字)はMain側`parseModelName`に一本化し、UI側は上限文字数だけ`maxLength`で反映する(二重実装せず、かつ上限超過時の入力消失を防ぐ)。実装は`src/main/model/model-service.ts`(`renameModel`/`parseModelName`)・`src/renderer/control-panel/src/ModelTab.tsx`(`ModelNameEditor`)。
+
+形式非依存: `renameModel`は`renderType`で分岐しない(config.model.slotsの`name`フィールドのみを操作するため、対称性チェックの対象外)。
+
 ## 検出した不整合(本ドキュメントでは修正しない)
 
 実装前に決着が必要なものを記録する。いずれも要件・基本設計に関わるため、Notion正本の更新を伴う。

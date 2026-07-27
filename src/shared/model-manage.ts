@@ -24,6 +24,17 @@
 export const MAX_MODEL_SLOTS = 2;
 
 /**
+ * モデル表示名の上限文字数。**実測に基づく値ではない暫定値**(モデル一覧の行レイアウトを
+ * 崩さないための目安。constraints.md「推測で書かない」の対象になるほどの実装判断ではないが、
+ * 検証はしていないことを正直に記録しておく。実素材で狭すぎる/緩すぎると分かれば調整する)。
+ *
+ * `MAX_MODEL_SLOTS` と同じ理由でここに置く: Main(`parseModelName`での検証)と
+ * Renderer(`<input maxLength>`での入力自体の抑止)の**両方が同じ値を参照**する必要があり、
+ * 逆向き(Main側からRendererが値を引く)にすると不要な依存が生まれるため。
+ */
+export const MAX_MODEL_NAME_LENGTH = 40;
+
+/**
  * 一覧に出す1スロット。config.model.slots の ModelSlot から**表示に要るものだけ**を写す。
  * `installedDir` 等のファイルシステム上の位置は Renderer に渡さない(表示に不要で、
  * 渡すと Renderer 由来のパスを信じる経路を作りかねないため)。

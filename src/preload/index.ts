@@ -167,6 +167,9 @@ const api = {
     get: (): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelGet),
     /** スロットを1件削除する(モデルファイルの実体も消える)。 */
     delete: (id: string): Promise<ModelManageSnapshot> => ipcRenderer.invoke(IPC.ModelDelete, id),
+    /** 表示名を変更する(既定名`新しいモデル`のままにせず、あとから付け直せるようにする)。 */
+    rename: (id: string, name: string): Promise<ModelManageSnapshot> =>
+      ipcRenderer.invoke(IPC.ModelRename, { id, name }),
     /** モードによる自動切替の ON/OFF。 */
     setAutoSwitch: (enabled: boolean): Promise<ModelManageSnapshot> =>
       ipcRenderer.invoke(IPC.ModelSetAutoSwitch, enabled),
