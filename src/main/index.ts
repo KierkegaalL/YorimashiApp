@@ -1,6 +1,7 @@
 import { app, clipboard, dialog, ipcMain, net, session, type Tray } from 'electron';
-import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { basename, extname, join } from 'node:path';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 import { EmotionEngine } from './emotion-engine';
 import { ConfigStore } from './config-store';
@@ -29,7 +30,13 @@ import { denyAllPermissions } from './window-security';
 import type { CharacterBootstrapModel } from '../shared/bootstrap';
 import { IPC } from '../shared/ipc';
 import type { EmotionSnapshot } from '../shared/emotions';
-import type { ChatConfigPatch, ChatConfigSnapshot } from '../shared/chat';
+import {
+  MAX_CHAT_ATTACHMENT_BYTES,
+  type ChatAttachment,
+  type ChatConfigPatch,
+  type ChatConfigSnapshot,
+  type ChatImageMimeType,
+} from '../shared/chat';
 import type { RightsSnapshot } from '../shared/rights';
 import type { ModelManageSnapshot } from '../shared/model-manage';
 import type { ModelMappingDetail } from '../shared/model-mapping';
@@ -628,6 +635,67 @@ async function chooseModelArchive(): Promise<string | null> {
 }
 
 /**
+ * 会話ペインの添付(C-23。real時のみUIから呼ばれる)。ネイティブダイアログで画像を選ばせ、
+ * **その場でMainが読み込んで`ChatAttachment`(dataUrl込み)を返す**。Rendererへファイルパスは
+ * 一切渡さない(security.md 6章「添付はダイアログで選んだファイルに限定」と同じ不変条件。
+ * model-importer.tsのフォルダ/zip取り込みと同じ姿勢)。
+ *
+ * 添付はMainの`parseAttachments`(chat-adapter.ts)でも再検証される(Rendererを信用しない)ため、
+ * ここでの検証はUXのための早期チェックという位置づけ。
+ */
+async function chooseChatAttachment(): Promise<ChatAttachment | null> {
+  const parent = controlPanelBrowserWindow();
+  const options: Electron.OpenDialogOptions = {
+    title: '添付する画像を選ぶ',
+    message: 'png / jpg / jpeg / gif / webp のいずれかを選んでください。',
+    properties: ['openFile'],
+    filters: [{ name: '画像', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }],
+  };
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options);
+  const filePath = result.canceled ? undefined : result.filePaths[0];
+  if (filePath === undefined) {
+    return null;
+  }
+  const mimeType = chatAttachmentMimeType(filePath);
+  if (mimeType === null) {
+    throw new Error('対応していない画像形式です(png/jpg/jpeg/gif/webpのみ)。');
+  }
+  const size = statSync(filePath).size;
+  if (size > MAX_CHAT_ATTACHMENT_BYTES) {
+    throw new Error(
+      `添付できる画像は最大${Math.round(MAX_CHAT_ATTACHMENT_BYTES / 1024 / 1024)}MBまでです。`,
+    );
+  }
+  const buffer = readFileSync(filePath);
+  return {
+    id: randomUUID(),
+    name: basename(filePath),
+    mimeType,
+    sizeBytes: size,
+    dataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+  };
+}
+
+/** 拡張子からMIMEタイプを決める。対応外は null(推測で決め打ちしない)。 */
+function chatAttachmentMimeType(filePath: string): ChatImageMimeType | null {
+  switch (extname(filePath).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.webp':
+      return 'image/webp';
+    default:
+      return null;
+  }
+}
+
+/**
  * アクティブモデルの解決結果をキャラクターウィンドウへ反映する。
  *
  * モデル管理タブの操作だけでなく、**アダプタ切替(Tray / 会話ペイン / C-24の自動切替)**からも呼ぶ。
@@ -695,6 +763,18 @@ function startChatAdapter(): void {
     // chat-adapter-errors.md 論点2)。ChatAdapter/real-responder を Electron非依存に保つため、
     // Electron API はここで関数として注入する。
     isOnline: () => net.isOnline(),
+    // @参照(C-23)の「作業ログ」用。hookEventLogはモジュール変数のため呼び出し時点で解決する
+    // (initCore()で先に生成されるが、型はnullableなので念のため関数越しに読む)。
+    getLogSnapshot: (limit) => hookEventLog?.getSnapshot(limit) ?? null,
+  });
+
+  // 添付(C-23)。ChatAdapterの内部状態を使わないため、クラス外のIPCとして配線する
+  // (model importの chooseModelArchive 等と同じ扱い)。
+  ipcMain.handle(IPC.ChatChooseAttachment, async (event): Promise<ChatAttachment | null> => {
+    if (!isPanelSender(event.sender)) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    return chooseChatAttachment();
   });
 
   const currentEngine = engine;
@@ -885,6 +965,7 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.EmotionGet);
   ipcMain.removeHandler(IPC.ChatConfigGet);
   ipcMain.removeAllListeners(IPC.ChatConfigSet);
+  ipcMain.removeHandler(IPC.ChatChooseAttachment);
   ipcMain.removeHandler(IPC.OnboardingGet);
   ipcMain.removeHandler(IPC.OnboardingChooseProject);
   ipcMain.removeHandler(IPC.OnboardingInstallDispatch);

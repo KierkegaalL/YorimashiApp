@@ -16,7 +16,17 @@
  *    (chat-adapter-errors.md 論点4と同じ理屈)。
  * #12(FR-3)で real 接続とコンテキスト使用量の実測表示を追加した。会話履歴の**正本はMain**に
  * なり(real は文脈を送らないと毎ターン記憶喪失になるため)、`/clear` は Main の履歴も消す。
- * 残り: @参照の文脈組立 / 添付(real)。
+ *
+ * @参照(C-23)は**ユーザーが明示選択した状態を保持し、送信時にキー配列としてMainへ渡す**方式に
+ * した(当初案の「@ラベル をテキストとして入力欄に挿入する」ではない)。文脈組立(作業ログ・
+ * 表示中のモデル・設定の実際の内容の取得)はMain側(chat-adapter.ts / context-references.ts)が
+ * 行う責務であり、Rendererは「どれを含めるか」の選択状態だけを持つ。テキストとして挿入すると
+ * 本文と見分けが付かず、しかも実際の内容は含まれない(ラベル文字列だけがAPIへ送られる)ため、
+ * 「文脈に含める」という要件を満たさない。
+ *
+ * 添付(real時のみ)は`chat.chooseAttachment()`でネイティブダイアログから選ばせ、Mainが
+ * 読み込んだ`ChatAttachment`(dataUrl込み)をそのまま保持する。Rendererはファイルパスに一切
+ * 触れない(security.md 6章)。送信時は選択済みの添付をそのままMainへ返す。
  *
  * 会話履歴の初期シードは置かない(C-22: 永続化しない。デモ用の固定会話を実物に見せない)。
  *
@@ -27,6 +37,7 @@
  *   - role='error' + アクションボタン(chat-pane.md 論点4の表がUI要件として定めている)
  *   - origin='mock' のバッジ(固定返答をClaudeの回答に見せない。chat-adapter-errors.md 論点4)
  *   - streaming中のカーソルと中断の注記(擬似streamingがlipsync.mdの要求で入ったため)
+ *   - user吹き出しの添付サムネイル(C-23の添付機能。モックアップは添付自体を持っていない)
  * いずれも**詳細設計が要求していてモックアップが先回りしていなかった**もので、モックアップの
  * レイアウト・配色・既存要素には手を入れていない。モックアップ側への反映は、6タブの中身を
  * 移植する後続タスクでUI全体を見直す際に併せて行う。
@@ -40,9 +51,11 @@ import {
   RotateCcw,
   Terminal,
   AtSign,
+  Check,
   Paperclip,
   Send,
   Square,
+  X,
 } from 'lucide-react';
 
 import { useTheme } from './theme';
@@ -50,7 +63,10 @@ import { AT_REFERENCES, RESPONSE_MODELS, SLASH_COMMANDS } from './catalog';
 import type { AdapterMode, ChatMode, ChatMessage } from './types';
 import type { MoodState } from '../../../shared/emotions';
 import {
+  MAX_CHAT_ATTACHMENTS,
   MAX_CHAT_INPUT_LENGTH,
+  type AtReferenceKey,
+  type ChatAttachment,
   type ChatErrorAction,
   type ChatUsage,
 } from '../../../shared/chat';
@@ -117,6 +133,13 @@ export function ConversationPane({
   const sendingRef = useRef(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [atMenuOpen, setAtMenuOpen] = useState(false);
+  /** @参照(C-23)の選択状態。送信時にキー配列としてMainへ渡す(文脈の実際の中身はMainが組む)。 */
+  const [selectedRefs, setSelectedRefs] = useState<AtReferenceKey[]>([]);
+  /** 添付(C-23。real時のみ)。ダイアログで選び、送信までRendererが保持する。 */
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  /** 添付ダイアログの失敗(大きすぎる・非対応形式)。会話には積まず、入力欄のそばに出す。 */
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
 
   const appendMessage = (message: Omit<ChatMessage, 'id'>): number => {
     const id = nextMessageId.current++;
@@ -213,14 +236,32 @@ export function ConversationPane({
    * 戻り値は**受理できたか**(Mainがstreamingを開始したか)。入力欄のクリアはこの結果を
    * 見てから行う必要があるため(handleChatSend)、呼び出し側に返す。
    */
-  const sendText = async (text: string, echoUser = true): Promise<boolean> => {
+  /**
+   * @param refs 送信時点で選択中の@参照キー(C-23)。**再送/再生成では渡さない**
+   *   (Main側`chat-adapter.ts`もretry経路では素のtrimmedで積み直すため、渡しても
+   *   Mainに反映されない=画面と実際の送信内容がずれる。呼び出し側で常に省略する)。
+   * @param sendAttachments 同上、添付(refsと同じ理由で再送では渡さない)。
+   */
+  const sendText = async (
+    text: string,
+    echoUser = true,
+    refs: AtReferenceKey[] = [],
+    sendAttachments: ChatAttachment[] = [],
+  ): Promise<boolean> => {
     // sendingRef は同一ティック内の連打も弾く(chatSending は再レンダーまで古い値のため)。
     if (!text || sendingRef.current) {
       return false;
     }
     const api = window.yorimashi?.chat;
     if (echoUser) {
-      appendMessage({ role: 'user', text });
+      appendMessage({
+        role: 'user',
+        text,
+        attachments:
+          sendAttachments.length > 0
+            ? sendAttachments.map((a) => ({ name: a.name, dataUrl: a.dataUrl }))
+            : undefined,
+      });
     }
     setLastSentText(text);
     if (!api) {
@@ -238,7 +279,7 @@ export function ConversationPane({
     try {
       // `echoUser=false`(再送/再生成)は Main 側でも user ターンを積み直さない合図になる。
       // 揃えないと、画面には1回しか出ていない質問が API へは2回送られる(chat-adapter.ts send)。
-      const accepted = await api.send(text, !echoUser);
+      const accepted = await api.send(text, !echoUser, refs, sendAttachments);
       if (accepted.adapterSwitched) {
         // 案1(C-24): 黙って切り替えない。切り替えた事実をその場で明示する。
         // adapterMode 自体の更新はここで行わない — Mainが config を書き換えた結果が
@@ -269,9 +310,13 @@ export function ConversationPane({
     if (!text || sendingRef.current) {
       return;
     }
-    void sendText(text).then((accepted) => {
+    void sendText(text, true, selectedRefs, attachments).then((accepted) => {
       if (accepted) {
         setChatInput('');
+        // 受理された送信でだけ選択状態を消す(受理されなかった場合は打ち直しに備えて残す。
+        // chatInputを消さないのと同じ考え方)。
+        setSelectedRefs([]);
+        setAttachments([]);
       }
     });
   };
@@ -323,9 +368,43 @@ export function ConversationPane({
     setSlashMenuOpen(false);
   };
 
-  const insertAtReference = (label: string): void => {
-    setChatInput((prev) => `${prev}${prev && !prev.endsWith(' ') ? ' ' : ''}@${label} `);
-    setAtMenuOpen(false);
+  /**
+   * @参照(C-23)の選択をトグルする。**テキストとして入力欄へ挿入しない**(ヘッダのコメント参照)。
+   * 選択状態はチップで示し、送信時にキーだけをMainへ渡す。
+   */
+  const toggleAtReference = (key: AtReferenceKey): void => {
+    setSelectedRefs((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
+
+  /** 添付ダイアログを開く。real時のみ呼ばれる(ボタン側でも disabled にしている)。 */
+  const handleChooseAttachment = (): void => {
+    if (attachments.length >= MAX_CHAT_ATTACHMENTS) {
+      setAttachError(`添付できる画像は最大${MAX_CHAT_ATTACHMENTS}件です。`);
+      return;
+    }
+    const api = window.yorimashi?.chat;
+    if (!api) {
+      return;
+    }
+    setAttaching(true);
+    void api
+      .chooseAttachment()
+      .then((result) => {
+        if (result !== null) {
+          setAttachments((prev) => [...prev, result]);
+          setAttachError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        setAttachError(err instanceof Error ? err.message : '添付に失敗しました。');
+      })
+      .finally(() => setAttaching(false));
+  };
+
+  const removeAttachment = (id: string): void => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
   return (
@@ -564,6 +643,25 @@ export function ConversationPane({
                   whiteSpace: 'pre-wrap',
                 }}
               >
+                {/* 添付サムネイル(C-23)。userの吹き出しにのみ持つ(表示専用)。 */}
+                {msg.attachments !== undefined && msg.attachments.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+                    {msg.attachments.map((a, i) => (
+                      <img
+                        key={i}
+                        src={a.dataUrl}
+                        alt={a.name}
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: 6,
+                          objectFit: 'cover',
+                          border: `1px solid ${theme.line}`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
                 {msg.text}
                 {/* streaming中のカーソル。受信が続いていることを示す。 */}
                 {msg.streaming === true && (
@@ -783,25 +881,125 @@ export function ConversationPane({
               boxShadow: '0 4px 16px rgba(0,0,0,0.16)',
             }}
           >
-            {AT_REFERENCES.map((r) => (
-              <button
-                key={r.key}
-                onClick={() => insertAtReference(r.label)}
+            {AT_REFERENCES.map((r) => {
+              const checked = selectedRefs.includes(r.key);
+              return (
+                <button
+                  key={r.key}
+                  onClick={() => toggleAtReference(r.key)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '8px 12px',
+                    background: checked ? theme.accentTag : 'none',
+                    border: 'none',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontFamily: "'M PLUS 1 Code', sans-serif",
+                    fontSize: 12,
+                    color: theme.ink,
+                  }}
+                >
+                  @{r.label}
+                  {checked && <Check size={13} color={theme.accent} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 選択中の@参照・添付のチップ(送信前に何を含めるか確認・取り消せるようにする)。 */}
+        {(selectedRefs.length > 0 || attachments.length > 0) && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+            {selectedRefs.map((key) => {
+              const ref = AT_REFERENCES.find((r) => r.key === key);
+              return (
+                <span
+                  key={key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: theme.accentTag,
+                    color: theme.accent,
+                    borderRadius: 999,
+                    padding: '3px 8px',
+                    fontFamily: "'M PLUS 1 Code', sans-serif",
+                    fontSize: 11,
+                  }}
+                >
+                  @{ref?.label ?? key}
+                  <button
+                    onClick={() => toggleAtReference(key)}
+                    aria-label={`@${ref?.label ?? key}の参照を取り消す`}
+                    style={{
+                      display: 'flex',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: 0,
+                      color: 'inherit',
+                    }}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              );
+            })}
+            {attachments.map((a) => (
+              <span
+                key={a.id}
+                title={`${a.name}(${formatAttachmentSize(a.sizeBytes)})`}
                 style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  background: 'none',
-                  border: 'none',
-                  textAlign: 'left',
-                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: theme.bgRaised,
+                  border: `1px solid ${theme.line}`,
+                  borderRadius: 999,
+                  padding: '2px 8px 2px 2px',
                   fontFamily: "'M PLUS 1 Code', sans-serif",
-                  fontSize: 12,
-                  color: theme.ink,
+                  fontSize: 11,
+                  color: theme.inkDim,
                 }}
               >
-                @{r.label}
-              </button>
+                <img
+                  src={a.dataUrl}
+                  alt={a.name}
+                  style={{ width: 16, height: 16, borderRadius: 4, objectFit: 'cover' }}
+                />
+                {a.name}
+                <button
+                  onClick={() => removeAttachment(a.id)}
+                  aria-label={`${a.name}の添付を取り消す`}
+                  style={{
+                    display: 'flex',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                    color: 'inherit',
+                  }}
+                >
+                  <X size={11} />
+                </button>
+              </span>
             ))}
+          </div>
+        )}
+        {attachError !== null && (
+          <div
+            style={{
+              marginBottom: 8,
+              fontFamily: "'M PLUS 1 Code', sans-serif",
+              fontSize: 11,
+              color: theme.warnText,
+            }}
+          >
+            {attachError}
           </div>
         )}
 
@@ -904,10 +1102,17 @@ export function ConversationPane({
             >
               <AtSign size={12} /> 参照
             </button>
-            {/* 添付は real 時のみ(mock は無効)。ダイアログ選択に限定するファイル読み出しは #12。 */}
+            {/* 添付は real 時のみ(mock は無効)。ダイアログ選択に限定するファイル読み出し(security.md 6章)。 */}
             <button
-              disabled={chatMode !== 'real'}
-              title={chatMode !== 'real' ? 'real接続時のみ使えます' : '画像・ファイルを添付'}
+              disabled={chatMode !== 'real' || attaching || attachments.length >= MAX_CHAT_ATTACHMENTS}
+              onClick={handleChooseAttachment}
+              title={
+                chatMode !== 'real'
+                  ? 'real接続時のみ使えます'
+                  : attachments.length >= MAX_CHAT_ATTACHMENTS
+                    ? `添付は最大${MAX_CHAT_ATTACHMENTS}件までです`
+                    : '画像を添付(png/jpg/gif/webp)'
+              }
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -918,7 +1123,10 @@ export function ConversationPane({
                 padding: '4px 8px',
                 color: theme.inkDim,
                 fontSize: 11,
-                cursor: chatMode !== 'real' ? 'not-allowed' : 'pointer',
+                cursor:
+                  chatMode !== 'real' || attaching || attachments.length >= MAX_CHAT_ATTACHMENTS
+                    ? 'not-allowed'
+                    : 'pointer',
                 opacity: chatMode !== 'real' ? 0.45 : 1,
               }}
             >
@@ -957,4 +1165,10 @@ export function ConversationPane({
       </div>
     </div>
   );
+}
+
+/** 添付チップの title(ホバー)表示用。`sizeBytes`はここでだけ使う(チップ本体には出さず幅を圧迫しない)。 */
+function formatAttachmentSize(sizeBytes: number): string {
+  const kb = sizeBytes / 1024;
+  return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 }

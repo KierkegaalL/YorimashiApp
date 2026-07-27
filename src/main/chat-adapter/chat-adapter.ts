@@ -34,7 +34,12 @@ import { IPC } from '../../shared/ipc';
 import { classify } from '../../shared/emotion-classification';
 import { isReactionState } from '../../shared/emotions';
 import {
+  MAX_CHAT_ATTACHMENTS,
+  MAX_CHAT_ATTACHMENT_BYTES,
   MAX_CHAT_INPUT_LENGTH,
+  type AtReferenceKey,
+  type ChatContentBlock,
+  type ChatImageMimeType,
   type ChatSendAccepted,
   type ChatSettingsPatch,
   type ChatSettingsSnapshot,
@@ -42,6 +47,8 @@ import {
   type ChatTurn,
   type ChatUsage,
 } from '../../shared/chat';
+import type { HookLogSnapshot } from '../../shared/hook-log';
+import { assembleReferencedContext } from './context-references';
 import { streamMockReply, type Sleep } from './mock-responder';
 import { RealChatError, streamRealReply, type AnthropicLike } from './real-responder';
 
@@ -69,6 +76,12 @@ export interface ChatAdapterDeps {
     maxRetries: number;
     timeout: number;
   }) => AnthropicLike;
+  /**
+   * @参照(C-23)の「作業ログ」が読む直近スナップショット。HookEventLog.getSnapshotを注入する。
+   * ログがまだ初期化されていない場合に備え、関数注入にしている(index.tsのモジュール変数は
+   * 起動順序によってnullでありうる。resolveも呼び出し時点で行う)。
+   */
+  getLogSnapshot?: (limit: number) => HookLogSnapshot | null;
 }
 
 /** 進行中の1リクエスト。 */
@@ -115,7 +128,12 @@ export class ChatAdapter {
    * 戻り値は受理の事実だけで、本文は ChatStream イベントで流す。
    * こうしないと invoke の解決が応答完了まで待たされ、streaming表示にならない。
    */
-  send(text: string, isRetry = false): ChatSendAccepted {
+  send(
+    text: string,
+    isRetry = false,
+    refsRaw: unknown = [],
+    attachmentsRaw: unknown = [],
+  ): ChatSendAccepted {
     this.assertNotDisposed();
 
     const trimmed = text.trim();
@@ -130,6 +148,12 @@ export class ChatAdapter {
       // (二重送信を受けるとthinkingのsustain/releaseが対応を失い固着しうる)。
       throw new Error('応答の生成中です');
     }
+    // Rendererを信用しない(security.md 5章と同じ姿勢)。型・サイズ・件数はこの関数自身の
+    // 責務として検証する(text/MAX_CHAT_INPUT_LENGTHの検証と同じ場所に置く。IPCハンドラ側だけに
+    // 検証を置くと、send()を直接呼ぶ経路=このクラス自身の他メソッドや将来の呼び出し元が
+    // 無検証な入力を通してしまう)。
+    const refs = parseAtReferenceKeys(refsRaw);
+    const attachments = parseAttachments(attachmentsRaw);
 
     // 案1(C-24): 送信という行為自体が「今はChatをしたい」という意思表示。activeAdapter を
     // Chatへ自動切替する。**黙って切り替えない**ため、切り替えた事実を戻り値でRendererへ返し、
@@ -143,6 +167,27 @@ export class ChatAdapter {
       this.deps.onConfigChanged?.();
     }
 
+    // @参照(C-23)の文脈組立。選択が無ければ null(=送信本文はユーザー入力のみ)。
+    // ユーザーが実際にタイプした文面と結合してからAPIへ送る一方、Rendererの吹き出し表示は
+    // 引き続き `trimmed`(生の入力)のみを映す(見えている会話とAPIへ送る内容が意図的に非対称)。
+    const referenced = assembleReferencedContext(refs, {
+      config: this.deps.configStore.current,
+      getLogSnapshot: this.deps.getLogSnapshot ?? (() => null),
+    });
+    const textContent = referenced !== null ? `${referenced}\n\n${trimmed}` : trimmed;
+    const content: ChatTurn['content'] =
+      attachments.length === 0
+        ? textContent
+        : [
+            { type: 'text', text: textContent },
+            ...attachments.map(
+              (a): ChatContentBlock => ({
+                type: 'image',
+                source: { type: 'base64', media_type: a.mimeType, data: a.base64 },
+              }),
+            ),
+          ];
+
     // 履歴の更新。**再送/再生成(isRetry)では user ターンを積み直さない**。会話ペイン側も
     // `echoUser=false` で吹き出しを二重に積まない実装(ConversationPane sendText)なので、
     // ここで積むと**画面に見えている会話とAPIへ送る会話がずれる**。あわせて直前の
@@ -152,11 +197,12 @@ export class ChatAdapter {
         this.turns.pop();
       }
       if (this.turns.at(-1)?.role !== 'user') {
-        // 履歴側に対応する user ターンが無い(/clear 後の再送など)。積み直して整合させる。
+        // 履歴側に対応する user ターンが無い(/clear 後の再送など)。再送は@参照/添付を
+        // 渡さない前提(会話ペインのretry経路もテキストのみ)のため、素の trimmed で積み直す。
         this.turns.push({ role: 'user', content: trimmed });
       }
     } else {
-      this.turns.push({ role: 'user', content: trimmed });
+      this.turns.push({ role: 'user', content });
     }
 
     const requestId = this.nextRequestId++;
@@ -374,14 +420,20 @@ export class ChatAdapter {
   private registerIpc(): void {
     ipcMain.handle(
       IPC.ChatSend,
-      (event: IpcMainInvokeEvent, text: unknown, isRetry: unknown): ChatSendAccepted => {
-      if (!this.isSender(event.sender)) {
-        throw new Error('この送信元からのチャット送信は許可されていません');
-      }
-      if (typeof text !== 'string') {
-        throw new Error('本文が文字列ではありません');
-      }
-        return this.send(text, isRetry === true);
+      (
+        event: IpcMainInvokeEvent,
+        text: unknown,
+        isRetry: unknown,
+        refs: unknown,
+        attachments: unknown,
+      ): ChatSendAccepted => {
+        if (!this.isSender(event.sender)) {
+          throw new Error('この送信元からのチャット送信は許可されていません');
+        }
+        if (typeof text !== 'string') {
+          throw new Error('本文が文字列ではありません');
+        }
+        return this.send(text, isRetry === true, refs, attachments);
       },
     );
     ipcMain.on(IPC.ChatStop, (event: IpcMainEvent) => {
@@ -457,4 +509,68 @@ function parseSettingsPatch(patch: unknown): ChatSettingsPatch {
     result.apiKey = raw.apiKey;
   }
   return result;
+}
+
+const KNOWN_AT_REFERENCE_KEYS: readonly AtReferenceKey[] = ['logs', 'model', 'settings'];
+
+/** @参照のキー配列を検証する。未知のキーは黙って無視せず拒否する(不正な入力に気づけるように)。 */
+function parseAtReferenceKeys(raw: unknown): AtReferenceKey[] {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    throw new Error('@参照の指定が不正です');
+  }
+  return raw.map((key) => {
+    if (typeof key !== 'string' || !KNOWN_AT_REFERENCE_KEYS.includes(key as AtReferenceKey)) {
+      throw new Error('@参照の指定が不正です');
+    }
+    return key as AtReferenceKey;
+  });
+}
+
+/** `data:image/(jpeg|png|gif|webp);base64,<...>` の形だけを許可する(SDKが受け付ける4形式)。 */
+const ATTACHMENT_DATA_URL_RE = /^data:(image\/(?:jpeg|png|gif|webp));base64,([A-Za-z0-9+/]+=*)$/;
+
+/**
+ * 添付(C-23)のペイロードを検証する。**Rendererを信用しない**(security.md 5章と同じ姿勢)。
+ * `ChatAttachment.dataUrl`(選択時にMainが返した値をRendererがそのまま送り返したもの)しか
+ * 受け付けない — Renderer由来の任意パスやBlobURLを読みに行く経路は作らない。
+ *
+ * 件数・形式・サイズを検証し、SDKへ渡す最小限の形({mimeType, base64})だけを返す
+ * (`id`/`name`/`dataUrl`はここでは不要)。
+ */
+function parseAttachments(raw: unknown): { mimeType: ChatImageMimeType; base64: string }[] {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  if (!Array.isArray(raw)) {
+    throw new Error('添付の指定が不正です');
+  }
+  if (raw.length > MAX_CHAT_ATTACHMENTS) {
+    throw new Error(`添付できる画像は最大${MAX_CHAT_ATTACHMENTS}件です`);
+  }
+  return raw.map((item) => {
+    if (typeof item !== 'object' || item === null) {
+      throw new Error('添付の指定が不正です');
+    }
+    const dataUrl = (item as Record<string, unknown>).dataUrl;
+    if (typeof dataUrl !== 'string') {
+      throw new Error('添付の指定が不正です');
+    }
+    const match = ATTACHMENT_DATA_URL_RE.exec(dataUrl);
+    if (!match) {
+      throw new Error('対応していない画像形式です(jpeg/png/gif/webpのみ)');
+    }
+    const [, mimeType, base64] = match;
+    // base64は3バイトを4文字で表すため、デコード後サイズは概算でよい(パディング込みでも
+    // 実サイズを超えて評価することはなく、上限チェックとして安全側に働く)。
+    const approxBytes = Math.floor((base64!.length * 3) / 4);
+    if (approxBytes > MAX_CHAT_ATTACHMENT_BYTES) {
+      throw new Error(
+        `添付画像が大きすぎます(最大${Math.round(MAX_CHAT_ATTACHMENT_BYTES / 1024 / 1024)}MB)`,
+      );
+    }
+    return { mimeType: mimeType as ChatImageMimeType, base64: base64! };
+  });
 }

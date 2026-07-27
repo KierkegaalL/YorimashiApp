@@ -48,4 +48,9 @@ export interface ChatMessage {
   truncated?: 'stopped' | 'error';
   /** error のときUIが添えるアクション(chat-pane.md 論点4の表)。 */
   action?: ChatErrorAction;
+  /**
+   * user のとき、その送信に添えた添付画像(C-23)。**表示専用**(Mainへ送る本体は
+   * `ConversationPane`が送信直前に別途渡す)。サムネイル表示のためだけに吹き出しへ持たせる。
+   */
+  attachments?: { name: string; dataUrl: string }[];
 }
