@@ -114,6 +114,8 @@ export const IPC = {
   ModelGet: 'model:get',
   /** invoke: スロットを1件削除する(引数はモデルid。ファイル実体も消す)。 */
   ModelDelete: 'model:delete',
+  /** invoke: スロットの表示名を変更する(引数は { id, name }。config のみ変更しファイルは触らない)。 */
+  ModelRename: 'model:rename',
   /** invoke: モードによる自動切替の ON/OFF(引数は boolean)。 */
   ModelSetAutoSwitch: 'model:set-auto-switch',
   /** invoke: 自動切替オフ時に使うモデルを選ぶ(引数はモデルid)。 */

@@ -21,7 +21,12 @@ import path from 'node:path';
 import type { ConfigStore } from '../config-store';
 import { resolveActiveModel } from './active-model';
 import { resolveWithinBase } from '../local-server/safe-path';
-import { MAX_MODEL_SLOTS, type ModelManageSnapshot, type ModelSlotView } from '../../shared/model-manage';
+import {
+  MAX_MODEL_NAME_LENGTH,
+  MAX_MODEL_SLOTS,
+  type ModelManageSnapshot,
+  type ModelSlotView,
+} from '../../shared/model-manage';
 
 export interface ModelServiceDeps {
   configStore: ConfigStore;
@@ -131,6 +136,28 @@ export class ModelService {
     return this.getSnapshot();
   }
 
+  /**
+   * スロットの表示名を変更する(モックアップ自体には編集導線が無いが、既定名`新しいモデル`のまま
+   * 固定するのはFR-5の趣旨に合わない実装漏れだったため追加する)。
+   *
+   * `parseModelName` で前後空白除去・空文字/上限長を検証済みの値のみ受け取る。
+   * ファイル・manifest には一切触れない(名前は config.model.slots のみが正本。
+   * `installedDir`とは独立しているため、フォルダ/zipの取り込み時の名前決定と無関係に変更できる)。
+   */
+  renameModel(id: string, name: string): ModelManageSnapshot {
+    const exists = this.deps.configStore.current.model.slots.some((s) => s.id === id);
+    if (!exists) {
+      throw new Error('指定されたモデルは見つかりませんでした。');
+    }
+    this.deps.configStore.update((draft) => {
+      const target = draft.model.slots.find((s) => s.id === id);
+      if (target) {
+        target.name = name;
+      }
+    });
+    return this.getSnapshot();
+  }
+
   /** 自動切替オフ時に使うモデルを選ぶ(存在しない id は受け付けない)。 */
   setManualActive(id: string): ModelManageSnapshot {
     const exists = this.deps.configStore.current.model.slots.some((s) => s.id === id);
@@ -172,6 +199,33 @@ export function parseModelId(payload: unknown): string {
     throw new Error('モデルが指定されていません。');
   }
   return payload;
+}
+
+/**
+ * リネームのIPCペイロード(新しい名前)を検証する。前後の空白は除去し、
+ * 除去後に空文字になるものは拒否する(見出しが空の行を作らない)。
+ */
+export function parseModelName(payload: unknown): string {
+  if (typeof payload !== 'string') {
+    throw new Error('モデル名が指定されていません。');
+  }
+  const trimmed = payload.trim();
+  if (trimmed.length === 0) {
+    throw new Error('モデル名を入力してください。');
+  }
+  if (trimmed.length > MAX_MODEL_NAME_LENGTH) {
+    throw new Error(`モデル名は${MAX_MODEL_NAME_LENGTH}文字以内にしてください。`);
+  }
+  return trimmed;
+}
+
+/** リネームのIPCペイロード({ id, name })を検証する。id/name それぞれの検証は個別の関数に委ねる。 */
+export function parseRenamePayload(payload: unknown): { id: string; name: string } {
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error('モデル名の変更内容が不正です。');
+  }
+  const { id, name } = payload as Record<string, unknown>;
+  return { id: parseModelId(id), name: parseModelName(name) };
 }
 
 /** 相対パスの解決に使う(テスト・呼び出し元が modelsRoot を組み立てる際の共通化)。 */

@@ -11,7 +11,7 @@ import { ControlPanelWindow } from './control-panel-window';
 import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
 import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
-import { ModelService, modelsRootOf, parseModelId } from './model/model-service';
+import { ModelService, modelsRootOf, parseModelId, parseRenamePayload } from './model/model-service';
 import { ModelImporter } from './model/model-importer';
 import { SpritesetImporter, parseSpritesetClip, parseSpritesetImportPayload } from './model/spriteset-importer';
 import { makeBackgroundKey } from './model/background-key';
@@ -400,6 +400,10 @@ function registerModelIpc(): void {
 
   handle(IPC.ModelGet, (service) => service.getSnapshot());
   handle(IPC.ModelDelete, (service, payload) => service.deleteModel(parseModelId(payload)));
+  handle(IPC.ModelRename, (service, payload) => {
+    const { id, name } = parseRenamePayload(payload);
+    return service.renameModel(id, name);
+  });
   handle(IPC.ModelSetAutoSwitch, (service, payload) => {
     if (typeof payload !== 'boolean') {
       throw new Error('自動切替の指定が不正です。');
@@ -898,6 +902,7 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.RightsGet);
   ipcMain.removeHandler(IPC.ModelGet);
   ipcMain.removeHandler(IPC.ModelDelete);
+  ipcMain.removeHandler(IPC.ModelRename);
   ipcMain.removeHandler(IPC.ModelSetAutoSwitch);
   ipcMain.removeHandler(IPC.ModelSetActive);
   ipcMain.removeHandler(IPC.ModelSwapAssignment);
