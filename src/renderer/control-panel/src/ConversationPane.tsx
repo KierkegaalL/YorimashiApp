@@ -249,7 +249,9 @@ export function ConversationPane({
     sendAttachments: ChatAttachment[] = [],
   ): Promise<boolean> => {
     // sendingRef は同一ティック内の連打も弾く(chatSending は再レンダーまで古い値のため)。
-    if (!text || sendingRef.current) {
+    // **本文・添付・@参照のいずれか1つでもあればよい**(実機確認で発覚: 画像だけを送りたい場合に
+    // 本文必須では送れなかった)。Main側`chat-adapter.ts`の`send()`も同じ条件で検証する。
+    if ((!text && sendAttachments.length === 0 && refs.length === 0) || sendingRef.current) {
       return false;
     }
     const api = window.yorimashi?.chat;
@@ -307,7 +309,8 @@ export function ConversationPane({
   const handleChatSend = (): void => {
     const text = chatInput.trim();
     // ガード本体は sendText 側(全送信経路で共通)。ここでは入力欄のクリア条件だけ判断する。
-    if (!text || sendingRef.current) {
+    // 本文・添付・@参照のいずれかがあればよい(画像だけ/@参照だけの送信を許す)。
+    if ((!text && attachments.length === 0 && selectedRefs.length === 0) || sendingRef.current) {
       return;
     }
     void sendText(text, true, selectedRefs, attachments).then((accepted) => {
@@ -705,6 +708,15 @@ export function ConversationPane({
                 onClick={() => runErrorAction(msg.action ?? 'none')}
                 // 再送は送信中に押しても sendText 側のガードで無視される。黙って無反応にせず
                 // 押せないことを見た目でも示す(再生成ボタンと同じ扱いに揃える)。
+                // **再送/再生成は添付・@参照を持ち越さない**(chat-adapter.tsのisRetry分岐が
+                // 素のtrimmedのみで積み直す設計。添付は選択し直す手間・@参照は毎回の再選択の
+                // 意図を汲む必要があり、単純な「同じ内容で撃ち直す」にできないため)。
+                // 添付/@参照のみで本文が空だった送信は、この理由で再送できない旨をtitleで示す。
+                title={
+                  msg.action === 'retry' && !chatSending && lastSentText.length === 0
+                    ? '添付/@参照のみの送信は再送できません(本文が無いため)'
+                    : undefined
+                }
                 disabled={msg.action === 'retry' && (chatSending || lastSentText.length === 0)}
                 style={{
                   background: 'transparent',
@@ -748,7 +760,12 @@ export function ConversationPane({
                 {/* **最新のassistantメッセージにのみ**出す(上のコメント参照)。 */}
                 {msg.id === lastAssistantId && (
                   <button
-                    title="再生成"
+                    // 再送ボタンと同じ理由(添付/@参照は持ち越さない)で、本文なし送信は無効化する。
+                    title={
+                      !chatSending && lastSentText.length === 0
+                        ? '添付/@参照のみの送信は再生成できません(本文が無いため)'
+                        : '再生成'
+                    }
                     disabled={chatSending || lastSentText.length === 0}
                     onClick={() => void sendText(lastSentText, false)}
                     style={{

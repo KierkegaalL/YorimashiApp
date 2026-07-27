@@ -137,9 +137,6 @@ export class ChatAdapter {
     this.assertNotDisposed();
 
     const trimmed = text.trim();
-    if (trimmed.length === 0) {
-      throw new Error('送信する本文がありません');
-    }
     if (trimmed.length > MAX_CHAT_INPUT_LENGTH) {
       throw new Error(`本文が長すぎます(最大${MAX_CHAT_INPUT_LENGTH}文字)`);
     }
@@ -154,6 +151,13 @@ export class ChatAdapter {
     // 無検証な入力を通してしまう)。
     const refs = parseAtReferenceKeys(refsRaw);
     const attachments = parseAttachments(attachmentsRaw);
+    // **本文・添付・@参照のいずれか1つでもあればよい**(実機確認で発覚: 画像だけを送りたい場合に
+    // 本文必須では送れなかった)。@参照は選択があれば`assembleReferencedContext`が必ず非nullを
+    // 返す設計(refs.length>0 ⇒ referenced!==null)ため、ここでは件数だけで判定できる。
+    // 三者すべて空のときだけ拒否する。
+    if (trimmed.length === 0 && attachments.length === 0 && refs.length === 0) {
+      throw new Error('送信する本文がありません');
+    }
 
     // 案1(C-24): 送信という行為自体が「今はChatをしたい」という意思表示。activeAdapter を
     // Chatへ自動切替する。**黙って切り替えない**ため、切り替えた事実を戻り値でRendererへ返し、
@@ -174,12 +178,18 @@ export class ChatAdapter {
       config: this.deps.configStore.current,
       getLogSnapshot: this.deps.getLogSnapshot ?? (() => null),
     });
-    const textContent = referenced !== null ? `${referenced}\n\n${trimmed}` : trimmed;
+    const textContent =
+      referenced !== null ? (trimmed.length > 0 ? `${referenced}\n\n${trimmed}` : referenced) : trimmed;
     const content: ChatTurn['content'] =
       attachments.length === 0
         ? textContent
         : [
-            { type: 'text', text: textContent },
+            // textContentが空(画像のみの送信)ならテキストブロック自体を作らない。
+            // Anthropic APIはテキストブロックにtext:''を許すか未確認のため、
+            // 「無いものは送らない」で確実に安全側に倒す。
+            ...(textContent.length > 0
+              ? [{ type: 'text' as const, text: textContent }]
+              : []),
             ...attachments.map(
               (a): ChatContentBlock => ({
                 type: 'image',
