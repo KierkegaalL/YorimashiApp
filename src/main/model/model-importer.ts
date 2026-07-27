@@ -6,12 +6,18 @@
  * **Electron 非依存に保つ**(ダイアログは注入)。コピー・config 更新・列挙はすべて fs と純粋関数で、
  * GUIを伴わない検証ができる(.claude/rules/build-commands.md)。
  *
- * スコープ(第2段階a): **Live2D の「フォルダ」取り込み**。zip 取り込みと、スプライトセットの
- * 生成パイプライン(spriteset-pipeline.md)は後続。この非対称は形式の性質に由来する正当なもの
- * (自動マッピングは Live2D のみ。model-mapping-ui.md 論点4)。
+ * スコープ: **Live2D の「フォルダ」取り込み**(第2段階a)と **「zip」取り込み**(要件定義書
+ * 「フォルダ/zipドロップで取り込み(zip-slip対策あり)」)。zip は隔離した一時ディレクトリへ
+ * **検証してから展開**(zip-archive.ts)し、モデルルートを見つけてフォルダ取り込みへ合流させる
+ * ため、取り込み後の扱いは両者で完全に同じになる。
+ *
+ * スプライトセットの生成パイプライン(spriteset-pipeline.md)はここに対応物を持たない。この非対称は
+ * 形式の性質に由来する正当なもの(自動マッピングは Live2D のみ=model-mapping-ui.md 論点4。
+ * スプライトセットは動画から生成するためアーカイブを受け取る導線自体が無い)。
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -23,7 +29,9 @@ import {
   autoMapLive2d,
   buildLive2dManifest,
   enumerateLive2d,
+  findLive2dModelRoot,
 } from './live2d-import';
+import { extractZipSafely } from './zip-archive';
 
 /**
  * Live2D の基準解像度の暫定既定値。
@@ -46,6 +54,8 @@ export interface ModelImporterDeps {
   modelsRoot: string;
   /** 取り込むフォルダをネイティブダイアログで選ぶ(キャンセルは null)。Electron を注入する。 */
   chooseModelFolder: () => Promise<string | null>;
+  /** 取り込む zip をネイティブダイアログで選ぶ(キャンセルは null)。Electron を注入する。 */
+  chooseModelArchive?: () => Promise<string | null>;
   /** スロット id の生成(既定は randomUUID。テストで固定するため注入可能)。 */
   generateId?: () => string;
 }
@@ -55,6 +65,12 @@ export interface ImportResult {
   imported: boolean;
   /** 部分的な問題の申告(idle モーション欠落等)。無ければ null。UIへ返す。 */
   warning: string | null;
+}
+
+/** zip のファイル名から拡張子を落としてスロット名にする(空になるときはフォールバック)。 */
+function zipDisplayName(zipPath: string): string {
+  const base = path.basename(zipPath).replace(/\.zip$/i, '').trim();
+  return base.length > 0 ? base : '新しいモデル';
 }
 
 export class ModelImporter {
@@ -69,11 +85,54 @@ export class ModelImporter {
     return this.importLive2dFromFolder(folder);
   }
 
+  /** ネイティブダイアログで zip を選ばせ、Live2D モデルとして取り込む。 */
+  async importLive2dFromArchiveDialog(): Promise<ImportResult> {
+    if (!this.deps.chooseModelArchive) {
+      throw new Error('zip 取り込みのダイアログが利用できません。');
+    }
+    const zipPath = await this.deps.chooseModelArchive();
+    if (zipPath === null) {
+      return { imported: false, warning: null };
+    }
+    return this.importLive2dFromZip(zipPath);
+  }
+
+  /**
+   * zip を Live2D モデルとして取り込む(ダイアログ非依存。テストの入口でもある)。
+   *
+   * **隔離した一時ディレクトリへ検証してから展開**し(zip-archive.ts が zip-slip とシンボリックリンクを
+   * 拒否する。security.md 6章)、モデル定義のあるディレクトリを見つけてから
+   * `importLive2dFromFolder` へ合流する。**取り込み後の扱いはフォルダ取り込みと完全に同じ**になり、
+   * 列挙・自動マッピング・manifest 検証・パス逸脱検証が二重に実装されない。
+   *
+   * スロット名は**zip のファイル名(拡張子なし)**を使う。一時ディレクトリ名(`yorimashi-model-XXXX`)が
+   * そのままモデル名になるのを避けるため。
+   */
+  async importLive2dFromZip(zipPath: string): Promise<ImportResult> {
+    // 上限チェックを最初に行う(展開してから弾かない)。
+    if (this.deps.configStore.current.model.slots.length >= MAX_MODEL_SLOTS) {
+      throw new Error(`モデルは最大 ${MAX_MODEL_SLOTS} 体までです。追加するには、どれかを削除してください。`);
+    }
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'yorimashi-model-'));
+    try {
+      await extractZipSafely(zipPath, tmpDir);
+      const modelRoot = findLive2dModelRoot(tmpDir);
+      return this.importLive2dFromFolder(modelRoot, zipDisplayName(zipPath));
+    } finally {
+      // 成否によらず一時ディレクトリを消す(userData ではなく OS の temp だが、残す理由が無い)。
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }
+
   /**
    * 指定フォルダを Live2D モデルとして取り込む(ダイアログ非依存。テストの入口でもある)。
    * 列挙 → 自動マッピング → manifest 検証 → userData/models/<uuid> へ複製 → config へスロット追加。
+   *
+   * @param displayName スロット名の上書き。省略時はフォルダ名。zip 取り込みでは
+   *   一時ディレクトリ名が入らないよう zip のファイル名を渡す。
    */
-  importLive2dFromFolder(srcDir: string): ImportResult {
+  importLive2dFromFolder(srcDir: string, displayName?: string): ImportResult {
     // 上限チェックを最初に行う(コピーしてから弾かない)。
     if (this.deps.configStore.current.model.slots.length >= MAX_MODEL_SLOTS) {
       throw new Error(`モデルは最大 ${MAX_MODEL_SLOTS} 体までです。追加するには、どれかを削除してください。`);
@@ -99,7 +158,7 @@ export class ModelImporter {
     // config へスロットを追加する。
     const slot: ModelSlot = {
       id,
-      name: path.basename(srcDir),
+      name: displayName ?? path.basename(srcDir),
       renderType: 'live2d',
       cubismVersion: enumeration.cubismVersion,
       baseResolution: LIVE2D_IMPORT_FALLBACK_BASE_RESOLUTION,

@@ -8,15 +8,16 @@
  *  - モードによる自動切替(2体セット時のみ。トグル + Code/Chat の入れ替え)
  *  - 0体のときの空状態
  *  - **追加するモデルの形式**の選択(モックアップ L931-)。スプライトセットが標準の入口
- *  - **Live2D モデルのフォルダ取り込み**(ネイティブダイアログ)
+ *  - **Live2D モデルのフォルダ / zip 取り込み**(いずれもネイティブダイアログ)
  *  - **スプライトセットの生成フロー**(SpritesetAddFlow: 下絵→background_key.png→動画取り込み→登録)
  *  - **感情↔モーション/クリップ対応の編集**(MappingEditor: Live2Dはモーション/表情の割り当て+自動、
  *    スプライトセットはクリップ削除。model-mapping-ui.md 第3段階 Track A)
  *
  * **未実装は正直にそう出す**(偽データ・使えないUIを置かない):
- *  - Live2D の **zip 取り込み**(フォルダのみ対応と画面に明記)
- *  - スプライトセットの**クリップ差し替え(「変更」)**=Track B(MappingEditor 内に後続と明記)
- *  - **プレビュー枠**(論点1)=Track C。いずれも後続タスク。
+ *  - **ドラッグ&ドロップ**での取り込み。モックアップは「フォルダか zip をドロップして追加」だが、
+ *    実装しているのは**ネイティブダイアログでの選択**なので、画面には「選んで追加」と書く。
+ *  - **モデル名の変更**(既定名のまま登録する)。
+ * (zip 取り込み・クリップ差し替え=Track B・プレビュー枠=Track C はいずれも実装済み)
  *
  * **「使用中」は解決結果(activeModelId)で描く**。manualActiveId から推測して描くと、
  * 自動切替オン時や未設定時のフォールバックとずれる(constraints.md「嘘をつかない」)。
@@ -27,7 +28,16 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, Circle, FolderOpen, Image, Layers, Trash2 } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  Circle,
+  FileArchive,
+  FolderOpen,
+  Image,
+  Layers,
+  Trash2,
+} from 'lucide-react';
 
 import { useTheme } from './theme';
 import { Row, Section, Switch } from './panel-ui';
@@ -38,7 +48,7 @@ import { MappingEditor } from './MappingEditor';
 /** 追加できるモデル形式(モックアップ L933-936)。スプライトセットを標準の入口にする。 */
 const ADD_FORMATS = [
   { key: 'spriteset', label: 'スプライトセット', icon: Image, hint: '画像1枚から', badge: 'おすすめ' },
-  { key: 'live2d', label: 'Live2D モデル', icon: Layers, hint: 'フォルダ', badge: '上級者向け' },
+  { key: 'live2d', label: 'Live2D モデル', icon: Layers, hint: 'フォルダ / zip', badge: '上級者向け' },
 ] as const;
 
 type AddFormat = (typeof ADD_FORMATS)[number]['key'];
@@ -50,7 +60,8 @@ export function ModelTab(): React.JSX.Element {
   /** 削除確認中のモデルid(同時に1つだけ。モックアップの deleteConfirmId と同じ考え方)。 */
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   /** 取り込み中(ネイティブダイアログ→複製の間)。二重起動と誤操作を防ぐ。 */
-  const [importing, setImporting] = useState(false);
+  // どちらの取り込みが実行中か(両方のボタンを同時に押させない)。null=実行中でない。
+  const [importing, setImporting] = useState<'folder' | 'zip' | null>(null);
   /** 追加するモデルの形式(モックアップの addFormat。既定はスプライトセット)。 */
   const [addFormat, setAddFormat] = useState<AddFormat>('spriteset');
 
@@ -243,38 +254,33 @@ export function ModelTab(): React.JSX.Element {
         </Section>
       )}
 
-      {/* Live2D: フォルダ取り込み(実装済み)。**zip は未対応なので、そう書く**(モックアップは
-          「フォルダか zip」だが、無い機能を書くと偽UIになる。zip対応は後続タスク)。 */}
+      {/* Live2D: フォルダ取り込みと zip 取り込み(要件定義書「フォルダ/zipドロップで取り込み」)。
+          **ドラッグ&ドロップは未実装**なので「選んで追加」と書く(無い操作を書くと偽UIになる)。 */}
       {!isFull && addFormat === 'live2d' && (
-        <button
-          disabled={importing}
-          onClick={() => {
-            setImporting(true);
-            void run((api) => api.importLive2d()).finally(() => setImporting(false));
-          }}
-          style={{
-            width: '100%',
-            padding: 16,
-            borderRadius: 14,
-            cursor: importing ? 'default' : 'pointer',
-            border: `1.5px dashed ${theme.dashedBorder}`,
-            background: 'transparent',
-            color: theme.inkDim,
-            fontFamily: "'M PLUS 1 Code', sans-serif",
-            fontSize: 13,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 6,
-          }}
-        >
-          <FolderOpen size={18} color={theme.iconInactive} />
-          {importing ? '取り込み中…' : 'モデルフォルダを選んで追加'}
-          <span style={{ fontSize: 11, color: theme.iconInactive }}>
-            model3.json(Cubism 4/5)か model.json(Cubism 2)を含むフォルダ ・ zip取り込みは後続
-          </span>
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Live2dImportButton
+            icon={<FolderOpen size={18} color={theme.iconInactive} />}
+            label="モデルフォルダを選んで追加"
+            hint="model3.json / model.json を含むフォルダ"
+            busy={importing === 'folder'}
+            disabled={importing !== null}
+            onClick={() => {
+              setImporting('folder');
+              void run((api) => api.importLive2d()).finally(() => setImporting(null));
+            }}
+          />
+          <Live2dImportButton
+            icon={<FileArchive size={18} color={theme.iconInactive} />}
+            label="zip を選んで追加"
+            hint="展開して取り込む(安全でないパスは拒否)"
+            busy={importing === 'zip'}
+            disabled={importing !== null}
+            onClick={() => {
+              setImporting('zip');
+              void run((api) => api.importLive2dArchive()).finally(() => setImporting(null));
+            }}
+          />
+        </div>
       )}
 
       {!isFull && addFormat === 'spriteset' && (
@@ -305,6 +311,60 @@ export function ModelTab(): React.JSX.Element {
       {snapshot.warning !== null && <ErrorNotice message={snapshot.warning} />}
       {error !== null && <ErrorNotice message={error} />}
     </>
+  );
+}
+
+interface Live2dImportButtonProps {
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  /** このボタンの取り込みが実行中。 */
+  busy: boolean;
+  /** どちらかの取り込みが実行中(両方を同時に押させない)。 */
+  disabled: boolean;
+  onClick: () => void;
+}
+
+/**
+ * Live2D の取り込み口(フォルダ / zip)。見た目を揃えるため共通化している。
+ * **どちらもネイティブダイアログで選ばせる**(Renderer はパスもファイル実体も扱わない。security.md)。
+ * SSR検証のため export する。
+ */
+export function Live2dImportButton({
+  icon,
+  label,
+  hint,
+  busy,
+  disabled,
+  onClick,
+}: Live2dImportButtonProps): React.JSX.Element {
+  const theme = useTheme();
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        padding: 16,
+        borderRadius: 14,
+        cursor: disabled ? 'default' : 'pointer',
+        border: `1.5px dashed ${theme.dashedBorder}`,
+        background: 'transparent',
+        color: theme.inkDim,
+        fontFamily: "'M PLUS 1 Code', sans-serif",
+        fontSize: 13,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+      }}
+    >
+      {icon}
+      {busy ? '取り込み中…' : label}
+      <span style={{ fontSize: 11, color: theme.iconInactive, textAlign: 'center' }}>{hint}</span>
+    </button>
   );
 }
 

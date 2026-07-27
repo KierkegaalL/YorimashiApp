@@ -44,6 +44,51 @@ export interface Live2dEnumeration {
  * (moc/textures/physics/pose/expressions/motions)に限る**。逸脱する Sound 等はコピー対象の
  * フォルダ外なので複製されず、実行時に pixi-live2d-display が warn で握りつぶす(害が無い)。
  */
+/**
+ * 展開したディレクトリの中から**モデル定義ファイルのあるディレクトリ**を探す(zip 取り込み用)。
+ *
+ * 配布されている Live2D モデルの zip は `ModelName/ModelName.model3.json ...` のように
+ * **トップレベルにフォルダを1つ挟む**ことが多い。`enumerateLive2d` は定義ファイルが直下にある前提
+ * (非再帰)なので、その場合は1段降りる必要がある。
+ *
+ * 規則: 定義ファイルが直下にあればそこ。無ければ、`__MACOSX` 等を除いた**実質的なサブディレクトリが
+ * ちょうど1つ**のときだけ降りる。複数あるときは**どれがモデルか推測しない**で失敗させる
+ * (constraints.md「推測で書かない」/「嘘をつかない」: 勝手に1つ選ぶと利用者の意図と違うモデルを
+ * 取り込みうる)。無限ループを避けるため降下は MAX_ROOT_DESCENT 段までとする。
+ */
+export function findLive2dModelRoot(extractedDir: string): string {
+  let dir = extractedDir;
+  for (let depth = 0; depth <= MAX_ROOT_DESCENT; depth++) {
+    if (hasLive2dDefinition(dir)) {
+      return dir;
+    }
+    const subDirs = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !isIgnorableDirName(e.name))
+      .map((e) => e.name);
+    if (subDirs.length !== 1) {
+      break;
+    }
+    dir = path.join(dir, subDirs[0]!);
+  }
+  throw new Error(
+    'zip内にLive2Dモデルの定義ファイル(*.model3.json または *.model.json)が見つかりませんでした。',
+  );
+}
+
+/** 降下の上限。通常は0〜1段で見つかる。 */
+const MAX_ROOT_DESCENT = 3;
+
+function isIgnorableDirName(name: string): boolean {
+  return name === '__MACOSX' || name === '.git';
+}
+
+function hasLive2dDefinition(dir: string): boolean {
+  return fs
+    .readdirSync(dir)
+    .some((f) => f.toLowerCase().endsWith('.model3.json') || f.toLowerCase().endsWith('.model.json'));
+}
+
 export function enumerateLive2d(modelDir: string): Live2dEnumeration {
   const entries = fs.readdirSync(modelDir);
   const model3 = entries.find((f) => f.toLowerCase().endsWith('.model3.json'));
