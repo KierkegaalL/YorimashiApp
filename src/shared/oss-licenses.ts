@@ -26,6 +26,18 @@ export const OSS_LICENSES: readonly OssLicense[] = [
     "license": "MIT"
   },
   {
+    "name": "@fontsource/jetbrains-mono",
+    "license": "OFL-1.1"
+  },
+  {
+    "name": "@fontsource/m-plus-1-code",
+    "license": "OFL-1.1"
+  },
+  {
+    "name": "@fontsource/zen-antique",
+    "license": "OFL-1.1"
+  },
+  {
     "name": "@img/colour",
     "license": "MIT"
   },

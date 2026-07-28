@@ -77,7 +77,8 @@ FR-3（Chat Adapter）は動作モード・感情判定・APIキー保存まで�
 - 実測（Chromium。`ConversationPane.tsx`と同じ`'Zen Antique', serif` 19pxで測定）: 「霊力状態 ── 静穏(せいおん)」= 252.59px（3種のMoodラベル中で最大。confident 252.03px / tired 249.94pxより広く、これを基準にすれば他の2つも折り返さない）。全角1文字 = 19px（≒1em）
 - この行は憑坐状態帯（左右padding 18px×2）内で、呪紋リング＋アバター（60px, flexShrink:0）とgap（14px）を挟んで並ぶ。会話ペイン自体にも右ボーダー1pxがある
 - 393 ≈ 36(padding) + 1(border) + 60(avatar) + 14(gap) + 252.59(テキスト) + 28.5(1.5文字) = 392.09 → 切り上げ
-- **実測条件が本番と一致することの確認**: このアプリは Google Fonts を同梱しない方針のため（`App.tsx`冒頭コメント／未決事項C2）、本番では`'Zen Antique'`は解決されず総称`serif`へフォールバックする。計測機にも`Zen Antique`のフォントファイルが存在しないことを確認済みで、`'Zen Antique', serif`と実在しないダミーフォント名`'Definitely-Not-Installed-XYZ', serif`とで幅を比較したところ**完全に同一（252.59375px）**だった。これは実測が最初から`serif`フォールバックで行われていた証拠であり、**本番の描画条件と一致する**（reviewerチェックで実測条件のズレを指摘され、追加検証で確認したもの）
+- **実測条件が本番と一致することの確認（当時）**: 実測当時、このアプリは Google Fonts を同梱しない方針のため（未決事項C2）、本番では`'Zen Antique'`は解決されず総称`serif`へフォールバックする前提だった。計測機にも`Zen Antique`のフォントファイルが存在しないことを確認済みで、`'Zen Antique', serif`と実在しないダミーフォント名`'Definitely-Not-Installed-XYZ', serif`とで幅を比較したところ**完全に同一（252.59375px）**だった。これは実測が最初から`serif`フォールバックで行われていた証拠であり、当時の本番描画条件と一致することを確認できた（reviewerチェックで実測条件のズレを指摘され、追加検証で確認したもの）
+- **【2026-07-28追記・未決事項C2決着に伴う再実測】**: `@fontsource/zen-antique`をローカル同梱したことで、本番でも実際に`'Zen Antique'`が解決されるようになり、上記の前提（serifフォールバック）が崩れた。実際にビルドされたフォントアセット（`out/renderer/assets/`）を読み込んだ状態で再実測したところ、「霊力状態 ── {Moodラベル}」の幅は3種とも**252.89px**（旧値+0.3px。3種が同一なのは、いずれも「漢字2字+ひらがな4字」で文字数が揃っており和文フォントは字ごとの送り幅が均一なため。バグではない）、全角1文字は19pxのまま変わらず、最終的な丸め結果（393px）も**変化なし**だった。根拠は`src/main/control-panel-window.ts`の`MIN_CONVERSATION_PANE_WIDTH`docstring。
 
 Control Panel(400px)自体の大きさは変えない（ユーザー指示「設定画面は現状で固定」）。**折りたたみタブでの切替（976/576）と手動リサイズの下限（809/409）は別の値**であり、切替は常に976/576へ厳密にスナップする（手動で広げていても畳めば576pxに戻り、展開すれば976pxに戻る＝広げた幅は記憶しない）。実装は`src/main/control-panel-window.ts`の`MIN_CONVERSATION_PANE_WIDTH`・`minWindowWidthForCollapsed()`。
 

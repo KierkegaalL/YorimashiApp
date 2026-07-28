@@ -1,0 +1,23 @@
+/**
+ * Google Fontsのローカル同梱(未決事項C2)。
+ *
+ * 従来はdocs/mockups/control-panel.jsxのFONT_IMPORTのようにGoogle Fonts CDNへの
+ * `@import`で読み込む想定だったが、外部通信はプライバシー方針違反のため持ち込まない
+ * (Memory.md参照)。@fontsourceパッケージ(OFL-1.1)でwoff2をバンドルに含め、
+ * ビルド時にVite/electron-viteがハッシュ付きアセットとして出力する(実行時の外部リクエスト無し)。
+ *
+ * 読み込むweightはFONT_IMPORTと同じ(Zen Antiqueは既定weightのみ提供)。
+ * 各パッケージの無weight修飾版(例: 400.css)は日本語・ラテン等の全サブセットを含む
+ * 結合ファイルで、Google Fonts CDNの`@import`(サブセット指定なし)と同じ範囲をカバーする。
+ *
+ * この結合ファイルは日本語漢字をunicode-rangeで100件以上のチャンクに分割している
+ * (Google Fonts CDN方式と同じ)。ディスク上は3パッケージ合計約14.8MB/922ファイルと大きいが、
+ * ブラウザは実際に使用中のunicode-rangeチャンクしかfetchしないため、実行時の
+ * ネットワーク・メモリへの影響は小さい(実測。Memory.md「未決事項C2決着」参照)。
+ */
+@import '@fontsource/zen-antique';
+@import '@fontsource/m-plus-1-code/400.css';
+@import '@fontsource/m-plus-1-code/500.css';
+@import '@fontsource/m-plus-1-code/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';

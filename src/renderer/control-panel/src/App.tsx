@@ -17,9 +17,10 @@
  * このレンダラーは BrowserWindow を丸ごと占めるので、シェルは viewport 全体(100vw×100vh)を満たし、
  * 総幅はウィンドウ側(#7)が決める。ここでは中央寄せカード/幅アニメーションは持ち込まない。
  *
- * フォント: モックアップの Google Fonts `@import` は**持ち込まない**。外部リクエストは
- * プライバシー方針(テレメトリ・外部通信をしない)に反し、ローカル同梱は既知の未決 C2(ローカルサーバー)。
- * font-family 指定は残し、未同梱の間は serif/sans/monospace にフォールバックする。
+ * フォント: モックアップの Google Fonts `@import` は持ち込まない(外部リクエストはプライバシー
+ * 方針(テレメトリ・外部通信をしない)に反するため)。代わりに `@fontsource` パッケージで
+ * ローカル同梱している(未決事項C2決着・2026-07-28。`main.tsx` が読み込む `fonts.css` 参照)。
+ * font-family 指定は本番でも実際に解決される(serif/sans/monospaceへのフォールバックは発生しない)。
  */
 
 import { useEffect, useState } from 'react';
