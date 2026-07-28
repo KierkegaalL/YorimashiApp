@@ -247,7 +247,7 @@ function score(state: EmotionState, candidate: string): number {
 
 実装前に決着が必要なものを記録する。いずれも要件・基本設計に関わるため、Notion正本の更新を伴う。
 
-1. **`displaySize`の範囲がモックアップとスキーマで食い違う。** モックアップのスライダーは`min="20" max="100"`(=0.2〜1.0)だが、スキーマは`z.number().min(0.1).max(2)`(=0.1〜2.0)。既定値は0.5で一致している。UIから設定できない範囲がスキーマ側にある状態。
+1. ~~**`displaySize`の範囲がモックアップとスキーマで食い違う。**~~ **決着済み(2026-07-27・未決事項C6)**: `git log`でスキーマの`0.1〜2.0`が初回スキャフォールドから決定根拠の記録無く存在していたことを確認し、モックアップのスライダー範囲(`min="20" max="100"`=0.2〜1.0)の方をユーザーに確認のうえ正とした。**常駐マスコットが画面を占有しすぎず視認できる範囲**という判断。スキーマ・data.md・basic-design.md(Notion正本)を`min(0.2).max(1)`へ統一済み(既定値0.5は変更なし)。
 2. **`cubismVersion`のenumにcubism5が無い。** 要件定義書は3箇所で「Cubism 2/4/5両対応」と述べるが、スキーマは`z.enum(['cubism2', 'cubism4'])`(data.md・basic-design.md・config-schema.tsの3箇所とも)。Cubism 5モデルは`model3.json`形式でCubism 4ランタイムから読めるため`cubism4`が5を兼ねている可能性が高いが、**どこにもそう書かれていない**。enumに`cubism5`を足すか、`cubism4`が4/5を指すとコメントで明示するかの判断が要る。
 3. **権利情報タブのOSS一覧に`sharp` / `libvips`が無い**(モックアップL1061-1074)。spriteset-pipeline.mdで採用が確定したため追加が必要。libvipsはLGPL-3.0-or-laterで、既存の一覧(MIT/ISCのみ)とライセンス種別が異なる点にも注意。
    - **FR-12実装時の補足(2026-07-21)**: OSS一覧は`scripts/generate-oss-licenses.mjs`が`dependencies`を推移的に辿って自動生成する方式にした。`sharp`を`dependencies`へ足せば、その**npmパッケージ**(と`@img/sharp-*`等のJS依存)は自動で一覧に載る。ただし**`libvips`自体はネイティブライブラリでnpmのpackage.jsonを持たない**ため、依存ツリー走査(license-checkerでも同様)では原理的に拾えない。**LGPL-3.0の表記・同梱条件は配布NOTICE段階で別途対応が必要**(「自動生成したから権利表示は完了」と誤解しないこと)。
@@ -261,4 +261,5 @@ function score(state: EmotionState, candidate: string): number {
 - [x] 自動検出時に**idleグループの存在を検証する**(Cubism4=`"Idle"` / Cubism2=`"idle"`)。無い場合、モーション終了後にフォールバック先が無く固まりうる(lipsync.md「尽きたときの挙動」①)。**実装済み(第2段階a)**: `live2d-import.ts` `autoMapLive2d` が `idleMotionMissing` を返し、`model-importer.ts` が取り込み時に警告としてUIへ伝える(取り込み自体は通す)
 - [x] 取り込み時、**モデル定義ファイルが参照するパスが自身のモデルフォルダ内に閉じていることを検証する**(`../`等での逸脱を拒否)。security.md の`GET /models/*`パス検証と対になる入口側の検証。**公式サンプルHaru(`haru_greeter_t03.model3.json`)自体が`Sound`で兄弟フォルダ`../shizuku/sounds/`を相対参照する実例があり**、机上の懸念ではない(A2で発見)。**スプライトセットには対応物不要**(`clips`はアプリ自身が生成し、第三者が作成した定義ファイルのパス文字列を一切パースしないため。spriteset-pipeline.md)。**実装済み(第2段階a)**: `live2d-import.ts` `assertPathsWithin` がレンダリング必須アセット(moc/textures/physics/pose/expressions/motions)の逸脱を弾く。Sound/DisplayInfo/UserDataは検証対象外(v1で使わず、Haruが正当に外部参照するため。除外理由をコード冒頭に明記)
 - [ ] プレビューの遅延マウント/destroyがメモリ目安(200MB前後)に収まるか実測する
-- [ ] 上記「検出した不整合」1〜4の決着
+- [x] **(決着済み・2026-07-27)** 上記「検出した不整合」1(`displaySize`の範囲)の決着。モックアップ側(0.2〜1.0)を正としNotion正本→docs→config-schema.tsへ反映済み
+- [ ] 上記「検出した不整合」2〜4の決着

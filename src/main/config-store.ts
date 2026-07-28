@@ -111,6 +111,12 @@ export class ConfigStore {
       config = AppConfigSchema.parse(migrated);
     } catch (err) {
       // パース不能・検証不能・未知バージョン。元ファイルを退避し既定値で復旧する。
+      // **単一フィールドの範囲違反でも全設定が初期化される**(displaySize等、値の範囲を
+      // 狭めるスキーマ変更をするたびにこの経路が発火しやすくなる。model-mapping-ui.md
+      // 「検出した不整合」1の決着で displaySize を 0.1-2.0→0.2-1.0 に狭めた際に指摘された)。
+      // 現状は影響が小さい(displaySizeを直接編集できるUIがまだ無いため実際には起きない)が、
+      // 将来UIが増えて手動編集や外部ツールでの書き換えが起きうるようになったら、
+      // フィールド単位でのフォールバック(壊れたキーだけ既定値に差し替える)を検討する。
       const backupPath = `${filePath}.corrupt-${Date.now()}`;
       try {
         fs.renameSync(filePath, backupPath);
