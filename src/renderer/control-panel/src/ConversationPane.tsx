@@ -59,7 +59,7 @@ import {
 } from 'lucide-react';
 
 import { useTheme } from './theme';
-import { AT_REFERENCES, RESPONSE_MODELS, SLASH_COMMANDS } from './catalog';
+import { ANTHROPIC_BILLING_URL, AT_REFERENCES, RESPONSE_MODELS, SLASH_COMMANDS } from './catalog';
 import type { AdapterMode, ChatMode, ChatMessage } from './types';
 import type { MoodState } from '../../../shared/emotions';
 import {
@@ -341,6 +341,11 @@ export function ConversationPane({
       appendMessage({ role: 'system', text: 'mock モードに切り替えました。' });
     } else if (action === 'open-adapter-settings') {
       onExpandControlPanel();
+    } else if (action === 'open-billing-page') {
+      // クレジット残高不足(issue #16)。「モード設定を開く」では直せないため専用の外部リンクにする。
+      // AdapterTab.tsxのAPIキー取得リンクと同じ機構(素朴なwindow.open→Main側の
+      // setWindowOpenHandlerがshell.openExternalへリダイレクト)。専用IPCは新設しない。
+      window.open(ANTHROPIC_BILLING_URL);
     } else if (action === 'retry') {
       // 再送も同じ質問の再試行なのでユーザー発話は積み直さない。多重送信のガードは sendText 側。
       void sendText(lastSentText, false);
@@ -738,7 +743,9 @@ export function ConversationPane({
                   ? 'モックモードに切り替える'
                   : msg.action === 'open-adapter-settings'
                     ? 'モード設定を開く'
-                    : '再送する'}
+                    : msg.action === 'open-billing-page'
+                      ? '課金ページを開く'
+                      : '再送する'}
               </button>
             )}
             {msg.role === 'assistant' && msg.streaming !== true && (

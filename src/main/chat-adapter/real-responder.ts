@@ -29,7 +29,7 @@
  * 5. リトライ・`retry-after`の尊重はSDKが実装済み。**自前でバックオフを書かない**(論点1)。
  */
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { type APIError } from '@anthropic-ai/sdk';
 
 import type { ChatErrorAction, ChatErrorKind, ChatTurn, ChatUsage } from '../../shared/chat';
 
@@ -258,6 +258,16 @@ function classifyError(err: unknown, isOnline: () => boolean): RealChatError {
       `[chat-adapter] real接続エラー: status=${err.status ?? '不明'} type=${err.type ?? '不明'} message=${err.message}`,
       err.error,
     );
+    // **クレジット残高不足の専用検出(issue #16)**。「モード設定を開く」では直せない
+    // (Anthropic側の課金ページでの対応が要る)ため、他の設定ミスと区別して案内する。
+    // ステータスコードを問わず(HTTPステータスに関わらず起こりうるため)最初に判定する。
+    if (isInsufficientCreditError(err)) {
+      return new RealChatError(
+        'configuration',
+        'Anthropicのクレジット残高が不足しています。console.anthropic.com の「Plans & Billing」で残高を追加してください。',
+        'open-billing-page',
+      );
+    }
   }
   if (err instanceof Anthropic.AuthenticationError) {
     return new RealChatError(
@@ -318,4 +328,29 @@ function classifyError(err: unknown, isOnline: () => boolean): RealChatError {
     `応答の取得に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
     'retry',
   );
+}
+
+/**
+ * クレジット残高不足を検出する(issue #16)。
+ *
+ * **実測(issue #15調査・2026-07-27)**: SDKの型定義(`resources/shared.d.ts`)には専用の
+ * `'billing_error'`というErrorTypeが存在する。しかし**実際にAnthropic APIが返した
+ * 「クレジット残高不足」のレスポンスは`type: 'invalid_request_error'`だった**(実機での
+ * 400エラーを診断ログで確認。SDKの型が示唆する分類と実際の挙動が食い違った実例)。
+ * `err.type`はAPIレスポンスの`error.type`をそのまま反映する値であり(SDK内部の
+ * `APIError.generate()`実装で確認済み)、推測ではない。
+ *
+ * よって型チェック(将来Anthropicが`billing_error`型で一貫して返すようになった場合に備える)と
+ * メッセージの文字列マッチング(現在実際に観測できている経路)の**両方**を試す。
+ * **どちらにも一致しなければ何もしない**(呼び出し側が通常の設定ミス扱いへフォールバックする)。
+ * 文言マッチはAnthropic側の表記が変わると効かなくなりうる脆い実装だが、それを理由に
+ * 通常のエラー分類自体が壊れることは無い設計にしてある(constraints.md「推測で決め打ちしない」/
+ * 「アプリが自分の状態について嘘をつかない」= 検出できなければ黙って通常のconfiguration扱いに
+ * 留め、誤ったクレジット残高不足の案内を出さない)。
+ */
+function isInsufficientCreditError(err: APIError): boolean {
+  if (err.type === 'billing_error') {
+    return true;
+  }
+  return typeof err.message === 'string' && /credit balance/i.test(err.message);
 }

@@ -79,8 +79,17 @@ export type ChatErrorKind =
   /** 無通信ウォッチドッグが切った。灯里はpanic。再送ボタン。 */
   | 'idle-timeout';
 
-/** UIがエラー吹き出しに添えるアクション(chat-pane.md 論点4の表)。 */
-export type ChatErrorAction = 'switch-to-mock' | 'open-adapter-settings' | 'retry' | 'none';
+/**
+ * UIがエラー吹き出しに添えるアクション(chat-pane.md 論点4の表)。
+ * `open-billing-page`(issue #16)はクレジット残高不足の専用導線。「モード設定を開く」では
+ * 直せない(Anthropic側の課金ページでの対応が要る)ため区別する。
+ */
+export type ChatErrorAction =
+  | 'switch-to-mock'
+  | 'open-adapter-settings'
+  | 'open-billing-page'
+  | 'retry'
+  | 'none';
 
 /**
  * 1回の送信に対してMainからRendererへ流れるイベント。
