@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-27
+**最終更新**: 2026-07-28
 
 ## 現在地
 
@@ -26,7 +26,7 @@
   - **コミット後、ユーザー依頼で改めて実装後チェックループを実行（2026-07-18・本チェックループ自体は未コミット）**: 指摘1件(`control-panel.jsx`の応答モデル循環ロジックが`/model`コマンドと入力欄フッターの2箇所に重複)→`cycleResponseModel()`に共通化して修正。加えて**未決着の論点2件を新規検出**: (1)折りたたみリサイズをmacOSネイティブアニメーション付きにするか(`setBounds()`/`setSize()`とも`animate`引数を取れるが、所要時間はOS依存でモックアップの0.25sと一致するかは未実測)、(2)Control Panelウィンドウの`resizable`/`minimumSize`が未定義(手動リサイズで976/576px前提のレイアウトが崩れうる)。**推測で決めず**、chat-pane.md実装TODOに要決着として追記。ユーザーへ報告済み
 - **APIキー取得の案内を追加（2026-07-18・ユーザー指摘）**。「Anthropic APIキーを手動入力させるのは難しいのでは」との懸念に対し、**OAuthサインインは選択肢にならない**(AnthropicはMessages APIへの第三者アプリ向け公開OAuth連携を提供しておらず、Claude Code CLIのアカウントログインは公式ツール専用の内部機構)ことを確認した上で、摩擦を減らす方向で対応。モード設定タブのAPIキー欄に、取得手順(4ステップ)+「console.anthropic.com を開く」ボタンを常設。外部サイトへの遷移は`src/main/index.ts`の既存`setWindowOpenHandler`(`window.open()`を捕まえ`shell.openExternal()`へリダイレクト)に乗せる想定とし、専用IPCは前提としない。`docs/mockups/control-panel.jsx`(`API_KEY_STEPS`)+ detailed-design(chat-adapter-errors.md 論点5)に反映済み。**Notion要件定義書は未変更**(FR-3の既存記述と矛盾しないUI/実装詳細レベルの追加と判断)
   - **reviewerチェックループ**: 1周目で指摘4件。うち重大1件(「Live2D公式サイト・7.3外部動画生成AIサービスへの導線にも共通適用する」という一般化が、7.3の「特定ベンダー非依存」方針・Live2Dランタイムが開発者用ビルド時アセットである実態と矛盾。存在しないボタンを既定路線扱いしていた)、中3件(既存`setWindowOpenHandler`実装を踏まえず専用IPC新設を前提にしていた、論点1の401事後対応との関係が未記載、対応する実装TODO欠落)。**論点5をAPIキーボタンのみに限定**し、7.3・Live2Dへの拡張は「別途検討・勝手に広げない」と明記して修正。すべて修正しTODOにも反映済み
-- **未決事項は7件**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。残りはC0〜C5・C8）
+- **未決事項は6件**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。**C2は2026-07-28に決着**。残りはC0・C1・C3〜C5・C8）
 - **A2完了（2026-07-18）**: `dev-assets/live2d/` に pixi-live2d-display 公式サンプルを配置した（`shizuku/`=Cubism2.1 / `haru/`=Cubism4、公式サンプルDLをユーザー承認済み）。整合を確認（moc/moc3マジックバイト、**列挙構造の検証に必要な**定義ファイル＝model3.json/model.json・moc/moc3・motion・expression・texture の実在）。ただし**音声(`Sound`/`sounds/*.mp3`)と`DisplayInfo`(`haru...cdi3.json`)は欠落**（公式サンプル自体が参照だけ持ち実体を同梱せず、Haruは`Sound`が兄弟フォルダ`../shizuku/sounds/`を相対参照する箇所すらある）。**v1は音声機能を使わず、`pixi-live2d-display`も音声失敗を`logger.warn`で握りつぶす**ため実害なし。`dev-assets/`は`.gitignore`対象（`git ls-files`はREADME.mdのみ）
   - **GUI不要の実測を実施し、2つの詳細設計の「未検証」マーカーを解消**（reviewer チェックループ指摘0件で完了）:
     - **model-mapping-ui.md 論点2/列挙元**: Cubism2/4の列挙構造の表を実モデルで確認済みに更新。**実装差分**: 表情の`Name`(cubism2は`name`)はファイル名と不一致（Haru `Name:"f00"→F01.exp3.json`）／モーショングループ名の命名規則は一定でない（公式サンプルはHaru=PascalCase `Idle`・Shizuku=snake_case `tap_body`だったが、これはモデル作者の慣習でCubism仕様がバージョンごとに強制するものではない。n=1×2。ハードコードせず`normalize()`で吸収）
@@ -73,7 +73,7 @@
 
 ## 未決事項（7件）
 
-A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0〜C5・C8（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27に決着**＝`displaySize`範囲、いずれも上記参照）。**実装着手をブロックする未決事項は無くなった**。
+A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0・C1・C3〜C5・C8（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27に決着**＝`displaySize`範囲、**C2は2026-07-28に決着**＝フォントのローカル同梱、いずれも上記参照）。**実装着手をブロックする未決事項は無くなった**。
 
 ### 優先度C — 該当機能の実装時に併せて
 
@@ -81,7 +81,7 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 |---|---|---|
 | C0 | **`config.obsidian`（`vaultPath`/`syncMode`）と `config.notion` に対応するFRが無い**。configにだけ存在し、FR-1〜FR-15のどれにも紐づいていない。要件側の定義が要る | 要Notion確認 |
 | C1 | 権利情報タブのOSS一覧に`sharp`/`libvips`追加（libvipsはLGPL-3.0で既存のMIT/ISCと種別が違う） | FR-12 |
-| C2 | フォントをGoogle Fontsの`@import`からローカル同梱へ（CSP・オフライン・外部リクエスト） | ローカルサーバー |
+| ~~C2~~ | ~~フォントをGoogle Fontsの`@import`からローカル同梱へ~~ **決着済み(2026-07-28)**。`@fontsource/zen-antique`・`@fontsource/m-plus-1-code`・`@fontsource/jetbrains-mono`(v5.3.0・OFL-1.1)をインストールし`src/renderer/control-panel/src/fonts.css`で読み込み(`main.tsx`でimport)。character側はカスタムフォントを使わないため対象外(grep確認済み)。詳細は下記「実装フェーズの進捗」参照 | 解消済み |
 | C3 | Rendererの読み込み元を`http://localhost:8765`へ移行（security.md 7章。**WebCodecsの有効化条件**） | 同上 |
 | C4 | api.md 6章「直叩き」→ SDK採用に記述更新 | Chat Adapter |
 | C5 | オンボーディング完了フラグの保存先（config未定義） | FR-14 |
@@ -372,7 +372,18 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **影響確認**: `character-window.ts`の`resolveWindowSize()`は`displaySize`を単純な倍率として使うのみで範囲の上下限に依存したロジックは持たず、範囲変更の影響を受けない。まだ実際の設定UI(General設定タブのスライダー)は未実装のため、既存ユーザーが範囲外の値を保存している可能性は無い
   - **検証**: typecheck/build通過。オフスクリーンで実ConfigStore(実Zod)を使い3件(既定値0.5が新範囲内・下限0.2/上限1.0が通る・旧範囲値1.5を含む既存config.jsonを読ませた場合の実際の挙動=corrupt退避+全設定を既定値へフォールバックする既存の安全策が正しく機能することを実測確認)
   - **reviewer 1周目の指摘4件→修正**: (1)Memory.mdへの反映漏れ→本エントリで対応 (2)model-mapping-ui.mdのTODOチェックリスト粒度の不揃い→次のreviewer再チェックで対応予定 (3)範囲を狭めたことで将来UI実装時に「単一フィールドの検証失敗が全設定リセットに繋がる」既存設計の影響範囲がわずかに広がる点→config-store.tsへの注記を検討 (4)Notion反映はreviewerの検証範囲外→ユーザー確認済み(このエントリ作成前にNotion側を更新しfetchで反映確認済み)
-- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6決着 まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 未決事項C2決着: Google Fontsのローカル同梱化(FR-12)** — 従来モックアップの`FONT_IMPORT`定数(未配線)が想定していたGoogle Fonts CDN経由`@import`は、外部通信がプライバシー方針(要件定義書8章)違反のため不採用。`@fontsource/zen-antique`・`@fontsource/m-plus-1-code`・`@fontsource/jetbrains-mono`(v5.3.0・OFL-1.1、いずれも`npm view`でライセンス確認済み)をインストールし、`src/renderer/control-panel/src/fonts.css`(CSSの`@import`で各weightファイルを読み込み)を`main.tsx`でimportする方式でローカル同梱した(ビルド時にVite/electron-viteがハッシュ付きアセットとしてバンドル、実行時の外部リクエスト無し)
+  - **character側は対象外**: `src/renderer/character/`配下で`fontFamily`を指定している唯一の箇所(`App.tsx`の`ui-monospace, monospace`)は3書体のいずれも参照しないため、grep確認のうえ対称性チェック(CLAUDE.md原則4)の対象外と判断(Live2D/スプライトセットいずれの分岐にも触れないUIレイヤーのみの変更)
+  - **unicode-rangeチャンク分割の実測**: 無weight修飾版の結合CSS(例: `m-plus-1-code/400.css`)は日本語漢字を`unicode-range`で100件以上のチャンクに分割した構成(Google Fonts CDN方式と同じ)。ディスク上は3パッケージ合計約14.8MB/922ファイルと大きいが、Chromium(Electron内蔵)は実際に使用中のunicode-rangeチャンクしかfetchしないため実行時ネットワーク/メモリへの影響は小さいと判断。woff/woff2両方をsrcに含む(fontsource標準構成。ElectronのChromiumはwoff2で足りるが、標準CSSをそのまま使う方針とし独自の後処理は行わない)
+  - **oss-licenses.ts**: `npm run build`のprebuildフック(`generate:licenses`)が自動再生成し、3パッケージ分(OFL-1.1)のエントリが追加された(手動編集なし)
+  - **Notion正本→docs/requirements.mdミラー**: 9章「権利関係」のフォント配信方式の記述を「Google Fonts経由」→「`@fontsource`パッケージでローカル同梱」に訂正(Notion先行更新→ミラー反映の順で実施)
+  - **reviewer 1周目の指摘4件→修正**:
+    1. **【重大】`MIN_CONVERSATION_PANE_WIDTH`(393px)の実測前提が崩れていた**: 当時は「Google Fonts未同梱のため本番でも`Zen Antique`は`serif`へフォールバックする」前提で実測していたが、今回の同梱化でこの前提が崩れた。実際にビルドされたフォントアセット(`out/renderer/assets/`)を読み込んだ状態でElectronオフスクリーン(`document.fonts.load()`で該当グリフを明示ロード)により再実測したところ、Moodラベル3種の幅は**252.89px**(旧値252.59pxから+0.3px。3種が同一値なのは全て「漢字2字+ひらがな4字」で文字数が揃っており、和文フォントは字ごとの送り幅が均一なため=バグではない)、最終的な丸め結果(393px)は**変化なし**と確認。`control-panel-window.ts`のdocstring・`chat-pane.md`の該当節を再実測結果で更新
+    2. 正本(Notion→docs/requirements.md)のフォント配信方式記述が未更新→上記のとおり修正
+    3. Memory.mdの未決事項一覧にC2が残ったまま→本エントリで決着済みに更新(7件→6件)
+    4. unicode-rangeチャンク分割のトレードオフ説明がコード側に残らない→本エントリに実測結果を記録(fonts.cssのコメントにも要点を記載済み)
+  - **検証**: `npm run typecheck`(node/web)・`npm run build`成功(`out/renderer/assets/`にfontsource由来アセットが正しく出力されることを確認)。GUI上での実際のフォント描画確認はElectronのGUIがサンドボックスから起動できないため未実施(ユーザー確認待ち)
+- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6決着 + 未決事項C2決着 まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

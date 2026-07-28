@@ -149,7 +149,7 @@ Chat Adapter(FR-3)でのユーザーとキャラクターの対話に使うUI。
 - **Live2D Cubism SDK/Core**: 個人・小規模事業者(年商1,000万円未満)は契約・費用免除。ただし本アプリは「AI/チャットボットのインターフェース」に該当しうるため、**配布前にLive2D公式の判定フローを必ず確認する**(Expandable Applicationの可能性)。**この確認はLive2D形式のモデルスロットにのみ関係し、スプライトセット形式には及ばない。**
 - **外部動画生成AIサービス(スプライトセット用)**: Pika・Canva等の無料枠は一般的に個人利用限定。配布時は各サービスの利用規約(商用利用可否)を確認する。生成物の著作権・利用範囲もサービスごとに異なるため、ユーザー自身の責任で選択・利用する。
 - **OSSライセンス**: Electron/PixiJS/pixi-live2d-display/React/Zod/lucide-react等はMIT/ISC中心。配布時は`license-checker`で自動収集し、NOTICEとして同梱。
-- **フォント**: Zen Antique / M PLUS 1 Code / JetBrains MonoはGoogle Fonts経由、SIL Open Font License 1.1。
+- **フォント**: Zen Antique / M PLUS 1 Code / JetBrains Monoは`@fontsource`パッケージでローカル同梱(ビルド時バンドル、実行時の外部リクエスト無し)、SIL Open Font License 1.1(未決事項C2決着・2026-07-28。当初はGoogle Fonts CDN経由の`@import`を想定していたが、外部通信はプライバシー方針(8章)違反のためローカル同梱に変更)。
 - **ユーザーが追加するLive2Dモデル**: 著作権はモデルの作成者・追加した本人に帰属。アプリはモデルを一切同梱しない。
 - **開発中のモック用モデル**: ちびキャラメーカー出力モデルを使用。**配布物には絶対に含めない**(dev-assets等、.gitignore対象のローカル専用ディレクトリに隔離)。
 - **Anthropic API**: 利用者自身のAPIキーで呼び出し、Anthropicの利用規約が適用される。配布時は第三者に「Claudeを呼ぶアプリ」を配る形になるため、利用規約上問題ないか要確認。
