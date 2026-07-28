@@ -1,7 +1,7 @@
 # ヨリマシ.app 基本設計書
 
 > 本ファイルはNotionの基本設計書のミラーです。**Notionが正本**。要件定義書(WHAT)と詳細設計書(HOW: 実装レベル)の間を橋渡しする文書。
-> 作成日: 2026-07-16 / 更新日: 2026-07-24(FR-13セキュリティ仕上げ。ナビゲーション/新規ウィンドウ/権限要求の抑止をセキュリティ設計章へ追記) / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
+> 作成日: 2026-07-16 / 更新日: 2026-07-27(未決事項C6決着。`general.displaySize`の有効範囲をモックアップのスライダーと一致させ0.2〜1.0へ変更) / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
 
 ## 1. 本書の位置づけ・対象範囲
 
@@ -161,7 +161,7 @@ const AppConfigSchema = z.object({
   }),
   general: z.object({
     themeMode: z.enum(['light', 'dark', 'system']).default('system'),
-    displaySize: z.number().default(0.5),
+    displaySize: z.number().min(0.2).max(1).default(0.5), // 常駐マスコットが画面を占有しすぎず視認できる範囲(モックアップのスライダーmin=20/max=100と一致。未決事項C6として決着・2026-07-27)
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null), // null=初回起動時。初期配置を計算する
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),

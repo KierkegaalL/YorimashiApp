@@ -26,7 +26,7 @@
   - **コミット後、ユーザー依頼で改めて実装後チェックループを実行（2026-07-18・本チェックループ自体は未コミット）**: 指摘1件(`control-panel.jsx`の応答モデル循環ロジックが`/model`コマンドと入力欄フッターの2箇所に重複)→`cycleResponseModel()`に共通化して修正。加えて**未決着の論点2件を新規検出**: (1)折りたたみリサイズをmacOSネイティブアニメーション付きにするか(`setBounds()`/`setSize()`とも`animate`引数を取れるが、所要時間はOS依存でモックアップの0.25sと一致するかは未実測)、(2)Control Panelウィンドウの`resizable`/`minimumSize`が未定義(手動リサイズで976/576px前提のレイアウトが崩れうる)。**推測で決めず**、chat-pane.md実装TODOに要決着として追記。ユーザーへ報告済み
 - **APIキー取得の案内を追加（2026-07-18・ユーザー指摘）**。「Anthropic APIキーを手動入力させるのは難しいのでは」との懸念に対し、**OAuthサインインは選択肢にならない**(AnthropicはMessages APIへの第三者アプリ向け公開OAuth連携を提供しておらず、Claude Code CLIのアカウントログインは公式ツール専用の内部機構)ことを確認した上で、摩擦を減らす方向で対応。モード設定タブのAPIキー欄に、取得手順(4ステップ)+「console.anthropic.com を開く」ボタンを常設。外部サイトへの遷移は`src/main/index.ts`の既存`setWindowOpenHandler`(`window.open()`を捕まえ`shell.openExternal()`へリダイレクト)に乗せる想定とし、専用IPCは前提としない。`docs/mockups/control-panel.jsx`(`API_KEY_STEPS`)+ detailed-design(chat-adapter-errors.md 論点5)に反映済み。**Notion要件定義書は未変更**(FR-3の既存記述と矛盾しないUI/実装詳細レベルの追加と判断)
   - **reviewerチェックループ**: 1周目で指摘4件。うち重大1件(「Live2D公式サイト・7.3外部動画生成AIサービスへの導線にも共通適用する」という一般化が、7.3の「特定ベンダー非依存」方針・Live2Dランタイムが開発者用ビルド時アセットである実態と矛盾。存在しないボタンを既定路線扱いしていた)、中3件(既存`setWindowOpenHandler`実装を踏まえず専用IPC新設を前提にしていた、論点1の401事後対応との関係が未記載、対応する実装TODO欠落)。**論点5をAPIキーボタンのみに限定**し、7.3・Live2Dへの拡張は「別途検討・勝手に広げない」と明記して修正。すべて修正しTODOにも反映済み
-- **未決事項は8件**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7も2026-07-18に決着**。残りはC0〜C6・C8）
+- **未決事項は7件**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。残りはC0〜C5・C8）
 - **A2完了（2026-07-18）**: `dev-assets/live2d/` に pixi-live2d-display 公式サンプルを配置した（`shizuku/`=Cubism2.1 / `haru/`=Cubism4、公式サンプルDLをユーザー承認済み）。整合を確認（moc/moc3マジックバイト、**列挙構造の検証に必要な**定義ファイル＝model3.json/model.json・moc/moc3・motion・expression・texture の実在）。ただし**音声(`Sound`/`sounds/*.mp3`)と`DisplayInfo`(`haru...cdi3.json`)は欠落**（公式サンプル自体が参照だけ持ち実体を同梱せず、Haruは`Sound`が兄弟フォルダ`../shizuku/sounds/`を相対参照する箇所すらある）。**v1は音声機能を使わず、`pixi-live2d-display`も音声失敗を`logger.warn`で握りつぶす**ため実害なし。`dev-assets/`は`.gitignore`対象（`git ls-files`はREADME.mdのみ）
   - **GUI不要の実測を実施し、2つの詳細設計の「未検証」マーカーを解消**（reviewer チェックループ指摘0件で完了）:
     - **model-mapping-ui.md 論点2/列挙元**: Cubism2/4の列挙構造の表を実モデルで確認済みに更新。**実装差分**: 表情の`Name`(cubism2は`name`)はファイル名と不一致（Haru `Name:"f00"→F01.exp3.json`）／モーショングループ名の命名規則は一定でない（公式サンプルはHaru=PascalCase `Idle`・Shizuku=snake_case `tap_body`だったが、これはモデル作者の慣習でCubism仕様がバージョンごとに強制するものではない。n=1×2。ハードコードせず`normalize()`で吸収）
@@ -71,9 +71,9 @@
 - Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
 - **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
 
-## 未決事項（8件）
+## 未決事項（7件）
 
-A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0〜C6・C8（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、上記参照）。**実装着手をブロックする未決事項は無くなった**。
+A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0〜C5・C8（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27に決着**＝`displaySize`範囲、いずれも上記参照）。**実装着手をブロックする未決事項は無くなった**。
 
 ### 優先度C — 該当機能の実装時に併せて
 
@@ -85,7 +85,7 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
 | C3 | Rendererの読み込み元を`http://localhost:8765`へ移行（security.md 7章。**WebCodecsの有効化条件**） | 同上 |
 | C4 | api.md 6章「直叩き」→ SDK採用に記述更新 | Chat Adapter |
 | C5 | オンボーディング完了フラグの保存先（config未定義） | FR-14 |
-| C6 | `displaySize`の範囲（モックアップ20-100% vs スキーマ0.1-2.0）。**UIから届かない範囲がスキーマ側にある** | FR-7 |
+| ~~C6~~ | ~~`displaySize`の範囲（モックアップ20-100% vs スキーマ0.1-2.0）~~ **決着済み(2026-07-27)**。`git log -S`でスキーマの0.1〜2.0が初回スキャフォールドから決定根拠の記録なく存在していたことを確認し、モックアップ側(0.2〜1.0)を正とユーザーに確認。Notion正本(basic-design.md 6.1)→docs/data.md→config-schema.tsの順で`min(0.2).max(1)`へ統一(既定値0.5は変更なし)。詳細はmodel-mapping-ui.md「検出した不整合」1 | 解消済み |
 | C8 | モックアップの`maxWidth: 400`(model-mapping-ui.md論点2の結論根拠)は**元々「Chrome拡張のサイドパネルに収まるため」という理由だった**。FR-8削除でこの理由は無効化。値自体は変えず事実ベースの記述に差し替えていたが、**2026-07-18にモックアップ最外殻を2ペイン構成へ書き換え済み**(会話ペインflex:1 + タブ16px + Control Panel`width:400`固定 = 展開976px/折りたたみ576px)。「600px分が空白」だった不整合はこの書き換えで解消。**残る論点は`chat-pane.md`実装TODOに一本化**(ウィンドウ既定値1000×720とコンテンツ976/576pxの差を実機でどう埋めるか) | chat-pane.md 実装TODO参照。実装時に解消 |
 
 ### 次回セッションで棚卸しすべきこと
@@ -366,8 +366,13 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **⚠️ 検証中に踏んだ事故**: `real-responder.ts`を`--bundle`で検証用にバンドルした際、`@anthropic-ai/sdk`を素朴にインライン化すると**テスト側と別クラスインスタンスになり`instanceof`判定が全滅する**(SDKの二重バンドル問題)。`--external:@anthropic-ai/sdk`でテスト側と同一インスタンスを共有させて解決。実際の`Anthropic.APIError.generate()`で実測どおりの形のエラーオブジェクトを生成してテストできた
   - **検証**: typecheck/build通過。**オフスクリーン11件**(credit-balance detection 8=実SDKクラスで実測ケース検出/将来のbilling_error型検出/無関係な400への誤検出防止/未知の言い回しでの正常フォールバック/401等への退行なし、regression 3=mock通常送信+issue #15交互ターン修正への影響なし2件)
   - **reviewer 1周で0件確定**(初回チェックで指摘なし)
-  - **未検証(ユーザー確認)**: 実際にクレジット残高不足の状態で送信し、「課金ページを開く」ボタンが表示・機能するかはGUI必須で未検証
-- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)、`displaySize`範囲の不一致解消(未決事項C6)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+  - **✅ 実機確認済み(2026-07-27・ユーザー)**: 動作に問題なしと確認済み。「課金ページを開く」ボタンの表示・機能を含め正常
+- **完了 未決事項C6決着: `displaySize`範囲をモックアップに統一(FR-7)** — スキーマの`0.1〜2.0`(決定根拠不明のplaceholder)とモックアップの`0.2〜1.0`(スライダーmin=20/max=100)が食い違っていた問題。ユーザー確認のうえモックアップ側を正とし、Notion正本(basic-design.md 6.1)→`docs/basic-design.md`→`docs/data.md`→`config-schema.ts`の順で`z.number().min(0.2).max(1).default(0.5)`へ統一(既定値0.5は不変)。`model-mapping-ui.md`「検出した不整合」1を決着記録に更新
+  - **判断根拠**: `git log -S`でスキーマ側の`0.1〜2.0`が初回スキャフォールドcommitから決着記録なく存在していたと確認(他の設計判断は必ず理由付きの決着記録が残っている)。常駐マスコットとして画面を占有しすぎず視認できる範囲、という理由でモックアップ側を採用
+  - **影響確認**: `character-window.ts`の`resolveWindowSize()`は`displaySize`を単純な倍率として使うのみで範囲の上下限に依存したロジックは持たず、範囲変更の影響を受けない。まだ実際の設定UI(General設定タブのスライダー)は未実装のため、既存ユーザーが範囲外の値を保存している可能性は無い
+  - **検証**: typecheck/build通過。オフスクリーンで実ConfigStore(実Zod)を使い3件(既定値0.5が新範囲内・下限0.2/上限1.0が通る・旧範囲値1.5を含む既存config.jsonを読ませた場合の実際の挙動=corrupt退避+全設定を既定値へフォールバックする既存の安全策が正しく機能することを実測確認)
+  - **reviewer 1周目の指摘4件→修正**: (1)Memory.mdへの反映漏れ→本エントリで対応 (2)model-mapping-ui.mdのTODOチェックリスト粒度の不揃い→次のreviewer再チェックで対応予定 (3)範囲を狭めたことで将来UI実装時に「単一フィールドの検証失敗が全設定リセットに繋がる」既存設計の影響範囲がわずかに広がる点→config-store.tsへの注記を検討 (4)Notion反映はreviewerの検証範囲外→ユーザー確認済み(このエントリ作成前にNotion側を更新しfetchで反映確認済み)
+- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6決着 まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

@@ -65,7 +65,9 @@ export const AppConfigSchema = z.object({
 
   general: z.object({
     themeMode: z.enum(['light', 'dark', 'system']).default('system'),
-    displaySize: z.number().min(0.1).max(2).default(0.5),
+    // 常駐マスコットが画面を占有しすぎず視認できる範囲(モックアップのスライダーmin=20/max=100と
+    // 一致させた。未決事項C6として決着・basic-design.md 6.1 = Notion正本に反映済み・2026-07-27)。
+    displaySize: z.number().min(0.2).max(1).default(0.5),
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),

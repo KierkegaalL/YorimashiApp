@@ -56,7 +56,7 @@ const AppConfigSchema = z.object({
 
   general: z.object({
     themeMode: z.enum(['light', 'dark', 'system']).default('system'),
-    displaySize: z.number().min(0.1).max(2).default(0.5),
+    displaySize: z.number().min(0.2).max(1).default(0.5), // 常駐マスコットが画面を占有しすぎず視認できる範囲(モックアップのスライダーmin=20/max=100と一致。未決事項C6として決着・2026-07-27)
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),
