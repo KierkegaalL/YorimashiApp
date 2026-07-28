@@ -2,7 +2,7 @@
 
 **ステータス**: 確定(2026-07-16)
 **対応FR**: FR-3
-**関連**: api.md 6章、emotion-classification.md、要件定義書 C-08
+**関連**: api.md 5章、emotion-classification.md、要件定義書 C-08
 
 ## 背景
 
@@ -26,7 +26,7 @@ Chat Adapterのreal接続時、Anthropic APIのレート制限・ネットワー
 
 ### 前提: 実装場所とSDK
 
-api.md 6章は「Messages APIを**直叩き**」と記述しているが、**公式SDK(`@anthropic-ai/sdk`)を使う**。理由は論点1で示すとおり、本ドキュメントが問うているリトライ・バックオフ・`retry-after`の尊重をSDKが既に実装しており、自前で書き直す理由がないため。
+検討当時のapi.md(旧6章)は「Messages APIを**直叩き**」と記述していたが、**公式SDK(`@anthropic-ai/sdk`)を使う**方針とした。理由は論点1で示すとおり、本ドキュメントが問うているリトライ・バックオフ・`retry-after`の尊重をSDKが既に実装しており、自前で書き直す理由がないため。**api.md側は既にSDK採用の記述へ修正済み(現5章。未決事項C4・2026-07-28決着)**。
 
 実行場所は**Electron Mainプロセス**とする。
 

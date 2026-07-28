@@ -248,9 +248,9 @@ function score(state: EmotionState, candidate: string): number {
 実装前に決着が必要なものを記録する。いずれも要件・基本設計に関わるため、Notion正本の更新を伴う。
 
 1. ~~**`displaySize`の範囲がモックアップとスキーマで食い違う。**~~ **決着済み(2026-07-27・未決事項C6)**: `git log`でスキーマの`0.1〜2.0`が初回スキャフォールドから決定根拠の記録無く存在していたことを確認し、モックアップのスライダー範囲(`min="20" max="100"`=0.2〜1.0)の方をユーザーに確認のうえ正とした。**常駐マスコットが画面を占有しすぎず視認できる範囲**という判断。スキーマ・data.md・basic-design.md(Notion正本)を`min(0.2).max(1)`へ統一済み(既定値0.5は変更なし)。
-2. **`cubismVersion`のenumにcubism5が無い。** 要件定義書は3箇所で「Cubism 2/4/5両対応」と述べるが、スキーマは`z.enum(['cubism2', 'cubism4'])`(data.md・basic-design.md・config-schema.tsの3箇所とも)。Cubism 5モデルは`model3.json`形式でCubism 4ランタイムから読めるため`cubism4`が5を兼ねている可能性が高いが、**どこにもそう書かれていない**。enumに`cubism5`を足すか、`cubism4`が4/5を指すとコメントで明示するかの判断が要る。
-3. **権利情報タブのOSS一覧に`sharp` / `libvips`が無い**(モックアップL1061-1074)。spriteset-pipeline.mdで採用が確定したため追加が必要。libvipsはLGPL-3.0-or-laterで、既存の一覧(MIT/ISCのみ)とライセンス種別が異なる点にも注意。
-   - **FR-12実装時の補足(2026-07-21)**: OSS一覧は`scripts/generate-oss-licenses.mjs`が`dependencies`を推移的に辿って自動生成する方式にした。`sharp`を`dependencies`へ足せば、その**npmパッケージ**(と`@img/sharp-*`等のJS依存)は自動で一覧に載る。ただし**`libvips`自体はネイティブライブラリでnpmのpackage.jsonを持たない**ため、依存ツリー走査(license-checkerでも同様)では原理的に拾えない。**LGPL-3.0の表記・同梱条件は配布NOTICE段階で別途対応が必要**(「自動生成したから権利表示は完了」と誤解しないこと)。
+2. ~~**`cubismVersion`のenumにcubism5が無い。**~~ **決着済み(2026-07-28棚卸しで判明。追加のコード変更は無し)**: `config-schema.ts`・`docs/data.md`・`docs/basic-design.md`の3箇所とも`z.enum(['cubism2', 'cubism4'])`の直後に「`'cubism4'`はCubism 5モデル(model3.json形式)も含む」とコメントで明示済み(A1+B一括反映時に対応)。enumに`cubism5`を追加する変更は不要と判断された。
+3. ~~**権利情報タブのOSS一覧に`sharp` / `libvips`が無い**~~ **決着済み(2026-07-28棚卸しで判明。追加のコード変更は無し)**: `sharp`が`package.json`の`dependencies`に入って以降、`generate:licenses`の自動走査で`sharp`(MIT)・`@img/sharp-darwin-arm64`(Apache-2.0)・`@img/sharp-libvips-darwin-arm64`(LGPL-3.0-or-later)が`src/shared/oss-licenses.ts`へ既に反映されており、`RightsTab.tsx`が動的表示している。下記の「libvips自体はnpm package.jsonを持たない」という懸念は誤りで、`@img/sharp-libvips-*`パッケージがpackage.json上でLGPL-3.0-or-laterを宣言しているため自動走査で拾える。**ただしlibvips本体(Cソース)のNOTICE同梱条件は配布フェーズの別課題として残る**(自動生成=権利表示完了ではない、という下記注意は引き続き有効)。
+   - **FR-12実装時の補足(2026-07-21)**: OSS一覧は`scripts/generate-oss-licenses.mjs`が`dependencies`を推移的に辿って自動生成する方式にした。**LGPL-3.0の表記・同梱条件は配布NOTICE段階で別途対応が必要**(「自動生成したから権利表示は完了」と誤解しないこと)。
 4. ~~**フォントをGoogle Fontsから`@import`している**(モックアップL105)。~~ **決着済み(2026-07-28・未決事項C2)**: `@fontsource/zen-antique`・`@fontsource/m-plus-1-code`・`@fontsource/jetbrains-mono`(いずれもOFL-1.1)でローカル同梱へ変更。`src/renderer/control-panel/src/fonts.css`(`main.tsx`でimport)。ビルド時にバンドルされ実行時の外部リクエストは発生しない。Notion正本(要件定義書9章)→`docs/requirements.md`へ反映済み。詳細はMemory.md「未決事項C2決着」参照。
 
 ## 実装時のTODO
@@ -262,4 +262,6 @@ function score(state: EmotionState, candidate: string): number {
 - [x] 取り込み時、**モデル定義ファイルが参照するパスが自身のモデルフォルダ内に閉じていることを検証する**(`../`等での逸脱を拒否)。security.md の`GET /models/*`パス検証と対になる入口側の検証。**公式サンプルHaru(`haru_greeter_t03.model3.json`)自体が`Sound`で兄弟フォルダ`../shizuku/sounds/`を相対参照する実例があり**、机上の懸念ではない(A2で発見)。**スプライトセットには対応物不要**(`clips`はアプリ自身が生成し、第三者が作成した定義ファイルのパス文字列を一切パースしないため。spriteset-pipeline.md)。**実装済み(第2段階a)**: `live2d-import.ts` `assertPathsWithin` がレンダリング必須アセット(moc/textures/physics/pose/expressions/motions)の逸脱を弾く。Sound/DisplayInfo/UserDataは検証対象外(v1で使わず、Haruが正当に外部参照するため。除外理由をコード冒頭に明記)
 - [ ] プレビューの遅延マウント/destroyがメモリ目安(200MB前後)に収まるか実測する
 - [x] **(決着済み・2026-07-27)** 上記「検出した不整合」1(`displaySize`の範囲)の決着。モックアップ側(0.2〜1.0)を正としNotion正本→docs→config-schema.tsへ反映済み
-- [ ] 上記「検出した不整合」2〜4の決着
+- [x] **(決着済み・2026-07-28棚卸し)** 上記「検出した不整合」2(cubismVersion enum)の決着。コメント明示のみで対応済み、enum追加は不要と判断
+- [x] **(決着済み・2026-07-28棚卸し)** 上記「検出した不整合」3(OSS一覧のsharp/libvips)の決着。自動生成で既に反映済み(libvips本体のNOTICE同梱は配布フェーズの別課題として残る)
+- [x] **(決着済み・2026-07-28)** 上記「検出した不整合」4(フォントのGoogle Fonts `@import`)の決着。未決事項C2参照

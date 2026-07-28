@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-28
+**最終更新**: 2026-07-28（棚卸し実施）
 
 ## 現在地
 
@@ -26,7 +26,7 @@
   - **コミット後、ユーザー依頼で改めて実装後チェックループを実行（2026-07-18・本チェックループ自体は未コミット）**: 指摘1件(`control-panel.jsx`の応答モデル循環ロジックが`/model`コマンドと入力欄フッターの2箇所に重複)→`cycleResponseModel()`に共通化して修正。加えて**未決着の論点2件を新規検出**: (1)折りたたみリサイズをmacOSネイティブアニメーション付きにするか(`setBounds()`/`setSize()`とも`animate`引数を取れるが、所要時間はOS依存でモックアップの0.25sと一致するかは未実測)、(2)Control Panelウィンドウの`resizable`/`minimumSize`が未定義(手動リサイズで976/576px前提のレイアウトが崩れうる)。**推測で決めず**、chat-pane.md実装TODOに要決着として追記。ユーザーへ報告済み
 - **APIキー取得の案内を追加（2026-07-18・ユーザー指摘）**。「Anthropic APIキーを手動入力させるのは難しいのでは」との懸念に対し、**OAuthサインインは選択肢にならない**(AnthropicはMessages APIへの第三者アプリ向け公開OAuth連携を提供しておらず、Claude Code CLIのアカウントログインは公式ツール専用の内部機構)ことを確認した上で、摩擦を減らす方向で対応。モード設定タブのAPIキー欄に、取得手順(4ステップ)+「console.anthropic.com を開く」ボタンを常設。外部サイトへの遷移は`src/main/index.ts`の既存`setWindowOpenHandler`(`window.open()`を捕まえ`shell.openExternal()`へリダイレクト)に乗せる想定とし、専用IPCは前提としない。`docs/mockups/control-panel.jsx`(`API_KEY_STEPS`)+ detailed-design(chat-adapter-errors.md 論点5)に反映済み。**Notion要件定義書は未変更**(FR-3の既存記述と矛盾しないUI/実装詳細レベルの追加と判断)
   - **reviewerチェックループ**: 1周目で指摘4件。うち重大1件(「Live2D公式サイト・7.3外部動画生成AIサービスへの導線にも共通適用する」という一般化が、7.3の「特定ベンダー非依存」方針・Live2Dランタイムが開発者用ビルド時アセットである実態と矛盾。存在しないボタンを既定路線扱いしていた)、中3件(既存`setWindowOpenHandler`実装を踏まえず専用IPC新設を前提にしていた、論点1の401事後対応との関係が未記載、対応する実装TODO欠落)。**論点5をAPIキーボタンのみに限定**し、7.3・Live2Dへの拡張は「別途検討・勝手に広げない」と明記して修正。すべて修正しTODOにも反映済み
-- **未決事項は6件**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。**C2は2026-07-28に決着**。残りはC0・C1・C3〜C5・C8）
+- **未決事項は1件（C0のみ）**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。**C2は2026-07-28に決着**。**C1・C3・C4・C5・C8は2026-07-28の棚卸しで実装済みと判明し決着記録**）
 - **A2完了（2026-07-18）**: `dev-assets/live2d/` に pixi-live2d-display 公式サンプルを配置した（`shizuku/`=Cubism2.1 / `haru/`=Cubism4、公式サンプルDLをユーザー承認済み）。整合を確認（moc/moc3マジックバイト、**列挙構造の検証に必要な**定義ファイル＝model3.json/model.json・moc/moc3・motion・expression・texture の実在）。ただし**音声(`Sound`/`sounds/*.mp3`)と`DisplayInfo`(`haru...cdi3.json`)は欠落**（公式サンプル自体が参照だけ持ち実体を同梱せず、Haruは`Sound`が兄弟フォルダ`../shizuku/sounds/`を相対参照する箇所すらある）。**v1は音声機能を使わず、`pixi-live2d-display`も音声失敗を`logger.warn`で握りつぶす**ため実害なし。`dev-assets/`は`.gitignore`対象（`git ls-files`はREADME.mdのみ）
   - **GUI不要の実測を実施し、2つの詳細設計の「未検証」マーカーを解消**（reviewer チェックループ指摘0件で完了）:
     - **model-mapping-ui.md 論点2/列挙元**: Cubism2/4の列挙構造の表を実モデルで確認済みに更新。**実装差分**: 表情の`Name`(cubism2は`name`)はファイル名と不一致（Haru `Name:"f00"→F01.exp3.json`）／モーショングループ名の命名規則は一定でない（公式サンプルはHaru=PascalCase `Idle`・Shizuku=snake_case `tap_body`だったが、これはモデル作者の慣習でCubism仕様がバージョンごとに強制するものではない。n=1×2。ハードコードせず`normalize()`で吸収）
@@ -71,22 +71,22 @@
 - Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
 - **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
 
-## 未決事項（7件）
+## 未決事項（1件）
 
-A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0・C1・C3〜C5・C8（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27に決着**＝`displaySize`範囲、**C2は2026-07-28に決着**＝フォントのローカル同梱、いずれも上記参照）。**実装着手をブロックする未決事項は無くなった**。
+A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0のみ（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27に決着**＝`displaySize`範囲、**C2は2026-07-28に決着**＝フォントのローカル同梱、**C1・C3・C4・C5・C8は2026-07-28の棚卸しで実装済み判明・決着記録**。いずれも上記参照）。**実装着手をブロックする未決事項は無くなった**。
 
 ### 優先度C — 該当機能の実装時に併せて
 
 | # | 内容 | 契機 |
 |---|---|---|
 | C0 | **`config.obsidian`（`vaultPath`/`syncMode`）と `config.notion` に対応するFRが無い**。configにだけ存在し、FR-1〜FR-15のどれにも紐づいていない。要件側の定義が要る | 要Notion確認 |
-| C1 | 権利情報タブのOSS一覧に`sharp`/`libvips`追加（libvipsはLGPL-3.0で既存のMIT/ISCと種別が違う） | FR-12 |
+| ~~C1~~ | ~~権利情報タブのOSS一覧に`sharp`/`libvips`追加~~ **決着済み(2026-07-28棚卸しで判明)**。`sharp@0.35.3`は既に`package.json`の`dependencies`。`src/shared/oss-licenses.ts`の`generate:licenses`自動走査で`sharp`(MIT)・`@img/sharp-darwin-arm64`(Apache-2.0)・`@img/sharp-libvips-darwin-arm64`(LGPL-3.0-or-later)がすでに反映済みで、`RightsTab.tsx`が動的レンダリングしている。手動追加は不要だった | 解消済み |
 | ~~C2~~ | ~~フォントをGoogle Fontsの`@import`からローカル同梱へ~~ **決着済み(2026-07-28)**。`@fontsource/zen-antique`・`@fontsource/m-plus-1-code`・`@fontsource/jetbrains-mono`(v5.3.0・OFL-1.1)をインストールし`src/renderer/control-panel/src/fonts.css`で読み込み(`main.tsx`でimport)。character側はカスタムフォントを使わないため対象外(grep確認済み)。詳細は下記「実装フェーズの進捗」参照 | 解消済み |
-| C3 | Rendererの読み込み元を`http://localhost:8765`へ移行（security.md 7章。**WebCodecsの有効化条件**） | 同上 |
-| C4 | api.md 6章「直叩き」→ SDK採用に記述更新 | Chat Adapter |
-| C5 | オンボーディング完了フラグの保存先（config未定義） | FR-14 |
+| ~~C3~~ | ~~Rendererの読み込み元を`http://localhost:8765`へ移行~~ **決着済み(#4で実装・2026-07-28棚卸しで判明)**。`character-window.ts`のprod時`loadURL('http://127.0.0.1:<port>/character')`、`control-panel-window.ts`のprod時`loadURL('http://127.0.0.1:<port>/panel')`で実装済み(`file://`は不使用。サーバー未起動時のみ可用性NFR用に`loadFile`へフォールバックする設計は意図通り) | 解消済み |
+| ~~C4~~ | ~~api.md 6章「直叩き」→ SDK採用に記述更新~~ **決着済み(2026-07-28棚卸しで判明)**。`docs/api.md`本文は既にSDK採用の記述に修正済み、`real-responder.ts`が`@anthropic-ai/sdk`を実使用。Memory.md側の記載のみが古かった | 解消済み |
+| ~~C5~~ | ~~オンボーディング完了フラグの保存先~~ **決着済み(#10で実装・2026-07-28棚卸しで判明)**。`config-schema.ts`に`onboarding.completed`/`completedAt`が実在し、`onboarding-service.ts`が完了時に書き込む | 解消済み |
 | ~~C6~~ | ~~`displaySize`の範囲（モックアップ20-100% vs スキーマ0.1-2.0）~~ **決着済み(2026-07-27)**。`git log -S`でスキーマの0.1〜2.0が初回スキャフォールドから決定根拠の記録なく存在していたことを確認し、モックアップ側(0.2〜1.0)を正とユーザーに確認。Notion正本(basic-design.md 6.1)→docs/data.md→config-schema.tsの順で`min(0.2).max(1)`へ統一(既定値0.5は変更なし)。詳細はmodel-mapping-ui.md「検出した不整合」1 | 解消済み |
-| C8 | モックアップの`maxWidth: 400`(model-mapping-ui.md論点2の結論根拠)は**元々「Chrome拡張のサイドパネルに収まるため」という理由だった**。FR-8削除でこの理由は無効化。値自体は変えず事実ベースの記述に差し替えていたが、**2026-07-18にモックアップ最外殻を2ペイン構成へ書き換え済み**(会話ペインflex:1 + タブ16px + Control Panel`width:400`固定 = 展開976px/折りたたみ576px)。「600px分が空白」だった不整合はこの書き換えで解消。**残る論点は`chat-pane.md`実装TODOに一本化**(ウィンドウ既定値1000×720とコンテンツ976/576pxの差を実機でどう埋めるか) | chat-pane.md 実装TODO参照。実装時に解消 |
+| ~~C8~~ | ~~モックアップの`maxWidth: 400`(model-mapping-ui.md論点2の結論根拠)~~ **決着済み(#7で実装・2026-07-28棚卸しで判明)**。`chat-pane.md`に「決着済み・2026-07-20 / #7」と明記され、`control-panel-window.ts`の`EXPANDED_WIDTH`(会話ペイン+タブ+ControlPanel=976)として実装済み | 解消済み |
 
 ### 次回セッションで棚卸しすべきこと
 
@@ -399,6 +399,6 @@ A1+B一括Notion更新・A2・FR-15入力欄機能の仕様反映（C-23/C-24）
 - **スタック**: Electron 43 / TypeScript 7 / React 19 / Vite 7 / electron-vite 5 / Zod 4
 - **Viteは7系に固定**（electron-vite 5のpeerが`^5||^6||^7`。最新のVite 8とは非互換。`--legacy-peer-deps`で潰さない）
 - **tsconfigは3分割**: `tsconfig.node.json`（Main/Preload/shared）・`tsconfig.web.json`（Renderer/shared）・`tsconfig.json`（references）
-- **導入済み**: `pixi.js@^6.5.10`・`pixi-live2d-display@^0.4.0`（A2）・`@anthropic-ai/sdk@^0.112.3`（#12）・`lucide-react@^1.25.0`（#6以降のUI移植で追加）
-- **未導入**: `sharp`（spriteset-pipeline実装時に追加）。Cubism外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`、npmに無い）も実装時に用意
+- **導入済み**: `pixi.js@^6.5.10`・`pixi-live2d-display@^0.4.0`（A2）・`@anthropic-ai/sdk@^0.112.3`（#12）・`lucide-react@^1.25.0`（#6以降のUI移植で追加）・`sharp@^0.35.3`（libvips 8.18.3同梱。spriteset-pipeline実装で追加済み）
+- **未導入**: Cubism外部ランタイム（`live2d.min.js`/`live2dcubismcore.js`、npmに無い）は実装時に用意
 - **scratchpad**での検証実績: sharp・Anthropic SDK・Electronオフスクリーン。リポジトリには置かない
