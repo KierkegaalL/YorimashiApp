@@ -200,9 +200,9 @@ FR-9（表示排他制御）の削除により、**会話ペインとキャラ�
 - [x] **(決着済み)** `activeAdapter`との関係（論点5）→ **案1採用**（送信時に自動でChatへ切替+明示。C-24）。要件定義書4.1・基本設計書5.3に反映済み
 - [x] **(決着済み)** 折りたたみ状態の保存先 → `config.general.controlPanelCollapsed`（default `false`）を追加（config-schema.ts / data.md / basic-design.md 6.1 に反映済み）
 - [x] **(決着済み・2026-07-18仕様変更)** 折りたたみ対象を会話ペインからControl Panel側に変更（論点1）。フィールド名も`chatPaneCollapsed`→`controlPanelCollapsed`に改名（config-schema.ts / data.md / basic-design.md / requirements.md C-21 に反映済み）
-- [ ] 入力欄機能（C-23・論点7）の実装: スラッシュコマンド・@参照・添付(real)・応答モデル選択(real)・停止・メッセージ操作・コンテキスト表示・入力ヒント
-- [ ] @参照の文脈組立（作業ログ・表示中モデル・設定）。参照対象はアプリ管理の固定対象に限定し、本文文字列から任意パスを解決しない（security.md 6章）
-- [ ] 添付（real時）のファイル読み出しをダイアログ選択に限定し、パス検証を通す（security.md 6章）
+- [x] **(実装済み・2026-07-20)** 入力欄機能（C-23・論点7）の骨組み: スラッシュコマンド・応答モデル選択(real)・停止・メッセージ操作・コンテキスト表示・入力ヒント。@参照・添付は下記2項目で別途完了
+- [x] **(実装済み・2026-07-27)** @参照の文脈組立（作業ログ・表示中モデル・設定）。**参照対象はアプリ管理の固定対象(`AtReferenceKey = 'logs'|'model'|'settings'`のunion型)に限定し、本文文字列から任意パスを解決しない**（security.md 6章）。実装は`src/main/chat-adapter/context-references.ts`(Electron非依存の組立関数)+`chat-adapter.ts`(`send()`内部で`parseAtReferenceKeys`により未知キーを拒否)。Renderer側(`ConversationPane.tsx`)は**選択トグル方式**（当初のモックアップ的な「@ラベルをテキスト挿入」ではなく、選択状態をチップ表示し送信時にキー配列のみをMainへ渡す。実際の文脈組立はMain側の責務）。「設定」参照はAPIキー本体を含めず、`watchedProjectPaths`も実パスではなく件数のみ
+- [x] **(実装済み・2026-07-27)** 添付（real時）のファイル読み出しをダイアログ選択に限定し、パス検証を通す（security.md 6章）。実装は`src/main/index.ts`の`chooseChatAttachment()`(ネイティブダイアログで画像を選ばせ、その場でMainが読み込みbase64化して`ChatAttachment`をRendererへ返す。ファイルパスは一切渡さない)。`chat-adapter.ts`の`send()`が`parseAttachments`で`data:image/(jpeg|png|gif|webp);base64,...`の形式・件数(最大4)・概算サイズ(最大5MB)を再検証する（Rendererを信用しない）。**画像のみに限定**（PDF等の文書添付はスコープ外。Anthropic SDKの`ImageBlockParam`と構造一致する`ChatContentBlock`を`shared/chat.ts`に定義し、`ChatTurn.content`を`string | ChatContentBlock[]`へ拡張した）
 - [x] **(実装済み・2026-07-20 / #12)** コンテキスト使用量表示はreal時のみ実測（Anthropic APIの`usage`をそのまま表示）。mock時は表示自体を出さない。**パーセンテージは出さない**（分母＝モデルのコンテキストウィンドウ長がAPI応答に含まれず、ハードコードすると実測に見える推測値になるため。モックアップのメーター表現からの意図的な差分）
 - [x] **(実装済み・2026-07-20 / #8)** 送信時の`activeAdapter`自動切替＋明示の実装（案1・C-24）。Mainが`config.activeAdapter`を`chat`へ更新し、`ChatSendAccepted.adapterSwitched`で切替の事実を返す。会話ペインはトーストではなく**会話履歴内のsystemメッセージ**（「Chat Adapter に切り替えました。」）で明示する（灯里の発言と取り違えないよう吹き出しと別の見た目にした）。黙って切り替えない
 - [x] **(実装済み・2026-07-18)** モックアップの最外殻（`justifyContent: center`）を2ペイン構成へ書き換え（`Section`/`Row`/`THEMES`は無改変）。折りたたみで外側コンテナの幅を976px⇄576pxでアニメーションさせ、ウィンドウ全体縮小の見た目をReactレベルで再現。esbuildバンドル+ブラウザ描画で往復動作・送信/停止・スラッシュメニュー・real切替時の添付/モデル選択/コンテキスト表示を確認済み（Electron本体の確認ではない）

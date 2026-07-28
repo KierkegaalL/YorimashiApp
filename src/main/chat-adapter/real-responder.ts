@@ -244,6 +244,21 @@ function readUsage(final: {
  * 表情そのものは kind から chat-adapter.ts が決める(ここでは kind までを返す)。
  */
 function classifyError(err: unknown, isOnline: () => boolean): RealChatError {
+  // **診断用ログ(issue #15)**: UIには`chat-adapter-errors.md`の方針で一般化した文言しか出さない
+  // (SDKの生のエラーをそのまま出すとAPIの内部実装に利用者を巻き込む)。だがそれだと原因の特定が
+  // できないため、Main側のコンソール(開発時のターミナル/本番はElectronのログ)にだけ、
+  // APIキー等の秘密を含まない範囲(status/type/エラーボディ)を残す。APIキー自体はこのオブジェクトの
+  // どのフィールドにも含まれない(SDKがヘッダへ載せるのみでエラーオブジェクトへは複製しない)。
+  // **将来への注意**: `err.error`(APIの検証エラーメッセージ)にはリクエスト内容の断片が
+  // 含まれる可能性がゼロではない。現状は`console.error`のみで永続化されないため実害は無いが、
+  // 将来Electronのログをファイルへリダイレクトする実装が入る場合は、C-22(会話履歴を
+  // 永続化しない)に抵触しないか、このログの扱いを見直すこと(推測で対応を決めない)。
+  if (err instanceof Anthropic.APIError) {
+    console.error(
+      `[chat-adapter] real接続エラー: status=${err.status ?? '不明'} type=${err.type ?? '不明'} message=${err.message}`,
+      err.error,
+    );
+  }
   if (err instanceof Anthropic.AuthenticationError) {
     return new RealChatError(
       'configuration',

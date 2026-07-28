@@ -40,6 +40,12 @@ export const IPC = {
   ChatReset: 'chat:reset',
   /** Main→Renderer: streaming の実況(start/chunk/done/aborted/error)。 */
   ChatStream: 'chat:stream',
+  /**
+   * invoke: 添付する画像をネイティブダイアログで選ばせる(C-23。real時のみUIから呼ばれる)。
+   * 選択直後にMainがファイルを読み込み`ChatAttachment`(dataUrl込み)を返す。
+   * Rendererへファイルパスは一切渡さない(security.md 6章)。キャンセルは null。
+   */
+  ChatChooseAttachment: 'chat:choose-attachment',
 
   /**
    * invoke: 現在の EmotionSnapshot を取得する(会話ペインの憑坐状態帯の初期表示)。

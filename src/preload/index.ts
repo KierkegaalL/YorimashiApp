@@ -7,6 +7,8 @@ import {
   type WindowPoint,
 } from '../shared/ipc';
 import type {
+  AtReferenceKey,
+  ChatAttachment,
   ChatConfigPatch,
   ChatConfigSnapshot,
   ChatSendAccepted,
@@ -98,9 +100,23 @@ const api = {
    * Rendererは本文の送信と実況の購読だけを行う。
    */
   chat: {
-    /** 送信。受理されると requestId を返し、本文は onStream で流れてくる。 */
-    send: (text: string, isRetry = false): Promise<ChatSendAccepted> =>
-      ipcRenderer.invoke(IPC.ChatSend, text, isRetry),
+    /**
+     * 送信。受理されると requestId を返し、本文は onStream で流れてくる。
+     * `refs`は@参照(C-23)で選択したキー、`attachments`は選択済みの添付画像
+     * (`chooseAttachment`が返したものをそのまま渡す。ファイルパスは介さない)。
+     */
+    send: (
+      text: string,
+      isRetry = false,
+      refs: AtReferenceKey[] = [],
+      attachments: ChatAttachment[] = [],
+    ): Promise<ChatSendAccepted> => ipcRenderer.invoke(IPC.ChatSend, text, isRetry, refs, attachments),
+    /**
+     * 添付する画像をネイティブダイアログで選ばせる(real時のみ意味を持つ。C-23)。
+     * キャンセルは null。選択直後にMainが読み込んだ`ChatAttachment`(dataUrl込み)を返す。
+     */
+    chooseAttachment: (): Promise<ChatAttachment | null> =>
+      ipcRenderer.invoke(IPC.ChatChooseAttachment),
     /** 応答の中断(停止ボタン)。 */
     stop: (): void => ipcRenderer.send(IPC.ChatStop),
     /** `/clear`。**Main側の会話履歴も消す**(表示だけ消すとAPIへは古い文脈が送られ続ける)。 */

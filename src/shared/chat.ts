@@ -19,6 +19,53 @@
 export type ChatOrigin = 'mock' | 'real';
 
 /**
+ * @参照(C-23 / chat-pane.md 論点7)。**ユーザーが明示選択する3つの固定対象のみ**で、
+ * 本文の文字列から任意のパス・キーを解決する経路は持たない(security.md 6章)。
+ * ラベル(表示文言)はRenderer側のカタログ(catalog.ts の AT_REFERENCES)が持つ。ここは
+ * Main/Renderer両方が参照するキーの単一の情報源。
+ */
+export type AtReferenceKey = 'logs' | 'model' | 'settings';
+
+/** Anthropic Messages API が画像として受け付けるMIMEタイプ(SDK 0.112.3の型定義と一致させる)。 */
+export type ChatImageMimeType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
+/**
+ * Anthropic Messages API へそのまま渡せる形のコンテンツブロック(画像添付のみ。文書(PDF等)は
+ * 現状スコープ外 — chat-pane.md 論点7の「添付」は当面画像に限定する。SDKの
+ * `ImageBlockParam`/`TextBlockParam`と構造的に一致させてあり、real-responder.tsは
+ * キャストなしでそのままSDKへ渡せる)。
+ */
+export type ChatContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: ChatImageMimeType; data: string } };
+
+/**
+ * 添付の上限サイズ(バイト)。**実測に基づく値ではない暫定値**(Anthropic API自体の上限より
+ * 十分小さく、かつ会話ペインの用途で困らない値の目安。MAX_MODEL_NAME_LENGTHと同じ扱い)。
+ */
+export const MAX_CHAT_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+/** 1回の送信に添付できる画像の上限数。 */
+export const MAX_CHAT_ATTACHMENTS = 4;
+
+/**
+ * 添付画像(C-23。real時のみUIから選べる)。
+ *
+ * **選択直後にMainがファイルを読み込み、この形でRendererへ返す**(ファイルパスは一切渡さない。
+ * security.md 6章「添付はダイアログで選んだファイルに限定」と同じ不変条件)。Rendererはこれを
+ * プレビュー表示に使い、送信時は**同じ値をそのままMainへ返す**(Main側で再度パスを扱わない
+ * ため、選択時に読み込んだ実データがそのまま送信の実体になる)。
+ */
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  mimeType: ChatImageMimeType;
+  sizeBytes: number;
+  /** `data:`URL。`<img src>`にそのまま使える。 */
+  dataUrl: string;
+}
+
+/**
  * 失敗の種別。UIはこれに応じて添えるボタンを変える(chat-pane.md 論点4)。
  * **mockへの自動フォールバックはしない**(chat-adapter-errors.md 論点4)。ボタンを添えて
  * ユーザーが明示的に押したときだけ切り替える。黙って落とすと、ユーザーの質問に対して
@@ -93,10 +140,14 @@ export interface ChatUsage {
  *
  * 永続化しないのは変わらない(C-22)。Main のこの履歴もメモリ上にしか存在せず、
  * アプリ終了で消える。`/clear` は Main の履歴も消す(ChatReset)。
+ *
+ * `content`が配列になるのは**添付画像を伴うuserターンのみ**(@参照で組み立てた文脈とユーザーの
+ * 発話は、テキストブロック1つに結合してから積む。マルチテキストブロックにはしない)。
+ * assistantターンは常に文字列(応答は常にテキストのみで、画像を生成しないため)。
  */
 export interface ChatTurn {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ChatContentBlock[];
 }
 
 /**
