@@ -359,7 +359,15 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証の質**: オフスクリーン検証で、**修正を一時的に`git stash`で戻し、テストが実際に失敗する(2件✗: 交互制約違反・古い発話の残留)ことを確認したうえで**修正を戻し10件全通過を確認(=テスト自体の有効性を検証済み)。既存の主要ケース(通常送信・本文空拒否・添付/参照のみ受理等)6件も再確認し回帰なし
   - **real APIへの実接続テストは行っていない**(ユーザーの課金を伴うため、明示的な許可なく行わない、という原則を維持)
   - **GitHub issue #15を作成**(症状・再現条件・切り分け済みの事実・TODOを記録)。今回の修正で解決するはずだが、**実機での最終確認はユーザーに依頼**が必要
-- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)、`displaySize`範囲の不一致解消(未決事項C6)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 issue #16: クレジット残高不足の専用エラー検出(FR-3)** — real接続の400のうち、Anthropicアカウントのクレジット残高不足を専用検出し、「モード設定を開く」では直せない問題に「課金ページを開く」導線を追加
+  - **実測に基づく検出設計**: SDKの型定義(`resources/shared.d.ts`)には専用の`'billing_error'`というErrorTypeが存在するが、**issue #15調査で実際にAPIが返したレスポンスは`type: 'invalid_request_error'`だった**(型が示唆する分類と実際の挙動の食い違い)。型チェック(`err.type === 'billing_error'`、将来への備え)と**メッセージの文字列マッチング**(`/credit balance/i`、現在実際に効く経路)の両方を試し、**どちらにも一致しなければ通常のconfiguration扱いへ黙ってフォールバックする**(文言が変わっても壊れない。推測で決め打ちしない/嘘をつかない)
+  - **新規**: `shared/chat.ts`に`ChatErrorAction`の新値`'open-billing-page'`。**変更**: `real-responder.ts`(`isInsufficientCreditError`ヘルパー、`classifyError`の他のinstanceof分岐より前でステータス問わず判定)、`catalog.ts`(`ANTHROPIC_BILLING_URL`)、`ConversationPane.tsx`(`runErrorAction`に分岐追加、ボタンラベル追加)
+  - **新規IPCは作らない**: 既存の`ANTHROPIC_CONSOLE_URL`(APIキー取得リンク)と同じ`window.open()`→`control-panel-window.ts`の`setWindowOpenHandler`(`openExternalHttpOnly`)機構をそのまま再利用
+  - **⚠️ 検証中に踏んだ事故**: `real-responder.ts`を`--bundle`で検証用にバンドルした際、`@anthropic-ai/sdk`を素朴にインライン化すると**テスト側と別クラスインスタンスになり`instanceof`判定が全滅する**(SDKの二重バンドル問題)。`--external:@anthropic-ai/sdk`でテスト側と同一インスタンスを共有させて解決。実際の`Anthropic.APIError.generate()`で実測どおりの形のエラーオブジェクトを生成してテストできた
+  - **検証**: typecheck/build通過。**オフスクリーン11件**(credit-balance detection 8=実SDKクラスで実測ケース検出/将来のbilling_error型検出/無関係な400への誤検出防止/未知の言い回しでの正常フォールバック/401等への退行なし、regression 3=mock通常送信+issue #15交互ターン修正への影響なし2件)
+  - **reviewer 1周で0件確定**(初回チェックで指摘なし)
+  - **未検証(ユーザー確認)**: 実際にクレジット残高不足の状態で送信し、「課金ページを開く」ボタンが表示・機能するかはGUI必須で未検証
+- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)、`displaySize`範囲の不一致解消(未決事項C6)、Google Fonts同梱化(未決事項C2)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

@@ -86,6 +86,9 @@ export const API_KEY_STEPS: readonly string[] = [
 /** 上の手順で開く先。**アプリ内では開かず**、既存の setWindowOpenHandler 経由で外部ブラウザへ渡す。 */
 export const ANTHROPIC_CONSOLE_URL = 'https://console.anthropic.com/settings/keys';
 
+/** クレジット残高不足のエラー(issue #16)で開く先。上と同じ機構(setWindowOpenHandler)で外部ブラウザへ渡す。 */
+export const ANTHROPIC_BILLING_URL = 'https://console.anthropic.com/settings/billing';
+
 export const RESPONSE_MODELS: readonly ResponseModel[] = [
   { id: 'claude-opus-4-8', label: 'Opus 4.8' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
