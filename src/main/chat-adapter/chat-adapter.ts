@@ -212,6 +212,20 @@ export class ChatAdapter {
         this.turns.push({ role: 'user', content: trimmed });
       }
     } else {
+      // **(issue #15で発見)** 直前の送信が失敗/中断して assistant ターンが積まれないまま
+      // 終わっていると、末尾は user のまま残っている。ここで無条件に user を積むと
+      // user・user の連続ターンになり、Anthropic Messages APIの「user/assistantは交互」
+      // という制約に反して 400 になる(しかも一度この状態に陥ると /clear するまで
+      // **以降の送信も全部 400 になり続ける**、原因が分かりにくい壊れ方をする)。
+      // 直前が未回答の user ターンなら、新しい発話で置き換える(pop)。
+      // **これは「表示専用の行を最初から積まない」(system/error行)とは性質が異なる**:
+      // ここでpopされるのは一度は正規に積まれた実データで、失敗が確定した後にAPI側の履歴
+      // からだけ取り消す。画面(chatMessages)は変更しないため、古い失敗メッセージは
+      // 引き続きエラー吹き出しとして残る(会話が「つながっていない」ように見せないため)。
+      // 詳細と理由は chat-adapter-errors.md「失敗時の応答」行(issue #15)。
+      if (this.turns.at(-1)?.role === 'user') {
+        this.turns.pop();
+      }
       this.turns.push({ role: 'user', content });
     }
 
