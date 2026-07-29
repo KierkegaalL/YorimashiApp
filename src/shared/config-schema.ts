@@ -91,15 +91,16 @@ export const AppConfigSchema = z.object({
     completedAt: z.string().nullable().default(null), // ISO8601。未完了は null
   }).prefault({}),
 
-  notion: z.object({
-    connected: z.boolean().default(false),
-    requirementsPageId: z.string().nullable().default(null),
-  }).prefault({}),
-
-  obsidian: z.object({
-    vaultPath: z.string().nullable().default(null),
-    syncMode: z.enum(['none', 'icloud', 'git', 'obsidian-sync']).default('none'),
-  }).prefault({}),
+  // notion / obsidian セクションは **意図的に持たない**(要件定義書10章スコープ外・C-25)。
+  // 初回スキャフォールド以来フィールドだけが存在し、対応するFR・実装・UIが一切無かったため、
+  // 未決事項C0の決着(2026-07-29)として削除した。実体の無い設定をconfigに残さない
+  // (constraints.md「アプリが自分の状態について嘘をつかない」)。将来必要になったら
+  // FRを定義してから足す。**なおこれは開発ハーネス側のObsidian Vault利用とは無関係**
+  // (constraints.md「ハーネスのObsidian ≠ アプリのObsidian連携機能」)。
+  //
+  // 既存 config.json にこれらのキーが残っていても、Zod は既定で未知キーを破棄するため
+  // 読み込みは失敗せず、ConfigStore.load() の正規化書き戻しでディスクからも消える。
+  // よって schemaVersion は 1 のままでよい(マイグレーション不要)。
 
   logging: z.object({
     level: z.enum(['debug', 'info', 'warn', 'error']).default('debug'),

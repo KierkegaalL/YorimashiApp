@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-28（棚卸し実施）
+**最終更新**: 2026-07-29（未決事項C0決着。**未決事項は全件解消**）
 
 ## 現在地
 
@@ -26,7 +26,7 @@
   - **コミット後、ユーザー依頼で改めて実装後チェックループを実行（2026-07-18・本チェックループ自体は未コミット）**: 指摘1件(`control-panel.jsx`の応答モデル循環ロジックが`/model`コマンドと入力欄フッターの2箇所に重複)→`cycleResponseModel()`に共通化して修正。加えて**未決着の論点2件を新規検出**: (1)折りたたみリサイズをmacOSネイティブアニメーション付きにするか(`setBounds()`/`setSize()`とも`animate`引数を取れるが、所要時間はOS依存でモックアップの0.25sと一致するかは未実測)、(2)Control Panelウィンドウの`resizable`/`minimumSize`が未定義(手動リサイズで976/576px前提のレイアウトが崩れうる)。**推測で決めず**、chat-pane.md実装TODOに要決着として追記。ユーザーへ報告済み
 - **APIキー取得の案内を追加（2026-07-18・ユーザー指摘）**。「Anthropic APIキーを手動入力させるのは難しいのでは」との懸念に対し、**OAuthサインインは選択肢にならない**(AnthropicはMessages APIへの第三者アプリ向け公開OAuth連携を提供しておらず、Claude Code CLIのアカウントログインは公式ツール専用の内部機構)ことを確認した上で、摩擦を減らす方向で対応。モード設定タブのAPIキー欄に、取得手順(4ステップ)+「console.anthropic.com を開く」ボタンを常設。外部サイトへの遷移は`src/main/index.ts`の既存`setWindowOpenHandler`(`window.open()`を捕まえ`shell.openExternal()`へリダイレクト)に乗せる想定とし、専用IPCは前提としない。`docs/mockups/control-panel.jsx`(`API_KEY_STEPS`)+ detailed-design(chat-adapter-errors.md 論点5)に反映済み。**Notion要件定義書は未変更**(FR-3の既存記述と矛盾しないUI/実装詳細レベルの追加と判断)
   - **reviewerチェックループ**: 1周目で指摘4件。うち重大1件(「Live2D公式サイト・7.3外部動画生成AIサービスへの導線にも共通適用する」という一般化が、7.3の「特定ベンダー非依存」方針・Live2Dランタイムが開発者用ビルド時アセットである実態と矛盾。存在しないボタンを既定路線扱いしていた)、中3件(既存`setWindowOpenHandler`実装を踏まえず専用IPC新設を前提にしていた、論点1の401事後対応との関係が未記載、対応する実装TODO欠落)。**論点5をAPIキーボタンのみに限定**し、7.3・Live2Dへの拡張は「別途検討・勝手に広げない」と明記して修正。すべて修正しTODOにも反映済み
-- **未決事項は1件（C0のみ）**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。**C2は2026-07-28に決着**。**C1・C3・C4・C5・C8は2026-07-28の棚卸しで実装済みと判明し決着記録**）
+- **未決事項は0件（すべて決着）**（A1・A2・B1〜B6は解消済み。**A2は完了**。**C7は2026-07-18に決着**。**C6は2026-07-27に決着**。**C2は2026-07-28に決着**。**C1・C3・C4・C5・C8は2026-07-28の棚卸しで実装済みと判明し決着記録**。**C0は2026-07-29に決着**＝Notion/Obsidian連携をv1スコープ外として削除）
 - **A2完了（2026-07-18）**: `dev-assets/live2d/` に pixi-live2d-display 公式サンプルを配置した（`shizuku/`=Cubism2.1 / `haru/`=Cubism4、公式サンプルDLをユーザー承認済み）。整合を確認（moc/moc3マジックバイト、**列挙構造の検証に必要な**定義ファイル＝model3.json/model.json・moc/moc3・motion・expression・texture の実在）。ただし**音声(`Sound`/`sounds/*.mp3`)と`DisplayInfo`(`haru...cdi3.json`)は欠落**（公式サンプル自体が参照だけ持ち実体を同梱せず、Haruは`Sound`が兄弟フォルダ`../shizuku/sounds/`を相対参照する箇所すらある）。**v1は音声機能を使わず、`pixi-live2d-display`も音声失敗を`logger.warn`で握りつぶす**ため実害なし。`dev-assets/`は`.gitignore`対象（`git ls-files`はREADME.mdのみ）
   - **GUI不要の実測を実施し、2つの詳細設計の「未検証」マーカーを解消**（reviewer チェックループ指摘0件で完了）:
     - **model-mapping-ui.md 論点2/列挙元**: Cubism2/4の列挙構造の表を実モデルで確認済みに更新。**実装差分**: 表情の`Name`(cubism2は`name`)はファイル名と不一致（Haru `Name:"f00"→F01.exp3.json`）／モーショングループ名の命名規則は一定でない（公式サンプルはHaru=PascalCase `Idle`・Shizuku=snake_case `tap_body`だったが、これはモデル作者の慣習でCubism仕様がバージョンごとに強制するものではない。n=1×2。ハードコードせず`normalize()`で吸収）
@@ -69,17 +69,17 @@
 - **Vaultは正本ではない。** 境界は「cloneした他人が実装に必要か」。必要ならrepo、無くても実装できるならVault
 - `開発/計測/` に本セッションの実測8件（下記「実測して確定した主な事項」の生データと再現手順）
 - Obsidian MCP（`mcp-obsidian`）は本プロジェクトに `local` スコープで接続済み。**Obsidianアプリ起動中のみ有効**
-- **⚠️ ハーネスのObsidian ≠ アプリの `config.obsidian`**（未決事項C0）
+- **⚠️ ハーネスのObsidian ≠ アプリのObsidian連携機能**。かつて存在した `config.obsidian` は**未決事項C0の決着（2026-07-29）でv1スコープ外＝削除済み**（C-25）だが、**混同の危険自体は今も有効**（将来FRとして復活させる場合も同じ取り違えが起きうる）。constraints.md「ハーネス運用に関する注意」参照
 
-## 未決事項（1件）
+## 未決事項（0件・すべて決着）
 
-A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。残るのはC0のみ（**C7は2026-07-18に決着**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27に決着**＝`displaySize`範囲、**C2は2026-07-28に決着**＝フォントのローカル同梱、**C1・C3・C4・C5・C8は2026-07-28の棚卸しで実装済み判明・決着記録**。いずれも上記参照）。**実装着手をブロックする未決事項は無くなった**。
+A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照）。**C0〜C8はすべて決着した**（**C7は2026-07-18**＝C-24採用・`controlPanelCollapsed`追加、**C6は2026-07-27**＝`displaySize`範囲、**C2は2026-07-28**＝フォントのローカル同梱、**C1・C3・C4・C5・C8は2026-07-28の棚卸しで実装済み判明**、**C0は2026-07-29**＝Notion/Obsidian連携をv1スコープ外として削除。いずれも上記参照）。
 
 ### 優先度C — 該当機能の実装時に併せて
 
 | # | 内容 | 契機 |
 |---|---|---|
-| C0 | **`config.obsidian`（`vaultPath`/`syncMode`）と `config.notion` に対応するFRが無い**。configにだけ存在し、FR-1〜FR-15のどれにも紐づいていない。要件側の定義が要る | 要Notion確認 |
+| ~~C0~~ | ~~`config.obsidian`（`vaultPath`/`syncMode`）と `config.notion` に対応するFRが無い~~ **決着済み(2026-07-29)**。ユーザー判断で**v1スコープ外として削除**。Notion正本(要件定義書 C-25・10章スコープ外・8章のプライバシー2行削除／基本設計書 6.1)→各ミラー(`docs/requirements.md`・`docs/basic-design.md`)→`docs/data.md` 1章→`config-schema.ts`の順で反映。`schemaVersion`は1のまま（Zodが未知キーを破棄するため既存config.jsonは破損扱いにならないことを実測確認）。詳細は下記「実装フェーズの進捗」参照 | 解消済み |
 | ~~C1~~ | ~~権利情報タブのOSS一覧に`sharp`/`libvips`追加~~ **決着済み(2026-07-28棚卸しで判明)**。`sharp@0.35.3`は既に`package.json`の`dependencies`。`src/shared/oss-licenses.ts`の`generate:licenses`自動走査で`sharp`(MIT)・`@img/sharp-darwin-arm64`(Apache-2.0)・`@img/sharp-libvips-darwin-arm64`(LGPL-3.0-or-later)がすでに反映済みで、`RightsTab.tsx`が動的レンダリングしている。手動追加は不要だった | 解消済み |
 | ~~C2~~ | ~~フォントをGoogle Fontsの`@import`からローカル同梱へ~~ **決着済み(2026-07-28)**。`@fontsource/zen-antique`・`@fontsource/m-plus-1-code`・`@fontsource/jetbrains-mono`(v5.3.0・OFL-1.1)をインストールし`src/renderer/control-panel/src/fonts.css`で読み込み(`main.tsx`でimport)。character側はカスタムフォントを使わないため対象外(grep確認済み)。詳細は下記「実装フェーズの進捗」参照 | 解消済み |
 | ~~C3~~ | ~~Rendererの読み込み元を`http://localhost:8765`へ移行~~ **決着済み(#4で実装・2026-07-28棚卸しで判明)**。`character-window.ts`のprod時`loadURL('http://127.0.0.1:<port>/character')`、`control-panel-window.ts`のprod時`loadURL('http://127.0.0.1:<port>/panel')`で実装済み(`file://`は不使用。サーバー未起動時のみ可用性NFR用に`loadFile`へフォールバックする設計は意図通り) | 解消済み |
@@ -383,7 +383,15 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
     3. Memory.mdの未決事項一覧にC2が残ったまま→本エントリで決着済みに更新(7件→6件)
     4. unicode-rangeチャンク分割のトレードオフ説明がコード側に残らない→本エントリに実測結果を記録(fonts.cssのコメントにも要点を記載済み)
   - **検証**: `npm run typecheck`(node/web)・`npm run build`成功(`out/renderer/assets/`にfontsource由来アセットが正しく出力されることを確認)。GUI上での実際のフォント描画確認はElectronのGUIがサンドボックスから起動できないため未実施(ユーザー確認待ち)
-- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6決着 + 未決事項C2決着 まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 未決事項C0決着: Notion/Obsidian連携をv1スコープ外として削除(C-25)** — `config.notion`(`connected`/`requirementsPageId`)と`config.obsidian`(`vaultPath`/`syncMode`)は**初回スキャフォールドコミット`f74295f`由来**で(`git log -S`で確認。C6の`displaySize`と同じ「決定根拠の記録が無い」パターン)、コード・UI・FRのいずれからも参照されていなかった。ユーザー判断で**削除**を採用（実体の無い設定をconfigに残さない=constraints.md「嘘をつかない」）
+  - **反映順序(CLAUDE.md原則2どおり Notion先行)**: Notion要件定義書 → `docs/requirements.md` → Notion基本設計書 → `docs/basic-design.md` 6.1 → `docs/data.md` 1章 → `src/shared/config-schema.ts`。
+    - **⚠️ 途中で原則2違反をやりかけて自己検出した**: 要件定義書はNotion先行で正しく更新したが、**基本設計書はNotion側を更新せずミラー(`docs/basic-design.md` 6.1)だけ先に書き換えていた**。reviewer 1周目の指摘(basic-design.mdの更新日ヘッダ未更新)を直す過程で気づき、Notion基本設計書へ同じ変更を反映して整合させた。**正本が2つある(要件定義書・基本設計書)ときは両方について先行更新が要る**。片方だけ意識していると漏れるNotion側の変更は4箇所（**8章のプライバシー2行を削除**「Notion連携はドキュメント内容のみ送信」「Obsidian連携はローカルVaultのみ」＝実体の無い機能に対する制約だけが残っていた／**10章スコープ外へ明記**／**C-25を確定事項サマリーに追加**／更新日）
+  - **⚠️ 副次的に発見・修正したNotion正本の不整合**: Notion本文に **4.8 FR-8・4.9 FR-9 の節がまだ残っていた**。同じページのC-20と更新履歴が「2026-07-17にFR-8/FR-9を削除」と明記し、`docs/requirements.md`側でも欠番になっていたのに、**削除がNotion本文へ適用されていなかった**。C0とは独立した明白な不整合のため合わせて削除した（CLAUDE.md原則2「正本自体が古くなることがある」の実例が再発していた）
+  - **schemaVersionは1のまま**: Zodは既定で未知キーを破棄するため、旧フィールドを含む既存config.jsonでも破損扱いにならず、`ConfigStore.load()`の正規化書き戻しでディスクからも自然に消える。**推測せず実測で確認**（オフスクリーン16/16: 旧フィールド入りconfigが`.corrupt-*`退避されないこと・メモリ/ディスク双方から旧フィールドが消えること・**APIキー等の他フィールドが巻き添えで消えないこと**・新規作成config.jsonに混入しないこと・`createDefaultConfig()`の戻り値・退行が無いこと）
+  - **検証の過程で自分のテストの誤りを検出**: 最初のフィクスチャを手書きの最小JSONで作ったため、`activeAdapter`（既定値を持たない必須フィールド）の欠落で**C0とは無関係な理由**でZodErrorになっていた。`createDefaultConfig()`の実物に旧フィールドを足す形へ作り直して解消（手書きフィクスチャは検証対象以外の理由で落ちる、の実例）
+  - **対称性**: configスキーマのトップレベルセクション削除であり、Live2D/スプライトセットのどちらの分岐にも触れない（`notion`/`obsidian`はモデル形式と無関係。grep確認済み）
+  - **検証**: `npm run typecheck`(node/web)・`npm run build`通過。`src/shared/oss-licenses.ts`に差分なし（依存を増減していないため）
+- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6・C2・C0決着 + 未決事項の全件棚卸し まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
