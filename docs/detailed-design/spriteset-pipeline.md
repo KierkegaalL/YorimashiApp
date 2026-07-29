@@ -173,7 +173,7 @@ libvipsがLGPL-3.0-or-laterである点に注意。LGPLは利用者による差�
 - [x] FR-12の権利情報タブにsharp / libvipsのライセンスを追加 → `scripts/generate-oss-licenses.mjs` が**インストール済み `optionalDependencies`** も辿るよう修正し、`sharp`(Apache-2.0)/ `@img/sharp-darwin-arm64`(Apache-2.0)/ `@img/sharp-libvips-darwin-arm64`(**LGPL-3.0-or-later**)を自動収集(`src/shared/oss-licenses.ts`)。libvips**本体**のソース開示・全文表示は配布NOTICE段階(論点4)
 - [x] 取り込み時バリデーション → **訂正②により方針変更**。H.265 も実測で対応していたため、**コーデック名によるハードコードの拒否リストは持たない**。`src/shared/spriteset/video-codec.ts` は「実際に読み込めなかったとき」の説明文言だけを持ち、判定は `decode-video.ts` が実地の読み込み結果で行う
 - [ ] 境界連結判定の色距離閾値・膨張量のチューニング(要件定義書「未確定事項」)→ アルゴリズムは実装済み(`src/shared/spriteset/color-key.ts`)。既定値(CHROMA_GREEN / 距離80 / 膨張1)は暫定で、実素材でのチューニングは残タスク
-- [ ] basic-design.md 9章「内部の白(髪飾り等)を保護」の記述をNotion正本側で確認・修正(自動生成では解消しない正本の文言修正)
+- [x] basic-design.md 9章「内部の白(髪飾り等)を保護」の記述をNotion正本側で確認・修正 → **確認の結果すでに解消済み**。2026-07-17のコミット(8926625)でNotion基本設計書・`docs/basic-design.md` 9章とも「内部のグリーン系の画素(緑の髪飾り・瞳のハイライト等)を保護」へ修正されており、`src/shared/spriteset/color-key.ts`の実装コメントとも一致している。このTODOのチェックだけが更新漏れだった
 - [ ] universal build(darwin-x64同梱)の要否判断 → 配布フェーズ。なおライセンス生成は**実行プラットフォームぶんのバイナリのみ**収集する(未インストールのx64は自動的に一覧から落ちる)ため、universal化する場合はその環境で再生成が要る
 
 ### 第2段階b-2(2026-07-22 実装済み)

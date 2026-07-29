@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-29（未決事項C0決着。**未決事項は全件解消**）
+**最終更新**: 2026-07-29（詳細設計TODOチェックリストの棚卸し完了。既存実装との整合を確認・記録）
 
 ## 現在地
 
@@ -391,7 +391,12 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **検証の過程で自分のテストの誤りを検出**: 最初のフィクスチャを手書きの最小JSONで作ったため、`activeAdapter`（既定値を持たない必須フィールド）の欠落で**C0とは無関係な理由**でZodErrorになっていた。`createDefaultConfig()`の実物に旧フィールドを足す形へ作り直して解消（手書きフィクスチャは検証対象以外の理由で落ちる、の実例）
   - **対称性**: configスキーマのトップレベルセクション削除であり、Live2D/スプライトセットのどちらの分岐にも触れない（`notion`/`obsidian`はモデル形式と無関係。grep確認済み）
   - **検証**: `npm run typecheck`(node/web)・`npm run build`通過。`src/shared/oss-licenses.ts`に差分なし（依存を増減していないため）
-- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6・C2・C0決着 + 未決事項の全件棚卸し まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 詳細設計TODOチェックリストの棚卸し(2026-07-29)** — C0決着後に残タスクを整理した際、`grep -rn "^\- \[ \]" docs/detailed-design/*.md`で洗い出した未チェック15件のうち「すぐ着手できる」と分類した3件を調査した結果、**いずれも実装は既に完了済みで、チェックリストの更新漏れだけ**だったと判明。
+  1. `spriteset-pipeline.md`「basic-design.md 9章『内部の白(髪飾り等)を保護』の記述修正」→ 2026-07-17のコミット`8926625`で**Notion基本設計書・`docs/basic-design.md`とも既に**「内部のグリーン系の画素(緑の髪飾り・瞳のハイライト等)を保護」へ修正済み(`src/shared/spriteset/color-key.ts`の実装コメントとも一致)。チェックのみ更新
+  2. `model-mapping-ui.md`「モックアップの`EMOTION_STATES`を`src/shared/emotions.ts`へ寄せ、プロンプト文言は別テーブルへ分離」→ `SpritesetAddFlow.tsx`(第2段階b-2で実装済み)が`EMOTION_STATES`を`shared/emotions.ts`から直接import、プロンプト/ラベルは`src/shared/spriteset/clip-prompts.ts`の`CLIP_PROMPTS`へ分離済み。チェックのみ更新
+  3. `emotion-classification.md`「chat-adapter-errors.mdの`panic`(APIエラー起点)と辞書側`panic`の役割重複を突き合わせる」→ `src/main/chat-adapter/chat-adapter.ts`の`sendMessage`を確認し、`classify()`(辞書側。応答**内容**からの分類)は成功パスのみで呼ばれ、`catch`節(通信/APIエラー)は`classify`を呼ばず`finalReaction='panic'`を直接セットする**排他的な分岐**であることを確認。重複なしと結論、チェックのみ更新
+  - 3件とも対称性チェック済み: いずれもスプライトセット生成パイプライン固有・Live2Dに対応物を持たない正当な非対称(各ファイルに既存の非対称説明あり)。コード変更は無いため`reviewer`チェックループは実施していない(純粋なドキュメント整合確認のため)
+- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6・C2・C0決着 + 未決事項の全件棚卸し + 詳細設計TODOチェックリストの棚卸し(3件) まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)+ 否定スキャン窓・辞書育成(実会話ログ待ち)+ 境界連結の色距離閾値/膨張量チューニング(実素材待ち)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

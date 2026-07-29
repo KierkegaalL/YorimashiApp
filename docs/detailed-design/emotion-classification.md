@@ -166,4 +166,4 @@ Haiku分類には**応答完了後に追加の往復が入る**ため、リア�
 - [x] **(実装済み・2026-07-20 / #8)** `KEYWORDS`は`src/shared/`に置き、Mood/Reactionの定義(`emotions.ts`)とは別ファイルにする(分類はChat Adapter固有で、Code Adapterは使わない) → `src/shared/emotion-classification.ts`。本文の検証表11件を再現するテストを書き、**設計どおりの挙動(既知NGの「否定がスキャン窓の外」を含む)であることを確認済み**。同点決着に使う優先度は`emotions.ts`の`REACTION_PRIORITY`をEmotionEngineと共有する(順序が二重定義にならないよう単一の情報源にした)
 - [ ] 否定スキャン窓(暫定10文字)の実使用でのチューニング
 - [ ] 辞書は実際の会話ログを見ながら育てる。初期辞書は最小限で始め、憶測で語を増やさない
-- [ ] chat-adapter-errors.mdで`panic`のAPIエラー起点を確定させ、本ドキュメントの辞書側`panic`と役割が重複しないか突き合わせる
+- [x] chat-adapter-errors.mdで`panic`のAPIエラー起点を確定させ、本ドキュメントの辞書側`panic`と役割が重複しないか突き合わせる → **突き合わせ済み・重複なし**。`src/main/chat-adapter/chat-adapter.ts`の`sendMessage`(370-412行)を確認すると、`classify(received)`(辞書側`panic`。致命的/クラッシュ/緊急/データが失われ等、**応答本文の内容**から判定)は成功パス(371行目)でのみ呼ばれ、`RealChatError`等の例外を捕捉する`catch`節(390-411行目)では`classify`を一切呼ばずに`finalReaction = 'panic'`を直接セットする(**通信・APIエラー起点**)。両者は同じ`sendMessage`呼び出し中に片方しか実行され得ない排他的な分岐であり(成功時のみ分類、例外時は直接trigger)、構造的に重複しない
