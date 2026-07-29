@@ -41,6 +41,13 @@ export class SpriteSetRenderer implements CharacterRenderer {
   private layers: [HTMLImageElement, HTMLImageElement] | null = null;
   private activeLayer: 0 | 1 = 0;
   private currentState: EmotionState | null = null;
+  /**
+   * mount()前にsetState()が呼ばれた場合の保留状態。Live2DRendererはモデル未ロードでも
+   * currentStateを更新しロード後に反映する(対称な契約=「setStateされた状態を保持し、
+   * 表示可能になり次第反映する」)。現行の呼び出し順(useCharacterScene.tsはmount()後に
+   * WS購読を始める)ではmount前にsetStateが呼ばれることは無いが、契約を対称にしておく。
+   */
+  private pendingState: EmotionState | null = null;
   /** clip.file → オブジェクトURL。取得済みは再利用し、destroyでまとめてrevokeする。 */
   private readonly objectUrls = new Map<string, string>();
   /** 最新の切替要求だけを反映するためのシーケンス番号(遅い読込が新しい表示を上書きしないように)。 */
@@ -60,15 +67,22 @@ export class SpriteSetRenderer implements CharacterRenderer {
     container.appendChild(layerA);
     container.appendChild(layerB);
     this.layers = [layerA, layerB];
-    // 初期状態は idle(C-18)。初回はクロスフェード無しで即表示する。
-    this.setState(FALLBACK_STATE, { crossfadeMs: 0 });
+    // 初期状態はmount前の保留要求があればそれ、無ければidle(C-18)。初回はクロスフェード無しで即表示する。
+    const initial = this.pendingState ?? FALLBACK_STATE;
+    this.pendingState = null;
+    this.setState(initial, { crossfadeMs: 0 });
   }
 
   setState(stateKey: string, opts?: SetStateOptions): void {
-    if (!this.layers || this.destroyed) {
+    if (this.destroyed) {
       return;
     }
     const state = toEmotionState(stateKey);
+    if (!this.layers) {
+      // mount前: 保留して mount() 時に反映する(上記フィールド注記参照)。
+      this.pendingState = state;
+      return;
+    }
     if (state === this.currentState) {
       return; // 同一状態への再指定は無視(WSは変化時のみ来るが防御的に)
     }

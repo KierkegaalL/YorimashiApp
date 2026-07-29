@@ -44,8 +44,13 @@ export interface CodeSettingsPatch {
 
 // ── 検証の単一の情報源(Main の受理と Renderer の入力チェックで同じ規則を使う) ──────────
 
-/** TCPポート番号の下限(1)。0 は「任意の空きポート」を意味しOSが割り当てるため設定値としては拒否する。 */
-export const SERVER_PORT_MIN = 1;
+/**
+ * TCPポート番号の下限(1024)。0 は「任意の空きポート」を意味しOSが割り当てるため設定値としては拒否する。
+ * 1〜1023(well-known)はmacOSで非root権限でのバインドが失敗する(EACCES)。local-server.tsの
+ * ポート競合フォールバック(`start()`)はEADDRINUSEしか次ポートへ継続しないため、この範囲を
+ * UI側で許容すると起動失敗がフォールバックされず表面化する。よって入口(検証)で拒否する。
+ */
+export const SERVER_PORT_MIN = 1024;
 /** TCPポート番号の上限(65535)。 */
 export const SERVER_PORT_MAX = 65535;
 /** 連続失敗しきい値の下限(1)。0 だと「0回失敗で tired」になり無意味なため拒否する。 */

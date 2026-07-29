@@ -106,5 +106,8 @@ export function buildDispatchScript(dataDir: string): string {
   // シングルクォート内に埋めるため、`'` を安全に閉じ直す形へエスケープする
   // (パスに `'` を含むディレクトリ名は実在しうる)。
   const escaped = dataDir.replace(/'/g, `'\\''`);
-  return DISPATCH_SCRIPT_TEMPLATE.replace(DATA_DIR_PLACEHOLDER, escaped);
+  // 置換関数を使う(第2引数を文字列にすると `$&` `$\`` `$'` `$$` が特殊トークンとして
+  // 解釈され、dataDir に `$` が含まれる場合にスクリプトが破損しうる。実測ではなく
+  // String.prototype.replace の仕様上の既知の落とし穴)。
+  return DISPATCH_SCRIPT_TEMPLATE.replace(DATA_DIR_PLACEHOLDER, () => escaped);
 }
