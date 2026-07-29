@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-29（詳細設計TODOチェックリストの棚卸し完了。既存実装との整合を確認・記録）
+**最終更新**: 2026-07-29（アプリ全体のバグ・未実装調査を実施。バグ5件修正・reviewer 2周目で0件確認）
 
 ## 現在地
 
@@ -396,7 +396,21 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   2. `model-mapping-ui.md`「モックアップの`EMOTION_STATES`を`src/shared/emotions.ts`へ寄せ、プロンプト文言は別テーブルへ分離」→ `SpritesetAddFlow.tsx`(第2段階b-2で実装済み)が`EMOTION_STATES`を`shared/emotions.ts`から直接import、プロンプト/ラベルは`src/shared/spriteset/clip-prompts.ts`の`CLIP_PROMPTS`へ分離済み。チェックのみ更新
   3. `emotion-classification.md`「chat-adapter-errors.mdの`panic`(APIエラー起点)と辞書側`panic`の役割重複を突き合わせる」→ `src/main/chat-adapter/chat-adapter.ts`の`sendMessage`を確認し、`classify()`(辞書側。応答**内容**からの分類)は成功パスのみで呼ばれ、`catch`節(通信/APIエラー)は`classify`を呼ばず`finalReaction='panic'`を直接セットする**排他的な分岐**であることを確認。重複なしと結論、チェックのみ更新
   - 3件とも対称性チェック済み: いずれもスプライトセット生成パイプライン固有・Live2Dに対応物を持たない正当な非対称(各ファイルに既存の非対称説明あり)。コード変更は無いため`reviewer`チェックループは実施していない(純粋なドキュメント整合確認のため)
-- **次**: **第3段階(Track A/B/C)+ FR-13 + lipsync.md論点③ + Live2Dのzip取り込み + モデル名変更UI + 会話ペインの@参照/添付 + issue #15(交互ターンバグ)修正 + issue #16(クレジット残高検出)+ 未決事項C6・C2・C0決着 + 未決事項の全件棚卸し + 詳細設計TODOチェックリストの棚卸し(3件) まで完了**。残る主な実装候補: Live2Dプレビュー含む実描画のユーザー確認(Cubismランタイム未同梱で検証不可。再発火の実挙動もここに含む)+メモリ実測(200MB目安)+ 否定スキャン窓・辞書育成(実会話ログ待ち)+ 境界連結の色距離閾値/膨張量チューニング(実素材待ち)。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 アプリ全体のバグ・未実装調査(2026-07-29・ユーザー依頼)** — `src/`配下の全70ファイルを5領域(chat/code adapter+model管理・main基盤(config/local-server/logging等)・キャラクター表示Renderer・Control Panel Renderer・sharedモジュール)に分割し`reviewer`を並列起動して調査。対称性違反は0件。バグ5件を検出・修正、`reviewer`2周目で0件を確認(build-commands.mdの実装後チェックループどおり)。
+  1. `src/main/code-adapter/dispatch-script.ts`(中): `dataDir.replace(placeholder, escaped)`が`escaped`を文字列として渡していたため、パスに`$`を含む場合に`String.prototype.replace`の特殊トークン(`$&`等)解釈で生成される`dispatch.sh`が破損しうる問題。置換関数(`() => escaped`)に変更して解消
+  2. `src/shared/code-settings.ts`(軽微): `SERVER_PORT_MIN`が1のままだと1〜1023(well-known)をUIで許容してしまうが、`src/main/local-server/local-server.ts`の`start()`はEADDRINUSEしか次ポートへフォールバックせずEACCES(非root権限での特権ポートbind失敗)は素通しで例外化する。UI入口側の検証で1024へ引き上げて解消(Main/Renderer双方が同じ定数を参照するため一箇所の修正で伝播)
+  3. `src/main/index.ts`(バグ): `will-quit`のIPCハンドラteardownで、`registerModelIpc()`が登録する7件(`ModelMappingGet`/`ModelMappingSetLive2d`/`ModelMappingAutoRestore`/`ModelMappingAutoRestoreAll`/`ModelMappingDeleteClip`/`ModelMappingSetClip`/`ModelPreviewContext`)の`removeHandler`が漏れていた。他の全ハンドラと対の後始末が無い状態だったため追加(実害はアプリ終了時ではなく将来プロセス再初期化する経路が入った場合)
+  4. `src/renderer/character/renderer/Live2DRenderer.ts`(軽微・ドキュメント): `fitModel()`がリサイズイベントを購読しない理由(ウィンドウはbaseResolution×displaySizeで決まり、モデル変更時は`character-window.ts`が`setSize()`+`loadURL()`で丸ごと再読込するため実行中のコンテナリサイズ経路が現状無い)をJSDocに明記(挙動変更なし)
+  5. `src/renderer/character/renderer/SpriteSetRenderer.ts`(対称性): `setState()`がmount前(`this.layers`未生成)に呼ばれると状態を破棄しており、Live2DRendererが未ロードでも`currentState`を保持し後で反映する対称設計と食い違っていた。`pendingState`フィールドを追加し、mount前の要求を保留してmount()時に反映するよう統一(Live2DRendererと同じ契約に揃えた。現行の呼び出し順ではmount前setStateは起こらないため挙動上の実害は無かったが契約としての非対称を解消)
+  - `src/renderer/control-panel/src/ControlPanelTabs.tsx`のファイル冒頭コメントが「移植済みはログのみ」のまま陳腐化していた(実際はモード/権利情報/モデル管理も移植済み)ため実態に合わせて修正(ドキュメントの正確性の問題で、機能上のバグではない)
+  - **検証**: `npm run typecheck`(node/web)・`npm run build`とも成功
+  - **見つかったが対応しない既知ギャップ(下記リスト参照)**: Control Panelの「ホーム」「全体設定」タブが未実装(`TabPlaceholder`で正直に表示。基本設計書4.2で定義されているが実装タスクとして未着手。新規UI実装のためOpus 4.8で改めて着手すべき規模)
+- **未実装・実機確認・配布フェーズのリスト(2026-07-29調査で確認・再整理)**:
+  - **未実装(すぐ着手可能、既存ファイルへの追加なのでSonnet 5)**: Control Panel「ホーム」タブ(現在のアダプタ切替・接続状態・表示中モデルの一目確認)/「全体設定」タブ(テーマ・表示サイズ・クリックスルー・自動起動・EmotionEngineパラメータ)。いずれも`ControlPanelTabs.tsx`の`TabPlaceholder`のまま
+  - **実機確認待ち(Electron GUI必須)**: Live2Dプレビュー含む実描画・モーション再発火の実挙動確認(Cubismランタイム未同梱で検証不可)/メモリ実測(200MB目安)/オンボーディング完了演出の見た目/配色テーマ(light/dark)の画素レベル一致/クリックスルー・ドラッグ操作/折りたたみリサイズのアニメーション感
+  - **実データ・実使用待ち**: 否定スキャン窓(暫定10文字)のチューニング・辞書の実会話ログでの育成/境界連結判定の色距離閾値・膨張量のチューニング(実素材待ち)/`idleTimeoutMs`等の無通信タイムアウトのチューニング(実API使用待ち)/`MIN_VISIBLE`等の体感チューニング
+  - **配布フェーズへ意図的に先送り(現時点で対応不要)**: electron-builderの`asarUnpack`設定(sharp/@img)/universal build(darwin-x64同梱)の要否/署名・notarize設定/alpha hit-testing・`app.dock.hide()`・キャラクター非表示メニュー項目/TTS化(C-12)に伴うスプライトセットlipsync再設計
+- **次**: 上記「未実装」のControl Panel「ホーム」「全体設定」タブ実装が次の主要候補。着手時のモデル方針は依頼内容で判断(新規UI作成=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

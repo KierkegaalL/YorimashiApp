@@ -177,7 +177,19 @@ export class Live2DRenderer implements CharacterRenderer {
     }
   }
 
-  /** モデルをコンテナに収まる最大スケールで中央配置する(contain相当)。 */
+  /**
+   * モデルをコンテナに収まる最大スケールで中央配置する(contain相当)。
+   *
+   * `loadModel()`内で一度だけ呼ぶ(`app.renderer`のresizeイベントは購読しない)。
+   * ウィンドウサイズは`baseResolution × displaySize`で決まり、キャラクター表示ウィンドウは
+   * アクティブモデルが変わるたびに`character-window.ts`の`applyActiveModel()`が
+   * `setSize()`→`loadURL()`で丸ごと再読込する(=Live2DRendererごと作り直す)ため、
+   * 実行中にコンテナだけがリサイズされる経路が現状無い(対称性チェック:
+   * SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するが、これは
+   * コンテナリサイズ非対応=Live2D側の実装漏れではなく、現状そのリサイズ自体が
+   * 起こらないための対称性チェック対象外)。将来`general.displaySize`のライブ編集
+   * (再読込を伴わない動的リサイズ)を実装する場合は、ここで`resize`購読を追加すること。
+   */
   private fitModel(model: Live2DModel): void {
     if (!this.container) {
       return;

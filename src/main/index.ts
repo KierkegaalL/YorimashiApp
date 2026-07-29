@@ -991,6 +991,13 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.ModelImportLive2dArchive);
   ipcMain.removeHandler(IPC.SpritesetMakeBackgroundKey);
   ipcMain.removeHandler(IPC.SpritesetImport);
+  ipcMain.removeHandler(IPC.ModelMappingGet);
+  ipcMain.removeHandler(IPC.ModelMappingSetLive2d);
+  ipcMain.removeHandler(IPC.ModelMappingAutoRestore);
+  ipcMain.removeHandler(IPC.ModelMappingAutoRestoreAll);
+  ipcMain.removeHandler(IPC.ModelMappingDeleteClip);
+  ipcMain.removeHandler(IPC.ModelMappingSetClip);
+  ipcMain.removeHandler(IPC.ModelPreviewContext);
   modelService = null;
   if (logsChangedTimer !== null) {
     clearTimeout(logsChangedTimer);
