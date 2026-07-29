@@ -68,15 +68,9 @@ const AppConfigSchema = z.object({
     completedAt: z.string().nullable().default(null), // ISO8601。未完了はnull
   }),
 
-  notion: z.object({
-    connected: z.boolean().default(false),
-    requirementsPageId: z.string().nullable().default(null),
-  }),
-
-  obsidian: z.object({
-    vaultPath: z.string().nullable().default(null),
-    syncMode: z.enum(['none', 'icloud', 'git', 'obsidian-sync']).default('none'),
-  }),
+  // notion / obsidian セクションは意図的に持たない(要件定義書10章スコープ外・C-25。
+  // 未決事項C0の決着=2026-07-29)。対応するFR・実装・UIが無いフィールドをconfigに残さない。
+  // 既存config.jsonに残っていてもZodが未知キーを破棄するためschemaVersionは1のまま。
 
   logging: z.object({
     level: z.enum(['debug', 'info', 'warn', 'error']).default('debug'),

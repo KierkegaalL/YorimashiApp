@@ -39,34 +39,26 @@
 
 ## 現在のフェーズ
 
-**設計フェーズ。詳細設計8件はすべて確定済み。実装は未着手**（スキャフォールドのみ）。
+**実装フェーズ**（2026-07-18に`develop`ブランチを作成して着手）。詳細設計8件はすべて確定済みで、**実装前に要決着だった論点・未決事項（A/B/C系）は2026-07-29に全件決着した**。
 
 | 詳細設計 | ステータス |
 |---|---|
 | spriteset-pipeline.md | 確定 |
-| character-window.md | 確定（ウィンドウサイズの非対称のみ実装前に要決着） |
-| model-mapping-ui.md | 確定 |
+| character-window.md | 確定（ウィンドウサイズの非対称は#4で案2採用により決着） |
+| model-mapping-ui.md | 確定（「検出した不整合」1〜4もすべて決着済み） |
 | emotion-classification.md | 確定 |
 | chat-adapter-errors.md | 確定 |
-| lipsync.md | 確定 |
+| lipsync.md | 確定（持続中のモーション再発火は#5系で決着） |
 | onboarding.md | 確定 |
-| chat-pane.md | 確定（`activeAdapter`との関係・折りたたみ状態の保存先が実装前に要決着） |
+| chat-pane.md | 確定（`activeAdapter`との関係=C-24、折りたたみ状態の保存先=`config.general.controlPanelCollapsed`ともに決着） |
 
-実装済みのコード:
-
-- `src/shared/emotions.ts` — 全10状態の定義
-- `src/shared/config-schema.ts` — config.jsonのZodスキーマ
-- `src/main/index.ts` — Control Panelウィンドウのみ生成（キャラクターウィンドウは未接続）
-- `src/preload/index.ts` — contextBridge
-- `src/renderer/{character,control-panel}/` — プレースホルダ
-
-**次の作業**: 未決事項（10件）の解消 → 実装着手。一覧と優先度は [Memory.md](../../Memory.md) を参照。
+**進捗の詳細（どの機能がどこまで実装済みか、実測で確定した事項、残タスク）は [Memory.md](../../Memory.md) を単一の情報源とする。** 本ファイルに実装状況の一覧を複製すると必ず陳腐化するため、ここには置かない（過去に「実装は未着手」という記述が実態と乖離したまま残った）。
 
 ## 参照ドキュメント
 
 | ファイル | 内容 |
 |---|---|
-| `docs/requirements.md` | 要件定義書のミラー（FR-1〜FR-15（FR-8/9欠番）、非機能、セキュリティ、権利、確定事項C-01〜C-24） |
+| `docs/requirements.md` | 要件定義書のミラー（FR-1〜FR-15（FR-8/9欠番）、非機能、セキュリティ、権利、確定事項C-01〜C-25） |
 | `docs/basic-design.md` | 基本設計書のミラー（システム構成、コンポーネント、データ、外部IF） |
 | `docs/data.md` | config.jsonスキーマ全体、manifest.json、ディレクトリ構成 |
 | `docs/api.md` | ローカルサーバーAPI、hooks連携イベント対応表 |

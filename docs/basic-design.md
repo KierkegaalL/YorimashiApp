@@ -1,7 +1,7 @@
 # ヨリマシ.app 基本設計書
 
 > 本ファイルはNotionの基本設計書のミラーです。**Notionが正本**。要件定義書(WHAT)と詳細設計書(HOW: 実装レベル)の間を橋渡しする文書。
-> 作成日: 2026-07-16 / 更新日: 2026-07-27(未決事項C6決着。`general.displaySize`の有効範囲をモックアップのスライダーと一致させ0.2〜1.0へ変更) / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
+> 作成日: 2026-07-16 / 更新日: 2026-07-29(未決事項C0決着。6.1のconfigスキーマから`notion`/`obsidian`セクションを削除＝v1スコープ外・C-25)。2026-07-27: 未決事項C6決着。`general.displaySize`の有効範囲をモックアップのスライダーと一致させ0.2〜1.0へ変更 / 対象: FR-1〜FR-15(FR-8/FR-9は欠番)、非機能要件・セキュリティ要件を含む
 
 ## 1. 本書の位置づけ・対象範囲
 
@@ -171,14 +171,7 @@ const AppConfigSchema = z.object({
     completed: z.boolean().default(false), // FR-14。falseの間だけ初回起動フローを表示する。スキップ完了もtrue
     completedAt: z.string().nullable().default(null), // ISO8601。未完了はnull
   }),
-  notion: z.object({
-    connected: z.boolean().default(false),
-    requirementsPageId: z.string().nullable().default(null),
-  }),
-  obsidian: z.object({
-    vaultPath: z.string().nullable().default(null),
-    syncMode: z.enum(['none', 'icloud', 'git', 'obsidian-sync']).default('none'),
-  }),
+  // notion / obsidian は意図的に持たない(要件定義書10章スコープ外・C-25。未決事項C0の決着)
   logging: z.object({
     level: z.enum(['debug','info','warn','error']).default('debug'),
     hookEventLogPath: z.string().default('logs/hook-events.jsonl'),
