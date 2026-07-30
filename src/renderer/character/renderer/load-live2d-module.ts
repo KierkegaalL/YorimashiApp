@@ -18,32 +18,44 @@
  * これにより、cubism4専用モデルしか使わない開発者は`live2dcubismcore.min.js`だけを配置すればよく、
  * cubism2の`live2d.min.js`は不要になる(その逆も同様)。
  *
- * **⚠️ Cubism Coreの`drawables.renderOrders`→`drawOrders`リネーム対応(2026-07-30・実機検証で判明)**:
+ * **⚠️ Cubism Coreの`drawables.renderOrders`→`drawOrders`リネーム対応、および最終的な正しい修正
+ * (2026-07-30・実機検証で判明・複数回の訂正を経て決着)**:
  * `pixi-live2d-display@0.4.0`の`CubismModel.getDrawableRenderOrders()`は
  * `this._model.drawables.renderOrders`を読むが、**最新のCubism Core(公式サイトから新規取得した
- * バージョン6.0.1で実機確認)ではこのプロパティ名が`drawOrders`に変わっている**(実際にCoreへ
- * `Core.Model.fromMoc(moc)`した戻り値のキー一覧を列挙して確認した。`renderOrders`はどこにも存在しない)。
- * 結果`renderOrders`が`undefined`のまま`doDrawModel()`の`renderOrder[0]`アクセスで
+ * バージョン6.0.1で実機確認)ではこのプロパティが存在しない**(実際にCoreへ
+ * `Core.Model.fromMoc(moc)`した戻り値のキー一覧を列挙して確認した)。結果`renderOrders`が
+ * `undefined`のまま`doDrawModel()`の`renderOrder[0]`アクセスで
  * `TypeError: Cannot read properties of undefined`となり、モデルが一切描画されなかった
  * (エラーは起きず`ready`にはなる=設定・moc3・テクスチャの取得自体は全部成功しているため気づきにくい)。
  *
- * **単純なリネームではなく意味も変わっていた(続報・実機検証)**: `renderOrders`へフォールバック
- * するだけの初回修正では「1パーツしか描画されない」症状が残った。`doDrawModel()`(公式Cubism
- * Native SDKのアルゴリズムをそのまま移植)は`this._sortedDrawableIndexList[order] = i`という、
- * **`order`の値をそのまま配列の添字として使う**実装で、`order`が`0`〜`drawableCount-1`の
- * **連番の並び替え**であることを前提にしている。しかし実際に取得した`drawOrders`の値は
- * `200, 300, 500, ..., 1000`のような**まばらな大きな数値**(Cubism Editorのレイヤー順のような
- * Z値)で、連番ではなかった。そのまま添字に使うと大半のdrawableが`_sortedDrawableIndexList`の
- * 対象範囲外に書き込まれ、描画ループが実質的に1件のdrawableだけを指し続けることになり
- * 「1パーツしか描画されない」症状と一致した(`computeRankFromDrawOrders`で実際に0〜82の
- * 完全な並び替えになることを検証済み)。よって`drawOrders`を使う場合は**値でソートして
- * 順位(0〜N-1)へ変換してから**返す。`renderOrders`が生きていれば従来どおりそのまま使う
- * (既に連番の並び替えとして提供されるため変換不要)。
+ * **迷走した経緯(自戒として残す)**: `drawables`には代わりに`drawOrders`という配列があり、これは
+ * Cubism Editorの「描画順」欄と同じ**まばらなZ値**(`200, 300, ..., 1000`等。同値=タイが多数ある)
+ * で、`doDrawModel()`が前提とする「`0`〜`drawableCount-1`の連番」ではなかった。ここで**2段階の
+ * 誤った修正を経てしまった**: ①`drawOrders`を値でソートして順位へ変換する対応(連番化はできるが
+ * タイの同点判定が必要になる)、②タイの同点判定に`parentPartIndices`(Cubism Partツリー上の
+ * インデックス)を使う対応(実機の瞳/白目の重なり順バグは直ったが、**別の実機モデル
+ * (`hiyori_pro_t11`)で口がリボン/顔パーツに覆われて表示されない新たなバグを引き起こした**。
+ * 三角形レベルのラスタライズ検証で「口の全領域がリボンの三角形と100%重なり、かつ現在の順位では
+ * リボンが口より後=手前に描画される」ことを実証した上で、`parentPartIndices`の大小関係が
+ * 瞳/白目の組では偶然正しかっただけで、口/リボンの組では逆に効くこと(=Part一覧の並び順は
+ * Cubism Editor上の作成順に過ぎず、意味のある前後関係のシグナルではないこと)を確認した)。
  *
- * `CubismModel.prototype.getDrawableRenderOrders`を上書きし、`renderOrders`が無ければ
- * `drawOrders`から計算した順位配列へフォールバックする。**cubism2には対応物が無い**
- * (`CubismModel`クラス自体がCubism4専用のCore実装ラッパーで、cubism2.es.jsはこのクラスを
- * 持たない=exportsにも無い。よってこのパッチはcubism4限定で正当な非対称)。
+ * **正しい修正**: Cubism Coreの生JSソース(`live2dcubismcore.min.js`)を`grep`で読み込み、
+ * `_csm.getRenderOrders`(ネイティブ関数`csmGetRenderOrders`のラッパー)が**`Model`クラス自身の
+ * コンストラクタで`this.renderOrders`として保持され、`Model.prototype.getRenderOrders()`で
+ * 取得できる**ことを発見した(`drawables.*`ではなく`Model`直下。ここを探していなかったのが
+ * 迷走の原因)。これは`doDrawModel()`が要求する**密な0〜N-1の完全な順列**そのもので(実機データで
+ * `unique===length`を確認済み)、かつ`hiyori_pro_t11`の口/リボンの組で**正しい重なり順
+ * (リボンが先=奥、口が後=手前)を返す**ことも実機データで確認した。よって`drawOrders`からの
+ * 再構成(値ソート+タイの同点判定)は一切不要で、**`this._model.getRenderOrders()`を直接呼ぶだけ**
+ * でよい。①②の迂回はまるごと不要だったと判明したため削除した。
+ *
+ * `CubismModel.prototype.getDrawableRenderOrders`を上書きし、`drawables.renderOrders`が無ければ
+ * `this._model.getRenderOrders()`(Model直下の正しいAPI)へフォールバックする。**cubism2には
+ * 対応物が無い**(`CubismModel`クラス自体がCubism4専用のCore実装ラッパーで、cubism2.es.jsはこの
+ * クラスを持たない=exportsにも無い。よってこのパッチはcubism4限定で正当な非対称)。
+ * **`SpriteSetRenderer`にも対応物は無い**(対称性チェック): スプライトセットは事前合成済みの
+ * 単一WebPフレームを再生するだけで、drawable単位の重なり順という概念自体を持たないため。
  *
  * **⚠️ アセット認証(2026-07-30・実機検証で解決)**: `GET /models/*` はトークン認証必須(security.md)。
  * `pixi-live2d-display`はモデル定義・moc3・motion・physics/poseを自前のXHRローダで、**テクスチャは
@@ -109,55 +121,40 @@ function ensureTokenizedResolveURL(modelSettings: Live2DModule['ModelSettings'],
 interface CubismModelClass {
   prototype: {
     getDrawableRenderOrders: () => Int32Array | undefined;
+    getDrawableCount: () => number;
     _model: {
-      drawables: { renderOrders?: Int32Array; drawOrders?: Int32Array; parentPartIndices?: Int32Array };
+      /** `Model`直下の真の描画順API(冒頭コメント「正しい修正」参照)。密な0〜N-1の完全な順列。 */
+      getRenderOrders: () => Int32Array;
     };
   };
 }
 
-/**
- * `drawOrders`(まばらなZ値)を、値の昇順でソートした順位(0〜N-1の連番)へ変換する。
- * 冒頭コメント「単純なリネームではなく意味も変わっていた」参照。
- *
- * **同値の同点判定に`parentPartIndices`を使う(2026-07-30・実機検証で判明)**: 当初は同値の場合
- * drawableの元index昇順(定義順)で同点判定していたが、これは**視覚的に誤った重なり順を生む
- * ケースがある**ことが実機モデル(`hiyori_free_t08`)で判明した。マスクを使う瞳メッシュ(Cubism
- * Part 14、`drawOrders`タイ値650)が、そのマスク元となる白目メッシュ(Cubism Part 3、同じくタイ値
- * 650)より元index上で先(=ランクも先)になっており、結果**白目が瞳より後に描画されて瞳を覆い隠し
- * "目が閉じているように見える"**症状を再現した。`parentPartIndices`(Cubism Partツリー上の
- * インデックス)を先に比較すると、白目(Part 3)が瞳(Part 14)より先にランクされ、正しい重なり順
- * (白目→瞳の順で描画。後に描画される方が手前に出る)になることをCore実データで検証済み
- * (scratchpadの検証スクリプトで83/83の完全な順列を維持したまま順序が入れ替わることを確認)。
- * `parentPartIndices`が無い(cubism2など)場合は元index比較のみにフォールバックする。
- *
- * **呼び出し側(`getDrawableRenderOrdersCompat`)から毎フレーム呼ばれるが、意図的にキャッシュしない**。
- * `doDrawModel()`(`node_modules/pixi-live2d-display/dist/cubism4.es.js`)自身が
- * `getDrawableRenderOrders()`を毎フレーム呼んでいるのは、Cubismの「Draw Order Group」
- * (パラメータに連動してdrawableの描画順を動的に入れ替える機能。例: 腕が体の前後を行き来する)
- * を反映するためと考えられる。`drawOrders`がmoc3ロード後ずっと不変とは限らないため、
- * ここで結果をキャッシュすると、この機能を使うモデルで描画順が固定される回帰を招きうる
- * (reviewer指摘。将来ここを「無駄なので毎フレームソートをやめよう」と最適化しないこと)。
- */
-function computeRankFromDrawOrders(drawOrders: Int32Array, parentPartIndices?: Int32Array): Int32Array {
-  const n = drawOrders.length;
-  const indices = Array.from({ length: n }, (_, i) => i);
-  indices.sort(
-    (a, b) =>
-      drawOrders[a]! - drawOrders[b]! ||
-      (parentPartIndices ? parentPartIndices[a]! - parentPartIndices[b]! : 0) ||
-      a - b,
-  );
-  const rank = new Int32Array(n);
-  for (let r = 0; r < n; r++) {
-    rank[indices[r]!] = r;
-  }
-  return rank;
-}
+/** `getRenderOrders()`の長さ不一致(下記コメント参照)を1回だけ警告するためのガード。 */
+const warnedOffscreenMismatch = new WeakSet<object>();
 
 /**
  * `CubismModel.getDrawableRenderOrders()`を上書きし、`drawables.renderOrders`が無ければ
- * `drawables.drawOrders`から計算した順位配列へフォールバックする(冒頭コメントの経緯参照)。
+ * `this._model.getRenderOrders()`(`Model`直下の真の描画順API)へフォールバックする
+ * (冒頭コメント「正しい修正」参照)。**`drawOrders`からの再構成は行わない**(不要と判明した)。
  * cubism4専用。
+ *
+ * **⚠️ 呼び出し側(`doDrawModel()`)から毎フレーム呼ばれるが、意図的にキャッシュしない**。
+ * Cubismの「Draw Order Group」(パラメータに連動してdrawableの描画順を動的に入れ替える機能。
+ * 例: 腕が体の前後を行き来する)により描画順は不変とは限らない。ここで結果をキャッシュすると、
+ * この機能を使うモデルで描画順が固定される回帰を招きうる(続報5でreviewerが指摘した教訓。
+ * 実装をここまで簡略化した後もこの前提は変わらないため、将来「無駄なので毎フレーム呼ぶのを
+ * やめよう」と最適化しないこと)。
+ *
+ * **⚠️ 未検証: `getOffscreenCount() > 0`のモデル(2026-07-30・reviewer指摘)**: 実際のCubism Core
+ * ソース(`live2dcubismcore.min.js`)を読むと、`Model`コンストラクタは
+ * `renderOrders`を`drawableCount + offscreenCount`長で確保している(`getOffscreenCount`はCubism 5
+ * Editorのオフスクリーン描画機能に対応するAPI)。実機で検証した`hiyori_pro_t11`は
+ * `offscreenCount=0`(=`getRenderOrders().length`が`drawableCount`と一致)だったため、
+ * `offscreenCount>0`のモデルで`order`値が`drawableCount`以上になりうるかどうかは**未検証**
+ * (該当するテストモデルが手元に無く、推測で決め打ちしない=constraints.md)。起きた場合
+ * `doDrawModel()`の`_sortedDrawableIndexList[order]=i`が範囲外書き込みになり、続報4/5と同種の
+ * 「一部パーツが静かに描画されない」症状を再発しうる。ここでは実害を止められないため、
+ * せめて検出可能にするだけの目的で長さ不一致を1回だけ`console.warn`する。
  */
 function ensureDrawOrdersCompat(mod: typeof import('pixi-live2d-display/cubism4')): void {
   const CubismModel = (mod as unknown as { CubismModel: CubismModelClass }).CubismModel;
@@ -174,11 +171,15 @@ function ensureDrawOrdersCompat(mod: typeof import('pixi-live2d-display/cubism4'
     if (result !== undefined) {
       return result;
     }
-    const drawOrders = this._model.drawables.drawOrders;
-    if (drawOrders === undefined) {
-      return undefined;
+    const orders = this._model.getRenderOrders();
+    if (orders.length !== this.getDrawableCount() && !warnedOffscreenMismatch.has(this)) {
+      warnedOffscreenMismatch.add(this);
+      console.warn(
+        `[live2d] getRenderOrders()の長さ(${orders.length})がdrawableCount(${this.getDrawableCount()})と` +
+          '一致しません(offscreenCount>0の可能性。未検証のケースです)。一部パーツが描画されない場合はここが原因です。',
+      );
     }
-    return computeRankFromDrawOrders(drawOrders, this._model.drawables.parentPartIndices);
+    return orders;
   };
 }
 
