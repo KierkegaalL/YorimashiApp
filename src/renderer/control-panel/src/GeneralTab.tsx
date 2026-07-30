@@ -24,6 +24,11 @@
  * キャラのサイズはウィンドウ寸法に効くが、その計算は両形式共通の `resolveWindowSize()` で
  * 形式で分岐しない=character-window.md 論点2の決着)。よって対称性チェック
  * (CLAUDE.md原則4)の対象外。
+ *
+ * **⚠️ ウィンドウ寸法の計算(このタブが担当)は共通だが、その中でのキャラクターの見た目の
+ * 占有率はLive2D限定で異なる(2026-07-30、shared/general-settings.ts の DISPLAY_SIZE_MAX
+ * コメント参照)**。このタブ・`resolveWindowSize()`側は変更不要(スライダーが操作する`displaySize`
+ * の意味・範囲は不変)。
  */
 
 import { useEffect, useRef, useState } from 'react';

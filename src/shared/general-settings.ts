@@ -14,6 +14,11 @@
  * 設定値であってキャラ描画の分岐に触れない。表示サイズはウィンドウの寸法計算に使われるが、
  * その計算=`resolveWindowSize()` は `baseResolution × displaySize` で**両形式共通**
  * (character-window.md 論点2の決着))。よって対称性チェック(CLAUDE.md原則4)の対象外。
+ *
+ * **⚠️ ウィンドウ寸法は共通だが、その中でのキャラクターの見た目の占有率はLive2D限定で異なる
+ * (2026-07-30)**: `Live2DRenderer.ts`の`LIVE2D_SIZE_BOOST`が`fitModel()`のスケールに定数倍
+ * (2倍)を掛けるため、同じ`displaySize`値でもLive2Dはスプライトセットよりキャラクターが
+ * 大きく見える。下記`DISPLAY_SIZE_MAX`のdocコメント参照。
  */
 
 /** 配色テーマの選択肢(要件定義書 C-15: light/dark/system の3モード)。 */
@@ -27,6 +32,13 @@ export type ThemeMode = (typeof THEME_MODES)[number];
  * 決着済み(2026-07-27。Notion正本=basic-design.md 6.1 に反映済み)。常駐マスコットが
  * 画面を占有しすぎず、かつ視認できる範囲という判断。config-schema.ts の
  * `z.number().min(DISPLAY_SIZE_MIN).max(DISPLAY_SIZE_MAX)` がこの定数を使う。
+ *
+ * **⚠️ C6の「画面を占有しすぎない」判断の前提がLive2D限定で崩れている(2026-07-30)**:
+ * C6決着時点では「同じ`displaySize`値なら見た目の占有率も両形式で同じ」という前提だったが、
+ * ユーザー要望によりLive2Dのみ`fitModel()`の実描画スケールを`LIVE2D_SIZE_BOOST`(2倍。
+ * `Live2DRenderer.ts`)で底上げした。結果、Live2Dは同じ`displaySize`値でもスプライトセットの
+ * 約2倍の面積を占有しうる。C6自体を再決着させる変更ではない(`DISPLAY_SIZE_MIN`/`MAX`の値は
+ * 不変)が、「画面を占有しすぎない」根拠として参照する場合はこの非対称を踏まえること。
  */
 export const DISPLAY_SIZE_MIN = 0.2;
 export const DISPLAY_SIZE_MAX = 1;
