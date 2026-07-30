@@ -36,7 +36,12 @@ export interface RendererContext {
    * 例: `http://127.0.0.1:8765/models/<installedDir>`。ローカルサーバーの `GET /models/*`。
    */
   assetBaseUrl: string;
-  /** `/models/*` 認証トークン(security.md)。Renderer は fetch のヘッダに載せて読み込む。 */
+  /**
+   * `/models/*` 認証トークン(security.md 3章)。載せ方は形式ごとに異なる:
+   * SpriteSetRendererはfetch→Blobでヘッダに載せる。Live2DRendererはpixi-live2d-displayの
+   * 内部ローダ(テクスチャは`<img src>`相当)がヘッダを送れないため、クエリトークンとして載せる
+   * (WSと同じ理由・同じキー。shared/ws-messages.ts の `TOKEN_QUERY_KEY`)。
+   */
   token: string;
   /** 読込・再生の致命的な失敗(モデル不正・ランタイム不在等)。UIが「未描画」を正直に示すために使う。 */
   onError?: (err: unknown) => void;

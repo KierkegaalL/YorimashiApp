@@ -50,7 +50,7 @@ export async function createRenderer(
     // ランタイム確認後にのみ import(pixi-live2d-display はランタイム未ロードだと import で落ちる)。
     // モデルの版に対応するサブパスだけを解決する(load-live2d-module.tsの経緯コメント参照)。
     const [live2dModule, { Live2DRenderer }] = await Promise.all([
-      loadLive2DModule(manifest.cubismVersion),
+      loadLive2DModule(manifest.cubismVersion, ctx.token),
       import('./Live2DRenderer'),
     ]);
     return new Live2DRenderer(manifest, ctx, live2dModule);

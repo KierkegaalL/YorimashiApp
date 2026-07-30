@@ -16,12 +16,13 @@
  * - 実際の描画・モーション駆動はWebGL+GUIを要し、本サンドボックスでは実行できない。ロジック構造は
  *   ライブラリAPI/実測(A2: dev-assetsのHaru/Shizuku定義)に基づくが、**実描画の最終確認は実機で行う**。
  *
- * アセット認証の未決(実装時TODO): `GET /models/*` は `X-App-Token` ヘッダ認証(security.md)。
- * pixi-live2d-display はモデル定義(model3.json/model.json)とその参照アセット(moc3/テクスチャ/
- * motion/expression)を**自前のローダで相対URL解決して取得する**ため、Rendererからヘッダを載せる経路が
- * 素直に無い。スプライトセット側(fetch→Blob)と同じ手は使えない。ローダへのヘッダ注入 or /models の
- * 認証方式見直し(WSと同じ ?token= 許容等)を**実機で切り分けて決める**。ここでは素のURLで組み立て、
- * この認証経路は未解決として残す(推測でローダ差し替えを書かない)。
+ * アセット認証(2026-07-30・実機検証で決着): `GET /models/*` はヘッダ or クエリトークンで認証する
+ * (security.md 3章)。pixi-live2d-display はモデル定義・moc3・motion/physics/poseを自前のXHRローダで、
+ * **テクスチャはPixiJSが`<img src>`相当で**取得するため、いずれもRendererからヘッダを載せる経路が
+ * 無い(スプライトセット側のfetch→Blobと同じ制約でヘッダが使えない)。**クエリトークン方式(WSと同じ)を
+ * 採用**し、`load-live2d-module.ts`が`ModelSettings.resolveURL()`を1箇所だけ上書きして全アセット種別へ
+ * 一括で付与する。この本モジュールが自前で組み立てる最初のモデル定義ファイルURLだけは
+ * (resolveURLを経由しないため)`loadModel()`内で直接クエリを付ける。
  *
  * 持続と再発火(lipsync.md ③・決着済み): Live2Dは `loop` の概念を持たず、モーションが尽きると idle
  * グループへ自動フォールバックする。`thinking` 等を寿命ぶん持続させるため、**本Rendererが
@@ -73,6 +74,7 @@ import {
 } from '../../../shared/manifest';
 import { MotionRefirer } from './motion-refire';
 import { FALLBACK_STATE, type EmotionState } from '../../../shared/emotions';
+import { TOKEN_QUERY_KEY } from '../../../shared/ws-messages';
 import type { Live2DModule } from './load-live2d-module';
 
 export class Live2DRenderer implements CharacterRenderer {
@@ -164,7 +166,8 @@ export class Live2DRenderer implements CharacterRenderer {
 
   private async loadModel(): Promise<void> {
     try {
-      const url = `${this.ctx.assetBaseUrl}/${this.manifest.modelFile}`;
+      // resolveURL を経由しない最初の1本だけ、ここで直接クエリトークンを付ける(冒頭コメント参照)。
+      const url = `${this.ctx.assetBaseUrl}/${this.manifest.modelFile}?${TOKEN_QUERY_KEY}=${encodeURIComponent(this.ctx.token)}`;
       const model = await this.live2d.Live2DModel.from(url);
       if (this.destroyed || !this.app) {
         model.destroy();

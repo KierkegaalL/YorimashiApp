@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-30（Live2Dランタイムをバージョン別サブパスへ切替え、モデルが使う版のみで動作するよう改善）
+**最終更新**: 2026-07-30（Live2Dの`/models/*`アセット認証を決着。未解決だったTODOを解消）
 
 ## 現在地
 
@@ -435,8 +435,16 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - `README.md`はCubism 2.1 SDKの入手性についての不確実性を正直に書き(URLを断定しない)、「cubism2モデルを使う予定が無ければ`live2d.min.js`は不要」と明記
   - **reviewer 1周目で0件**
   - **検証**: `npm run typecheck`・`npm run build`通過。**ビルド成果物で構造的効果を確認**: 修正前は`Live2DRenderer-*.js`が1.24MBの単一チャンクだったが、修正後は`cubism2.es-*.js`(72KB)・`cubism4.es-*.js`(209KB)に分離された。jsdomオフスクリーン計20件pass(既存11件+静的解析7件+**実際に`node_modules`のファイルをimportする実測2件**)
-  - **未検証(ユーザー確認待ち)**: `live2dcubismcore.min.js`のみ配置した状態での実描画そのもの(ライブラリレベルでの実測は完了しているが、アプリ全体としての実描画確認は未実施)
-- **次**: 上記(`live2dcubismcore.min.js`のみ配置での)Live2D実描画の実機確認待ち。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイムの同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+  - **続報(下記参照)**: ユーザーが`live2dcubismcore.min.js`配置後に実機確認したところ、今度は「描画エラー：Network error」で止まった。原因はこの節の対応範囲外(アセット取得時の401)だったため、以下の続報で決着した
+- **完了 続報3: `/models/*`アセット認証を決着(2026-07-30)** — `Live2DRenderer.ts`に残っていた「アセット認証の未決(実装時TODO)」を解消した。`GET /models/*`はトークン認証必須(security.md)だが、`pixi-live2d-display`のXHRローダ(moc3/motion/physics/pose)・PixiJSのテクスチャ読込(`<img src>`相当)のいずれもRendererからヘッダを載せる経路が無く(SpriteSetRendererのfetch→Blobと同じ制約)、素のURLで組み立てていたため401→ライブラリ側で「Network error」として表面化していた。
+  - **実測で確認してから対応**: ユーザーの実行中インスタンスの実ポート・トークン(userData配下の`.port`/`.token`)を読み、認証ヘッダ無しの`curl`が401を返すことを確認してから着手(推測で直さない)
+  - `shared/ws-messages.ts`の`WS_TOKEN_QUERY_KEY`を`TOKEN_QUERY_KEY`へリネームし、`/models/*`とWSの両方で共有。`local-server.ts`は`/models/*`の認証を「ヘッダ**または**クエリトークン」のどちらでも通るよう変更(WSと同じ理由・同じキー)
+  - `load-live2d-module.ts`に`ensureTokenizedResolveURL()`を追加。`ModelSettings.prototype.resolveURL`を**1箇所だけ**上書きすることで、XHRローダ経由(moc3/motion/physics/pose)とテクスチャ読込(`<img src>`)の**両方**へ一括でクエリトークンを付与できることを、node_modulesのソース読解(`XHRLoader.loader`もテクスチャ読込コードも共通して`context.settings.resolveURL(...)`を呼ぶ)で確認した上で実装。`Live2DRenderer.ts`はresolveURLを経由しない最初のモデル定義ファイルURLだけ直接クエリを付ける
+  - **reviewer 1周目で0件**(認証ロジックの妥当性・クエリトークンのリスクとWS前例との整合・`WeakSet`二重パッチ防止等を重点確認)
+  - **検証(実測。すべて実際にコマンドを実行して確認)**: `npm run typecheck`・`npm run build`通過。**実際にLocalServerを起動し本物のHTTPリクエストで検証**(7件pass): ヘッダ無し・クエリ無しは401/ヘッダ認証は引き続き200(SpriteSetRenderer経路の非退行)/クエリトークンで200(新機能)/誤ったクエリトークンは401/WS接続も引き続き成立(TOKEN_QUERY_KEY共有後の非退行)。**実際に`pixi-live2d-display/cubism4`をimportし本物の`ModelSettings`クラスで検証**(4件pass): 相対パスの解決結果に`?token=`が付与される・同じ版を2回ロードしても二重ラップされない。既存テスト13件も再実行し非退行を確認(計24件pass)
+  - **対称性は正当**: `/models/*`のサーバー側変更はOR条件の追加のみでSpriteSetRenderer(ヘッダ)経路を弱めない。`RendererContext.token`のコメントに両形式の載せ方の違い(ヘッダ/クエリ)を明記
+  - **未検証(ユーザー確認待ち)**: アプリ全体としての実描画そのもの(サーバー・ライブラリ双方の実測は完了しているが、実際にキャラクターウィンドウにモデルが表示されるところまでは未確認)
+- **次**: 上記のLive2D実描画の実機確認待ち。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイムの同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

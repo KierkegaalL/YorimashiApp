@@ -31,7 +31,7 @@ import type { EmotionEngine } from '../emotion-engine';
 import {
   type ServerToClientMessage,
   WS_PATH,
-  WS_TOKEN_QUERY_KEY,
+  TOKEN_QUERY_KEY,
 } from '../../shared/ws-messages';
 import {
   BOOTSTRAP_MODEL_GLOBAL,
@@ -223,9 +223,11 @@ export class LocalServer {
 
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     let pathname: string;
+    let searchParams: URLSearchParams;
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       pathname = decodeURIComponent(url.pathname);
+      searchParams = url.searchParams;
     } catch {
       return sendText(res, 400, 'Bad Request');
     }
@@ -257,8 +259,12 @@ export class LocalServer {
     }
 
     // /models/* — 認証 + パス検証(security.md 6・7章)。
+    // 認証はヘッダ or クエリのどちらかで通る(security.md 3章)。SpriteSetRendererはfetch→Blobで
+    // ヘッダを送れるが、Live2DRenderer経由のテクスチャ読み込み(PixiJSが<img src>相当で取得する)
+    // はヘッダを送れないため、WSと同じ理由でクエリトークンも受け付ける(shared/ws-messages.ts参照)。
     if (pathname === '/models' || pathname.startsWith('/models/')) {
-      if (!this.isAuthorizedHeader(req)) {
+      const queryAuthorized = tokensMatch(this.authToken, searchParams.get(TOKEN_QUERY_KEY));
+      if (!this.isAuthorizedHeader(req) && !queryAuthorized) {
         return sendText(res, 401, 'Unauthorized');
       }
       const rest = pathname.slice('/models'.length); // 先頭スラッシュ込み
@@ -412,7 +418,7 @@ export class LocalServer {
       return rejectUpgrade(socket, 404, 'Not Found');
     }
 
-    const token = url.searchParams.get(WS_TOKEN_QUERY_KEY);
+    const token = url.searchParams.get(TOKEN_QUERY_KEY);
     if (!tokensMatch(this.authToken, token)) {
       return rejectUpgrade(socket, 401, 'Unauthorized');
     }
