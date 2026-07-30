@@ -15,6 +15,7 @@
 import type { CharacterRenderer, RendererContext } from './CharacterRenderer';
 import { SpriteSetRenderer } from './SpriteSetRenderer';
 import { isCubismRuntimeAvailable } from './cubism-runtime';
+import { loadCubismRuntime } from './load-cubism-runtime';
 import type { Manifest } from '../../../shared/manifest';
 
 export async function createRenderer(
@@ -22,10 +23,13 @@ export async function createRenderer(
   ctx: RendererContext,
 ): Promise<CharacterRenderer> {
   if (manifest.renderType === 'live2d') {
+    // 開発者が配置していれば読み込む(load-cubism-runtime.ts参照)。未配置でも例外にはならず、
+    // 直後の isCubismRuntimeAvailable が false のままなので、正直な「未導入」エラーへ落ちる。
+    await loadCubismRuntime(manifest.cubismVersion);
     if (!isCubismRuntimeAvailable(manifest.cubismVersion)) {
       const label = manifest.cubismVersion === 'cubism4' ? 'Cubism 4/5' : 'Cubism 2';
       throw new Error(
-        `${label} ランタイムが未導入のため Live2D モデルを描画できません(live2dcubismcore.js / live2d.min.js の同梱が必要)`,
+        `${label} ランタイムが未導入のため Live2D モデルを描画できません(live2dcubismcore.min.js / live2d.min.js の同梱が必要)`,
       );
     }
     // ランタイム確認後にのみ import(pixi-live2d-display はランタイム未ロードだと import で落ちる)。

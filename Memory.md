@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-30（Control Panel「ホーム」「全体設定」タブを実装。**6タブすべて移植完了**）
+**最終更新**: 2026-07-30（ユーザーの実機確認で判明した2件に対応。Cubismランタイム読み込み機構を新規実装、クリックスルー仕様を案内）
 
 ## 現在地
 
@@ -417,7 +417,18 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - **実機確認待ち(Electron GUI必須)**: Live2Dプレビュー含む実描画・モーション再発火の実挙動確認(Cubismランタイム未同梱で検証不可)。**この項目がLive2D側にしか無いのは正当**で、スプライトセットは`<img>`でのアニメーションWebP再生＝外部ランタイムを要さず、生成パイプライン側はsharpでオフスクリーン実測済みのため「ランタイム未同梱で確認できない」に相当する残件を持たない(environments.md「PixiJSのバージョン方針」)。以下の項目は形式非依存で両形式に等しく効く/メモリ実測(200MB目安)/オンボーディング完了演出の見た目/配色テーマ(light/dark)の画素レベル一致/クリックスルー・ドラッグ操作/折りたたみリサイズのアニメーション感/**表示サイズスライダーの実リサイズ挙動(離した時の確定・位置クランプ)**/**自動起動の実登録(パッケージ済みビルドでのみ検証可能)**
   - **実データ・実使用待ち**: 否定スキャン窓(暫定10文字)のチューニング・辞書の実会話ログでの育成/境界連結判定の色距離閾値・膨張量のチューニング(実素材待ち)/`idleTimeoutMs`等の無通信タイムアウトのチューニング(実API使用待ち)/`MIN_VISIBLE`等の体感チューニング
   - **配布フェーズへ意図的に先送り(現時点で対応不要)**: electron-builderの`asarUnpack`設定(sharp/@img)/universal build(darwin-x64同梱)の要否/署名・notarize設定/alpha hit-testing・`app.dock.hide()`・キャラクター非表示メニュー項目/TTS化(C-12)に伴うスプライトセットlipsync再設計
-- **次**: **未実装の機能は無くなった**(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)**ユーザーによる実機GUI確認**(上記リスト。Live2D実描画・メモリ実測・見た目)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **完了 ユーザーの実機確認(`npm run build && npm run preview`)で判明した2件に対応(2026-07-30)**
+  1. **クリックスルーの仕様案内**: 「モデルの位置調整ができない」という報告 → 調査の結果バグではなく仕様どおり(`general.clickThrough`既定`true`の間はウィンドウが一切のマウス操作を受け取らない。character-window.md 144-146)。全体設定タブ or メニューバーでOFFにしてからドラッグする旨を案内。**コード変更なし**
+  2. **完了 Cubismランタイムの読み込み機構を新規実装**: 「Live2Dモデルが描画エラーになる(`live2dcubismcore.js / live2d.min.js の同梱が必要`)」という報告を調査した結果、**バグではなく、ランタイムを読み込む配線がリポジトリのどこにも存在しなかった**(character HTMLに`<script>`タグが一切無い。`cubism-runtime.ts`の判定は常にfalseを返す設計のまま放置されていた)ことが判明。実際に描画できるようにするための新規実装:
+     - **新規**: `src/renderer/character/renderer/load-cubism-runtime.ts`(`<script>`タグを動的挿入。`Map<CubismVersion, Promise<void>>`で進行中のPromiseをキャッシュし、同一バージョンの並行読み込み要求(2体セットで同じcubismVersion等)が読み込み完了を待たずに誤判定しないようにした=reviewer 1周目で検出)/ `src/renderer/public/cubism-runtime/README.md`(配置ガイド)
+     - **ランタイム本体は`dev-assets/live2d/`と同じ理由でコミットしない**(`.gitignore`に`src/renderer/public/cubism-runtime/*`を追加。README.mdのみ追跡)。**ただし`dev-assets/`と違いこちらはViteの`public`資産のため`npm run build`の成果物(`out/renderer/`)へ物理的にコピーされる**(ローカルサーバーの「それ以外のGETはRendererの静的資産」フォールバックが`/cubism-runtime/*`を認証無しで配信。security.md方針(HTML/JS等の静的資産は元々公開扱い)と矛盾しないことをreviewerが確認済み)
+     - `createRenderer.ts`のLive2D分岐で`isCubismRuntimeAvailable`判定の直前に`await loadCubismRuntime(manifest.cubismVersion)`を追加。**ファイル未配置時は例外を投げず**(`onerror`をresolveで吸収)、既存の「ランタイム未導入」という正直なエラー表示に委ねる設計にした
+     - ユーザー自身がLive2D公式の Cubism SDK for Web からライセンスに同意の上で取得し配置する運用(README.md参照)。**配布ビルドへの同梱方法(ライセンス上の再配布条件含む)は未決事項として残した**(electron-builder設定が無い配布フェーズ全体の一部)
+     - **対称性は正当**: スプライトセットは`<img>`でのブラウザネイティブWebP再生のみで外部ランタイムを要さず、この機構はLive2D専有(既存の非対称と同じ構造。cubism-runtime.ts冒頭コメント参照)
+     - **reviewer 2周**: 1周目3件(競合状態=`Set`→`Map`化で解消/エラー文言のファイル名不一致`live2dcubismcore.js`→`.min.js`/README内の出典不明記述=`environments.md`ではなく`bootstrap.ts`が正しい出典だった)→**2周目0件**
+     - **検証**: `npm run typecheck`・`npm run build`通過。jsdomオフスクリーン11件pass(未配置時に例外を投げない・配置後trueになる・二重ロード防止・cubism2/4で別ファイル・並行呼び出しの競合状態回帰4件)
+     - **未検証(ユーザー確認待ち)**: 実際にCubism SDKを配置した状態での実描画そのもの(このセッションでは検証できない。ランタイムファイルはライセンス上私が取得できないため、機構の実装とオフスクリーンでのロジック検証に留めた)
+- **次**: 上記Live2D実描画の実機確認待ち。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイムの同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
