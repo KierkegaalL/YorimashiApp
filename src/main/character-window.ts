@@ -191,8 +191,12 @@ export class CharacterWindow {
    * `config.general.displaySize` の変更を実ウィンドウのサイズへ反映する(全体設定タブから呼ぶ)。
    *
    * **再読込はしない**。ウィンドウの物理サイズだけが変わり、描画対象のモデル(bootstrap)は
-   * 変わらないため、`applyActiveModel()` のような `loadURL()` は不要
-   * (Renderer 側は CSS/PixiJS がコンテナ基準で描くので、リサイズだけで追従する)。
+   * 変わらないため、`applyActiveModel()` のような `loadURL()` は不要。
+   * **⚠️ 訂正(2026-07-30・実機確認)**: 「Renderer側がリサイズだけで追従する」は
+   * SpriteSetRenderer(CSSのobject-fit:contain)には正しいが、Live2DRendererは
+   * canvasは`resizeTo`で追従してもモデル自体の拡大縮小は追従しなかった(実機で判明)。
+   * Live2DRenderer.ts側が`app.renderer`の`resize`イベントを購読して`fitModel()`を
+   * 再実行するよう対応済み(同ファイルの`handleResize`コメント参照)。
    *
    * リサイズ後に位置のクランプをやり直す: サイズが大きくなると、左上を固定したままでは
    * ウィンドウの右下が画面外へはみ出しうる。macOS は画面外座標を自動補正しないと

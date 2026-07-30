@@ -93,6 +93,22 @@ export class Live2DRenderer implements CharacterRenderer {
   private readonly refirer: MotionRefirer;
   /** motionFinish の購読解除に使う(destroy でリスナを残さない)。 */
   private motionFinishHandler: (() => void) | null = null;
+  /**
+   * `app.renderer`の`resize`購読解除に使う(実機確認で判明した要望への対応。fitModelのdocコメント参照)。
+   *
+   * **`resizeTo`の実際の検知手段(実測: `node_modules/@pixi/app/dist/cjs/app.js` ResizePlugin)**:
+   * `ResizeObserver`ではなく、`globalThis.addEventListener('resize', ...)`(`window`のネイティブ
+   * resizeイベント)だけを見て、発火時に`container.clientWidth/clientHeight`を読み直しているだけ。
+   * この機構がキャラクター表示ウィンドウで機能する(= `win.setSize()`だけで`renderer.resize()`が
+   * 呼ばれ`'resize'`が発火する)のは、コンテナがビューポート全面を占めていて`window`のリサイズと
+   * コンテナのリサイズが一致するためで、汎用的な要素サイズ監視ではない。この前提が実機で
+   * 成立するかは**Electron GUIでのみ確認できる**(constraints.md「実機能確認の制約」)。
+   *
+   * 発火したら`fitModel()`を再実行し、モデル自体の拡大縮小・再配置を追従させる
+   * (SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するが、Live2Dはcanvas内の
+   * Pixiオブジェクトなのでこの手当てが要る。対称性チェック: 正当な非対称)。
+   */
+  private handleResize: (() => void) | null = null;
 
   constructor(manifest: Live2dManifest, ctx: RendererContext, live2d: Live2DModule) {
     this.manifest = manifest;
@@ -129,6 +145,16 @@ export class Live2DRenderer implements CharacterRenderer {
       resolution: window.devicePixelRatio || 1,
     });
     container.appendChild(this.app.view as unknown as HTMLCanvasElement);
+    // ウィンドウリサイズ(全体設定タブの「キャラのサイズ」等)のたびにモデルを再フィットする
+    // (fitModelのdocコメント参照)。モデル未ロード中(this.modelがnull)の発火は無視してよい
+    // (loadModel完了時にfitModelを一度呼ぶため取りこぼさない)。
+    const handleResize = (): void => {
+      if (this.model) {
+        this.fitModel(this.model);
+      }
+    };
+    this.handleResize = handleResize;
+    this.app.renderer.on('resize', handleResize);
     void this.loadModel();
   }
 
@@ -155,6 +181,10 @@ export class Live2DRenderer implements CharacterRenderer {
       this.model = null;
     }
     if (this.app) {
+      if (this.handleResize) {
+        this.app.renderer.off('resize', this.handleResize);
+        this.handleResize = null;
+      }
       // view(canvas)ごと破棄してWebGLコンテキストを解放する。
       this.app.destroy(true, { children: true, texture: true, baseTexture: true });
       this.app = null;
@@ -191,15 +221,14 @@ export class Live2DRenderer implements CharacterRenderer {
   /**
    * モデルをコンテナに収まる最大スケールで中央配置する(contain相当)。
    *
-   * `loadModel()`内で一度だけ呼ぶ(`app.renderer`のresizeイベントは購読しない)。
-   * ウィンドウサイズは`baseResolution × displaySize`で決まり、キャラクター表示ウィンドウは
-   * アクティブモデルが変わるたびに`character-window.ts`の`applyActiveModel()`が
-   * `setSize()`→`loadURL()`で丸ごと再読込する(=Live2DRendererごと作り直す)ため、
-   * 実行中にコンテナだけがリサイズされる経路が現状無い(対称性チェック:
-   * SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するが、これは
-   * コンテナリサイズ非対応=Live2D側の実装漏れではなく、現状そのリサイズ自体が
-   * 起こらないための対称性チェック対象外)。将来`general.displaySize`のライブ編集
-   * (再読込を伴わない動的リサイズ)を実装する場合は、ここで`resize`購読を追加すること。
+   * `loadModel()`完了時に一度呼ぶほか、`mount()`が`app.renderer`の`resize`イベントを購読して
+   * **ウィンドウリサイズのたびに呼び直す**(2026-07-30・実機確認で「全体設定タブのキャラのサイズを
+   * 変えてもモデルの表示範囲=canvasは変わるがモデル自体は拡大縮小されない」と判明したため追加)。
+   * `character-window.ts`の`applyDisplaySize()`は`setSize()`のみで`loadURL()`(再読込)を伴わない
+   * ため、Live2DRendererのインスタンスは生きたまま=このハンドラで追従する必要がある
+   * (対称性チェック: SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するため
+   * このようなJS側の再計算が要らない。非対称は正当=Live2Dはcanvas内のPixiオブジェクトとして
+   * 自前でスケール計算する形式だから)。
    */
   private fitModel(model: Live2DModel): void {
     if (!this.container) {
