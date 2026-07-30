@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-30（実機確認続報。Cubismランタイムは「モデルの版に関わらず両方必要」と判明し訂正）
+**最終更新**: 2026-07-30（Live2Dランタイムをバージョン別サブパスへ切替え、モデルが使う版のみで動作するよう改善）
 
 ## 現在地
 
@@ -427,13 +427,16 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
      - **対称性は正当**: スプライトセットは`<img>`でのブラウザネイティブWebP再生のみで外部ランタイムを要さず、この機構はLive2D専有(既存の非対称と同じ構造。cubism-runtime.ts冒頭コメント参照)
      - **reviewer 2周**: 1周目3件(競合状態=`Set`→`Map`化で解消/エラー文言のファイル名不一致`live2dcubismcore.js`→`.min.js`/README内の出典不明記述=`environments.md`ではなく`bootstrap.ts`が正しい出典だった)→**2周目0件**
      - **検証**: `npm run typecheck`・`npm run build`通過。jsdomオフスクリーン11件pass(未配置時に例外を投げない・配置後trueになる・二重ロード防止・cubism2/4で別ファイル・並行呼び出しの競合状態回帰4件)
-- **完了 続報: 「モデルの版に関わらずCubism 2/4両方のランタイムが必要」と判明・訂正(2026-07-30)** — 上記機構をユーザーが実機で試した結果、Cubism4/5用`live2dcubismcore.min.js`だけを配置しても`Could not find Cubism 2 runtime. This plugin requires live2d.min.js to be loaded.`という`pixi-live2d-display`自身のエラーで止まった。**node_modules内の実ソースを読んで根本原因を特定**: `pixi-live2d-display`の裸import(`dist/index.es.js`)は cubism2/cubism4 両サブモジュールを同梱した単一バンドルで、**それぞれがモジュール評価時点(トップレベル)で`if (!window.Live2D) throw` / `if (!window.Live2DCubismCore) throw`という即時ガードを持つ**(実測: 該当ファイルの1549行目付近・2121行目付近)。つまり実際に描画するモデルの版に関わらず、importする瞬間に**両方**のランタイムグローバルが要る。直前の実装(`isCubismRuntimeAvailable(cubismVersion)`=モデルが使う版だけ確認)はこの実際の要求を反映しておらず、これが実機バグの直接原因だった(**設計ミス**として記録)。
-  - `cubism-runtime.ts`に`isAnyCubismRuntimeUsable()`(cubism2/4両方をAND判定)を追加。`createRenderer.ts`は`isCubismRuntimeAvailable(manifest.cubismVersion)`(単体)→`isAnyCubismRuntimeUsable()`(両方)へ切替え、ロードも`loadCubismRuntime(manifest.cubismVersion)`単体→`Promise.all([loadCubismRuntime('cubism4'), loadCubismRuntime('cubism2')])`(常に両方)へ変更。単体判定`isCubismRuntimeAvailable`自体は`load-cubism-runtime.ts`の二重ロード防止判定として残す(役割分担はコメントに明記)
-  - `README.md`(`src/renderer/public/cubism-runtime/`)を「使うモデルがCubism4/5専用でも両方のファイルが要る」という正しい理解に書き換え。`Live2DRenderer.ts`冒頭コメントも同様に訂正
-  - **reviewer 2周**: 1周目1件(軽微。README内に古い関数名`isCubismRuntimeAvailable`への言及が1箇所取り残されていた)→**2周目0件**
-  - **検証**: `npm run typecheck`・`npm run build`通過。jsdomオフスクリーン追加4件pass(実機バグの再現=cubism4だけではfalse→両方揃うとtrueになることの確認・createRendererが常に両方の`<script>`を要求することの確認)。既存11件とあわせ計15件pass
-  - **未検証(ユーザー確認待ち)**: `live2d.min.js`も追加配置した状態での実描画そのもの(ランタイムファイルはライセンス上取得できないため、このセッションでは機構の実装とオフスクリーンでのロジック検証に留めた)
-- **次**: 上記(`live2d.min.js`配置後の)Live2D実描画の実機確認待ち。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイム2種の同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **決着済み(下記の続報で置き換え) 続報: 「モデルの版に関わらずCubism 2/4両方のランタイムが必要」と判明・訂正(2026-07-30)** — 上記機構をユーザーが実機で試した結果、Cubism4/5用`live2dcubismcore.min.js`だけを配置しても`Could not find Cubism 2 runtime. This plugin requires live2d.min.js to be loaded.`という`pixi-live2d-display`自身のエラーで止まった。**node_modules内の実ソースを読んで根本原因を特定**: `pixi-live2d-display`の裸import(`dist/index.es.js`)は cubism2/cubism4 両サブモジュールを同梱した単一バンドルで、**それぞれがモジュール評価時点(トップレベル)で`if (!window.Live2D) throw` / `if (!window.Live2DCubismCore) throw`という即時ガードを持つ**(実測: 該当ファイルの1549行目付近・2121行目付近)。つまり裸パッケージを使う限り、実際に描画するモデルの版に関わらずimportする瞬間に**両方**のランタイムグローバルが要る。当初は`isAnyCubismRuntimeUsable()`(両方確認)を追加し常に両方ロードする対応をしたが、**この節の対応は次の続報でさらに良い解決策に置き換えられ、`isAnyCubismRuntimeUsable`自体も削除済み**(下記参照)。この節は経緯として残す
+- **完了 続報2: バージョン別サブパスへ切替え、「モデルが使う版だけ」で足りるよう改善(2026-07-30)** — ユーザーから「Cubism 2.1 SDKは非推奨化されていて入手性が不確か」との指摘を受け、`live2d.min.js`を必須にする前提そのものを見直した。`node_modules/pixi-live2d-display`の`package.json`の`exports`を調べたところ、裸パッケージ以外に**バージョン別サブパス**(`pixi-live2d-display/cubism4` = `dist/cubism4.es.js`、`pixi-live2d-display/cubism2` = `dist/cubism2.es.js`)が存在し、**それぞれ自分のランタイムしか要求しない**ことを実測で確認(各ファイルにもう一方のガード節が無いことを`grep`で確認。さらに実際に`cubism4.es.js`を`window.Live2D`無しでimportし例外が出ないことを実行して実証。対照実験として裸の`index.es.js`は同条件で今も例外を投げることも確認)。
+  - **新規**: `load-live2d-module.ts` — `manifest.cubismVersion`に応じて`pixi-live2d-display/cubism4`または`/cubism2`を動的import。型は`Pick<typeof import('pixi-live2d-display'), 'Live2DModel' | 'MotionPriority'>`(全サブパスの型宣言は共通の`./types/index.d.ts`を指すため型と実体の版が食い違わない)
+  - `Live2DRenderer.ts`: 裸importを`import type`(型のみ)に変更し、`Live2DModel`/`MotionPriority`の実体はコンストラクタ注入(`live2d: Live2DModule`)に変更。`Live2DModel.registerTicker(Ticker)`はモジュール冒頭からコンストラクタ内へ移動(`registerTicker`は単なる参照の再代入で冪等なため、インスタンス生成のたびに呼んでも問題ないとreviewerが確認)
+  - `createRenderer.ts`は`isAnyCubismRuntimeUsable()`(両方確認)を`isCubismRuntimeAvailable(manifest.cubismVersion)`(単体・元の設計へ復帰)に戻し、`loadCubismRuntime`も単体呼び出しへ戻した。`cubism-runtime.ts`から`isAnyCubismRuntimeUsable`は削除(不要になったため)
+  - `README.md`はCubism 2.1 SDKの入手性についての不確実性を正直に書き(URLを断定しない)、「cubism2モデルを使う予定が無ければ`live2d.min.js`は不要」と明記
+  - **reviewer 1周目で0件**
+  - **検証**: `npm run typecheck`・`npm run build`通過。**ビルド成果物で構造的効果を確認**: 修正前は`Live2DRenderer-*.js`が1.24MBの単一チャンクだったが、修正後は`cubism2.es-*.js`(72KB)・`cubism4.es-*.js`(209KB)に分離された。jsdomオフスクリーン計20件pass(既存11件+静的解析7件+**実際に`node_modules`のファイルをimportする実測2件**)
+  - **未検証(ユーザー確認待ち)**: `live2dcubismcore.min.js`のみ配置した状態での実描画そのもの(ライブラリレベルでの実測は完了しているが、アプリ全体としての実描画確認は未実施)
+- **次**: 上記(`live2dcubismcore.min.js`のみ配置での)Live2D実描画の実機確認待ち。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイムの同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。

@@ -2,13 +2,16 @@
  * Live2D形式の CharacterRenderer(FR-5)。pixi-live2d-display(v0.4.0)+ PixiJS v6 で描画する。
  *
  * ⚠️ 実行前提と本環境での検証限界(constraints.md「動作確認済みと自己申告しない」):
- * - **Cubism外部ランタイムが window に、しかも版に関わらず両方必要**。`pixi-live2d-display`(裸import)
- *   は cubism2/cubism4 両サブモジュールを同梱した単一バンドルで、どちらも import された時点で
- *   自分のランタイムグローバル(cubism4=`window.Live2DCubismCore`、cubism2=`window.Live2D`。
- *   `live2dcubismcore.min.js` / `live2d.min.js`。Live2D公式から取得、npmに無い)が無いと即例外を投げる
- *   (実機検証で判明。cubism-runtime.tsの訂正コメント参照)。**このモデルがCubism 4/5専用でも、
- *   Cubism 2ランタイムが無いとimportで落ちる**。createRenderer が**両方の存在を確認した後に
- *   動的 import** する(静的 import しない)。
+ * - **Cubism外部ランタイムが window に必要**。cubism4(=Cubism 5含む)は `window.Live2DCubismCore`、
+ *   cubism2 は `window.Live2D`(それぞれ`live2dcubismcore.min.js` / `live2d.min.js`。Live2D公式から
+ *   取得、npmに無い)。**このモジュール自身は `pixi-live2d-display` の値を一切importしない**
+ *   (`Live2DModel`/`MotionPriority`は型のみ参照する)。実体は `load-live2d-module.ts` が
+ *   **モデルの版に対応するサブパス**(`pixi-live2d-display/cubism4` または `/cubism2`)を
+ *   動的importして`live2d`として注入する。裸の`'pixi-live2d-display'`(cubism2/cubism4両方を
+ *   同梱した単一バンドル)を使うと、実際に使わない側のランタイムまで要求される実機バグを
+ *   過去に踏んだため(load-live2d-module.ts の経緯コメント参照)、版別サブパスに限定している。
+ *   createRenderer が**対応する版のランタイム存在を確認した後に** `loadLive2DModule` → 本モジュールの
+ *   動的 import、の順で呼ぶ(静的 import しない)。
  * - PixiJSは**v6のAPIで書く**(v8のContainerとは別クラス。environments.md)。`Ticker`を登録する。
  * - 実際の描画・モーション駆動はWebGL+GUIを要し、本サンドボックスでは実行できない。ロジック構造は
  *   ライブラリAPI/実測(A2: dev-assetsのHaru/Shizuku定義)に基づくが、**実描画の最終確認は実機で行う**。
@@ -55,7 +58,7 @@
  */
 
 import { Application, Ticker } from 'pixi.js';
-import { Live2DModel, MotionPriority } from 'pixi-live2d-display';
+import type { Live2DModel } from 'pixi-live2d-display';
 
 import {
   type CharacterRenderer,
@@ -70,15 +73,13 @@ import {
 } from '../../../shared/manifest';
 import { MotionRefirer } from './motion-refire';
 import { FALLBACK_STATE, type EmotionState } from '../../../shared/emotions';
-
-// PixiJSのTickerを登録する(モーション更新に必要。ライブラリの要求)。
-// ランタイム判定は cubism-runtime.ts(pixiを一切importしない)に置き、createRendererが本モジュールを
-// 動的importする前に確認する。ここに置くとimport時点でランタイム不在だと落ちるため分離している。
-Live2DModel.registerTicker(Ticker);
+import type { Live2DModule } from './load-live2d-module';
 
 export class Live2DRenderer implements CharacterRenderer {
   private readonly manifest: Live2dManifest;
   private readonly ctx: RendererContext;
+  /** createRenderer が版別サブパスから解決して渡す実体(冒頭コメント参照)。 */
+  private readonly live2d: Live2DModule;
 
   private app: Application | null = null;
   private model: Live2DModel | null = null;
@@ -91,9 +92,13 @@ export class Live2DRenderer implements CharacterRenderer {
   /** motionFinish の購読解除に使う(destroy でリスナを残さない)。 */
   private motionFinishHandler: (() => void) | null = null;
 
-  constructor(manifest: Live2dManifest, ctx: RendererContext) {
+  constructor(manifest: Live2dManifest, ctx: RendererContext, live2d: Live2DModule) {
     this.manifest = manifest;
     this.ctx = ctx;
+    this.live2d = live2d;
+    // PixiJSのTickerを登録する(モーション更新に必要。ライブラリの要求)。生成のたびに呼んでも
+    // 副作用は無い(内部は単なる参照の再代入。registerTicker実装で確認済み)ため冪等性ガードは不要。
+    this.live2d.Live2DModel.registerTicker(Ticker);
     this.refirer = new MotionRefirer({
       // 自前の割当を持つ状態だけ再発火する。idle へフォールバックした状態(割当なし)は、映っているのが
       // idle のモーションなので撃ち直さない(ライブラリのidleローテーションに委ねる。manifest.ts参照)。
@@ -104,7 +109,7 @@ export class Live2DRenderer implements CharacterRenderer {
       // FORCE で撃つ理由: reserve() は priority>=FORCE のとき優先度チェックをスキップするため、
       // その間にライブラリが開始した idle モーションを競合状態に依存せず上書きできる(ヘッダの実測2)。
       fireMotion: (motion) => {
-        void this.model?.motion(motion, undefined, MotionPriority.FORCE).catch((err: unknown) => {
+        void this.model?.motion(motion, undefined, this.live2d.MotionPriority.FORCE).catch((err: unknown) => {
           console.error(`[live2d] motion の再発火に失敗しました(${this.currentState}/${motion}):`, err);
         });
       },
@@ -160,7 +165,7 @@ export class Live2DRenderer implements CharacterRenderer {
   private async loadModel(): Promise<void> {
     try {
       const url = `${this.ctx.assetBaseUrl}/${this.manifest.modelFile}`;
-      const model = await Live2DModel.from(url);
+      const model = await this.live2d.Live2DModel.from(url);
       if (this.destroyed || !this.app) {
         model.destroy();
         return;

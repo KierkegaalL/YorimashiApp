@@ -12,10 +12,9 @@
  * よってこのモジュール自身は「今 dev か prod か」を一切意識しない。
  *
  * **失敗を例外にしない**: ファイル未配置(404)は開発中ふつうに起こる状態であり、
- * 呼び出し側の `createRenderer.ts` が `isAnyCubismRuntimeUsable()`(cubism2/4両方を確認。
- * cubism-runtime.ts参照)で判定して「ランタイム未導入」という正直なエラーを出す
- * (constraints.md「嘘をつかない」)。ここで例外を投げると、その正直なエラー文言より
- * 前に素の読み込み失敗が表面化してしまう。
+ * 呼び出し側の `createRenderer.ts` が `isCubismRuntimeAvailable()` で判定して
+ * 「ランタイム未導入」という正直なエラーを出す(constraints.md「嘘をつかない」)。
+ * ここで例外を投げると、その正直なエラー文言より前に素の読み込み失敗が表面化してしまう。
  *
  * 対称性(CLAUDE.md原則4): これはLive2D専用で、スプライトセットには対応物を持たない
  * (`SpriteSetRenderer`は`<img>`でのブラウザネイティブ再生のみで外部ランタイムを要さないため。
