@@ -26,10 +26,24 @@
  * 結果`renderOrders`が`undefined`のまま`doDrawModel()`の`renderOrder[0]`アクセスで
  * `TypeError: Cannot read properties of undefined`となり、モデルが一切描画されなかった
  * (エラーは起きず`ready`にはなる=設定・moc3・テクスチャの取得自体は全部成功しているため気づきにくい)。
- * `CubismModel.prototype.getDrawableRenderOrders`を上書きし、`renderOrders`が無ければ`drawOrders`へ
- * フォールバックする(古いCore=`renderOrders`が生きている場合はそのまま使うため後方互換も保つ)。
- * **cubism2には対応物が無い**(`CubismModel`クラス自体がCubism4専用のCore実装ラッパーで、
- * cubism2.es.jsはこのクラスを持たない=exportsにも無い。よってこのパッチはcubism4限定で正当な非対称)。
+ *
+ * **単純なリネームではなく意味も変わっていた(続報・実機検証)**: `renderOrders`へフォールバック
+ * するだけの初回修正では「1パーツしか描画されない」症状が残った。`doDrawModel()`(公式Cubism
+ * Native SDKのアルゴリズムをそのまま移植)は`this._sortedDrawableIndexList[order] = i`という、
+ * **`order`の値をそのまま配列の添字として使う**実装で、`order`が`0`〜`drawableCount-1`の
+ * **連番の並び替え**であることを前提にしている。しかし実際に取得した`drawOrders`の値は
+ * `200, 300, 500, ..., 1000`のような**まばらな大きな数値**(Cubism Editorのレイヤー順のような
+ * Z値)で、連番ではなかった。そのまま添字に使うと大半のdrawableが`_sortedDrawableIndexList`の
+ * 対象範囲外に書き込まれ、描画ループが実質的に1件のdrawableだけを指し続けることになり
+ * 「1パーツしか描画されない」症状と一致した(`computeRankFromDrawOrders`で実際に0〜82の
+ * 完全な並び替えになることを検証済み)。よって`drawOrders`を使う場合は**値でソートして
+ * 順位(0〜N-1)へ変換してから**返す。`renderOrders`が生きていれば従来どおりそのまま使う
+ * (既に連番の並び替えとして提供されるため変換不要)。
+ *
+ * `CubismModel.prototype.getDrawableRenderOrders`を上書きし、`renderOrders`が無ければ
+ * `drawOrders`から計算した順位配列へフォールバックする。**cubism2には対応物が無い**
+ * (`CubismModel`クラス自体がCubism4専用のCore実装ラッパーで、cubism2.es.jsはこのクラスを
+ * 持たない=exportsにも無い。よってこのパッチはcubism4限定で正当な非対称)。
  *
  * **⚠️ アセット認証(2026-07-30・実機検証で解決)**: `GET /models/*` はトークン認証必須(security.md)。
  * `pixi-live2d-display`はモデル定義・moc3・motion・physics/poseを自前のXHRローダで、**テクスチャは
@@ -100,8 +114,33 @@ interface CubismModelClass {
 }
 
 /**
+ * `drawOrders`(まばらなZ値)を、値の昇順でソートした順位(0〜N-1の連番)へ変換する。
+ * 同値は安定ソートでdrawableの元index昇順にする(Array.prototype.sortはES2019+で安定)。
+ * 冒頭コメント「単純なリネームではなく意味も変わっていた」参照。
+ *
+ * **呼び出し側(`getDrawableRenderOrdersCompat`)から毎フレーム呼ばれるが、意図的にキャッシュしない**。
+ * `doDrawModel()`(`node_modules/pixi-live2d-display/dist/cubism4.es.js`)自身が
+ * `getDrawableRenderOrders()`を毎フレーム呼んでいるのは、Cubismの「Draw Order Group」
+ * (パラメータに連動してdrawableの描画順を動的に入れ替える機能。例: 腕が体の前後を行き来する)
+ * を反映するためと考えられる。`drawOrders`がmoc3ロード後ずっと不変とは限らないため、
+ * ここで結果をキャッシュすると、この機能を使うモデルで描画順が固定される回帰を招きうる
+ * (reviewer指摘。将来ここを「無駄なので毎フレームソートをやめよう」と最適化しないこと)。
+ */
+function computeRankFromDrawOrders(drawOrders: Int32Array): Int32Array {
+  const n = drawOrders.length;
+  const indices = Array.from({ length: n }, (_, i) => i);
+  indices.sort((a, b) => drawOrders[a]! - drawOrders[b]! || a - b);
+  const rank = new Int32Array(n);
+  for (let r = 0; r < n; r++) {
+    rank[indices[r]!] = r;
+  }
+  return rank;
+}
+
+/**
  * `CubismModel.getDrawableRenderOrders()`を上書きし、`drawables.renderOrders`が無ければ
- * `drawables.drawOrders`へフォールバックする(冒頭コメントの経緯参照)。cubism4専用。
+ * `drawables.drawOrders`から計算した順位配列へフォールバックする(冒頭コメントの経緯参照)。
+ * cubism4専用。
  */
 function ensureDrawOrdersCompat(mod: typeof import('pixi-live2d-display/cubism4')): void {
   const CubismModel = (mod as unknown as { CubismModel: CubismModelClass }).CubismModel;
@@ -115,7 +154,11 @@ function ensureDrawOrdersCompat(mod: typeof import('pixi-live2d-display/cubism4'
     this: typeof proto,
   ): Int32Array | undefined {
     const result = original.call(this);
-    return result !== undefined ? result : this._model.drawables.drawOrders;
+    if (result !== undefined) {
+      return result;
+    }
+    const drawOrders = this._model.drawables.drawOrders;
+    return drawOrders !== undefined ? computeRankFromDrawOrders(drawOrders) : undefined;
   };
 }
 
