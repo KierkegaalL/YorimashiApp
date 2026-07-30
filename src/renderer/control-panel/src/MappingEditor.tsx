@@ -340,6 +340,11 @@ export function MappingEditor({ slots }: { slots: ModelSlotView[] }): React.JSX.
         </div>
       )}
 
+      {/* warning は Live2D のみ(SpritesetMappingDetail は持たない。正当な非対称。
+          理由は shared/model-mapping.ts の SpritesetMappingDetail コメント参照)。 */}
+      {detail?.renderType === 'live2d' && detail.warning !== null && (
+        <ErrorNotice message={detail.warning} />
+      )}
       {error !== null && <ErrorNotice message={error} />}
     </>
   );

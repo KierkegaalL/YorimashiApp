@@ -65,10 +65,6 @@ export const REACTION_PRIORITY: Record<ReactionState, number> = {
 /** マッピング未設定時のフォールバック先。idleのみ必須(要件定義書 C-18)。 */
 export const FALLBACK_STATE: EmotionState = 'idle';
 
-export function isMoodState(key: string): key is MoodState {
-  return (MOOD_STATES as readonly string[]).includes(key);
-}
-
 export function isReactionState(key: string): key is ReactionState {
   return (REACTION_STATES as readonly string[]).includes(key);
 }

@@ -177,7 +177,17 @@ export class Live2DRenderer implements CharacterRenderer {
         this.model.internalModel.motionManager.off('motionFinish', this.motionFinishHandler);
         this.motionFinishHandler = null;
       }
-      this.model.destroy();
+      // オプションを明示する(reviewer指摘・2026-07-30): pixi-live2d-display の
+      // Live2DModel.destroy(options) は options?.texture が truthy のときだけ内部の
+      // textures を destroy する。オプション無しで呼ぶと、続く super.destroy() が
+      // stage から自分自身を removeChild する副作用を持つため、その後の
+      // app.destroy(true, {texture:true,...}) がこの model には届かず(stage.children が
+      // 既に空)、PixiJSのグローバルテクスチャキャッシュ(BaseTextureCache/TextureCache)に
+      // エントリが残り続ける(モデル切替を繰り返すとヒープに蓄積するリークになる)。
+      // 対称性チェック: PixiJS(pixi-live2d-display)固有のリソース解放APIの話で、
+      // SpriteSetRendererは<img>要素を使うだけでPixiJSのdestroy概念自体を持たないため対応物は無い
+      // (このファイル冒頭コメント「責務分担」節と同種の正当な非対称)。
+      this.model.destroy({ children: true, texture: true, baseTexture: true });
       this.model = null;
     }
     if (this.app) {
@@ -200,7 +210,8 @@ export class Live2DRenderer implements CharacterRenderer {
       const url = `${this.ctx.assetBaseUrl}/${this.manifest.modelFile}?${TOKEN_QUERY_KEY}=${encodeURIComponent(this.ctx.token)}`;
       const model = await this.live2d.Live2DModel.from(url);
       if (this.destroyed || !this.app) {
-        model.destroy();
+        // 上の destroy() と同じ理由でオプションを明示する(テクスチャキャッシュのリーク防止)。
+        model.destroy({ children: true, texture: true, baseTexture: true });
         return;
       }
       this.model = model;

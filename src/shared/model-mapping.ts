@@ -43,6 +43,15 @@ export interface Live2dMappingDetail {
   expressions: string[];
   /** 全10状態ぶん(EMOTION_STATES 順)。未割当も含めて必ず10件。 */
   entries: Live2dMappingEntry[];
+  /**
+   * idle(待機)にモーションの割り当てが無い場合の警告文(無ければ null)。expression の有無は
+   * 判定に含めない(Live2DRenderer.applyState() は motion が無ければ再生自体を行わないため)。
+   * idle はモーション終了後のフォールバック先(C-18)のため、motion 未設定だと固まりうる
+   * (lipsync.md)。取り込み時(model-importer.ts の `autoMapLive2d` 由来)と同じ判定を、
+   * 自動再割り当て(autoRestoreAll/autoRestoreState)・手動編集(setLive2dEntry)の結果にも
+   * 一貫して適用する(取り込み時だけ警告して編集時は無警告、という非対称を無くす)。
+   */
+  warning: string | null;
 }
 
 // ── スプライトセット ─────────────────────────────────
@@ -62,6 +71,12 @@ export interface SpritesetMappingEntry {
  * スプライトセットモデルのマッピング編集詳細。Live2D と違い**候補の概念が無い**
  * (クリップは生成フローで感情ごとに1:1で作られる。論点4)。編集は差し替え(Track B・
  * decode-video.ts 再利用)と削除(このTrack A)で、削除は idle 以外のみ(C-18)。
+ *
+ * **`warning` フィールドを持たない(正当な非対称)**: Live2D の `warning` は「idle に
+ * モーションの割り当てが無い」状態を検知するためのものだが、スプライトセットは
+ * `MappingService.deleteSpritesetClip` が idle の削除自体を拒否し(C-18)、取り込み
+ * (`SpritesetImporter.importSpriteset`)も idle クリップを必須にしているため、
+ * 「idle が空になる」状態が構造的に発生しない。
  */
 export interface SpritesetMappingDetail {
   renderType: 'spriteset';

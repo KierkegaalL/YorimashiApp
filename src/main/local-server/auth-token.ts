@@ -34,6 +34,7 @@ export function ensureAuthToken(userDataDir: string): string {
 
   const token = crypto.randomBytes(24).toString('hex');
   fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+  // writeFileSync の mode は umask の影響を受けうるため、念のため明示的に締め直す(保険)。
   tryChmod600(tokenPath);
   return token;
 }

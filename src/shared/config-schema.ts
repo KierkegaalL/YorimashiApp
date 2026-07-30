@@ -17,6 +17,11 @@ import { MAX_MODEL_SLOTS } from './model-manage';
 // 表示サイズの範囲と配色テーマの選択肢も同じ理由で general-settings.ts(zod非依存)を正とする。
 // 全体設定タブ(Renderer)とMainの検証が同じ値を使うため、スキーマ側から取り込む向きにする。
 import { DISPLAY_SIZE_MAX, DISPLAY_SIZE_MIN, THEME_MODES } from './general-settings';
+// ポート番号・連続失敗しきい値の範囲も同じ理由で code-settings.ts(zod非依存)を正とする。
+// IPC経由の変更(モード設定タブ)はこの定数で検証済みだが、config.json の直接ロード経路
+// (起動時読み込み・手動編集・破損ファイル)はこのスキーマでしか検証されないため、
+// スキーマ側にも同じ範囲を適用する(reviewer指摘・2026-07-30)。
+import { FAIL_STREAK_MAX, FAIL_STREAK_MIN, SERVER_PORT_MAX, SERVER_PORT_MIN } from './code-settings';
 
 export const ModelSlotSchema = z.object({
   id: z.string(),
@@ -41,13 +46,14 @@ export const AppConfigSchema = z.object({
     model: z.string().default('claude-sonnet-5'),
     classifier: z.enum(['keyword', 'haiku']).default('keyword'), // mockでは常にkeyword(課金しない)
     classifierModel: z.string().default('claude-haiku-4-5'),
-    idleTimeoutMs: z.number().default(30000), // streaming無通信ウォッチドッグのしきい値
-    maxRetries: z.number().default(2),
-    timeout: z.number().default(60000),
+    idleTimeoutMs: z.number().positive().default(30000), // streaming無通信ウォッチドッグのしきい値
+    maxRetries: z.number().int().nonnegative().default(2),
+    timeout: z.number().positive().default(60000),
   }).prefault({}),
 
   codeAdapter: z.object({
-    serverPort: z.number().default(8765),
+    // 範囲は code-settings.ts の SERVER_PORT_MIN/MAX と同じ(1024〜65535)。
+    serverPort: z.number().int().min(SERVER_PORT_MIN).max(SERVER_PORT_MAX).default(8765),
     watchedProjectPaths: z.array(z.string()).default([]),
   }).prefault({}),
 
@@ -59,11 +65,14 @@ export const AppConfigSchema = z.object({
   }).prefault({}),
 
   emotionEngine: z.object({
-    reactionDurationMs: z.number().default(3000),
-    cooldownMs: z.number().default(1500),
-    idleTimeoutMs: z.number().default(300000), // 無操作でsleepyへ移行するまでの時間
-    failStreakThreshold: z.number().default(3), // Code/Chat両Adapterで共有
-    successStreakThreshold: z.number().default(3),
+    reactionDurationMs: z.number().positive().default(3000),
+    cooldownMs: z.number().positive().default(1500),
+    idleTimeoutMs: z.number().positive().default(300000), // 無操作でsleepyへ移行するまでの時間
+    // 範囲は code-settings.ts の FAIL_STREAK_MIN/MAX と同じ(1〜100)。successStreakThreshold は
+    // 「連続失敗」ではなく「連続成功」のしきい値だが、0だと無意味・青天井だと事実上機能しなくなる
+    // という同じ理由で同じ範囲を適用する(専用の定数を別途持つほどの違いではないため共用する)。
+    failStreakThreshold: z.number().int().min(FAIL_STREAK_MIN).max(FAIL_STREAK_MAX).default(3), // Code/Chat両Adapterで共有
+    successStreakThreshold: z.number().int().min(FAIL_STREAK_MIN).max(FAIL_STREAK_MAX).default(3),
   }).prefault({}),
 
   general: z.object({

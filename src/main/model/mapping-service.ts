@@ -76,6 +76,7 @@ export class MappingService {
         motions,
         expressions,
         entries,
+        warning: idleMissingWarning(entries),
       };
       return detail;
     }
@@ -317,6 +318,26 @@ export class MappingService {
     fs.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`);
     fs.renameSync(tmp, manifestPath);
   }
+}
+
+/**
+ * idle(待機)にモーションの割り当てが無いかを見て、警告文を返す(無ければ null)。expression の
+ * 有無は判定に含めない(下の実装コメント参照)。`getDetail`(表示)・`setLive2dEntry`/
+ * `autoRestoreState`/`autoRestoreAll`(すべて最後に `getDetail` を通す)のいずれの経路でも
+ * 同じ判定になる単一の関数にする(取り込み時 `model-importer.ts` の `idleMotionMissing` 警告と
+ * 同じ懸念を、編集後にも一貫して検知する)。
+ */
+function idleMissingWarning(entries: Live2dMappingEntry[]): string | null {
+  const idle = entries.find((e) => e.state === FALLBACK_STATE);
+  // motion のみで判定する(expression の有無は問わない)。Live2DRenderer.applyState() は
+  // motion が無ければ再生自体を行わず直前のポーズのまま固まる(expressionだけでは動かない)ため、
+  // 取り込み時の autoMapLive2d の idleMotionMissing 判定(live2d-import.ts、motionのみを見る)と
+  // 同じ条件にする必要がある(reviewer指摘・2026-07-30。以前は motion/expression 両方 null を
+  // 要求しており、motion だけ null な組み合わせでの警告漏れがあった)。
+  if (idle && idle.motion === null) {
+    return 'idle(待機)に対応するモーションが割り当てられていません。モーション終了後の待機表示が固まる可能性があります。';
+  }
+  return null;
 }
 
 /** 文字列が全10状態のいずれかなら EmotionState、そうでなければ null(未知の returnTo を握り潰す)。 */
