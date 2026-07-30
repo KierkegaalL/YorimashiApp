@@ -94,3 +94,28 @@ export const RESPONSE_MODELS: readonly ResponseModel[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
 ];
+
+/**
+ * モデル1件の「形式由来の補足」表示文。**モデルタブとホームタブが同じ文言を出すため**ここに置く。
+ *
+ * モックアップ(`docs/mockups/control-panel.jsx`)はここに `version`(「3/10クリップ・変換済み」等)
+ * を出しているが、あれはデモ用の固定文字列で実際の `ModelSlotView` に対応するフィールドが無い。
+ * 代わりに形式から言えることだけを出す(Live2D は Cubism 版、スプライトセットは版の概念を
+ * 持たないため別の語)。**両形式に同じものを無理に書かない**非対称だが、形式の性質に由来する
+ * ため正当(constraints.md)。
+ *
+ * 以前は ModelTab.tsx と HomeTab.tsx に同一実装が複製されていた(片方だけ直す事故を避けるため
+ * 集約した。`panel-ui.tsx` の Placeholder/ErrorNotice と同じ理由)。
+ */
+export function formatModelDetail(slot: {
+  renderType: 'live2d' | 'spriteset';
+  cubismVersion?: 'cubism2' | 'cubism4';
+}): string {
+  if (slot.renderType !== 'live2d') {
+    return 'WebPクリップ';
+  }
+  if (slot.cubismVersion === 'cubism2') {
+    return 'Cubism 2';
+  }
+  return slot.cubismVersion === 'cubism4' ? 'Cubism 4 / 5' : 'Cubism 版不明';
+}

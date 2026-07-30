@@ -8,6 +8,7 @@
  */
 
 import type { ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 import { useTheme } from './theme';
 
@@ -157,6 +158,60 @@ export function PanelButton({
     >
       {children}
     </button>
+  );
+}
+
+/**
+ * 読み込み中・未取得を正直に伝える1行(偽の既定値を描かないための表示)。
+ *
+ * `ErrorNotice` とともに、AdapterTab / ModelTab / MappingEditor に**同一の実装が3つ複製されて
+ * いた**ものをここへ寄せた(全体設定・ホームタブで4つ目・5つ目になるため)。冒頭コメントの
+ * 「見た目の定義が2箇所に分裂すると、片方だけ直す事故が起きる」がそのまま当てはまる。
+ */
+export function Placeholder({ text }: { text: string }): React.JSX.Element {
+  const theme = useTheme();
+  return (
+    <div
+      style={{
+        fontFamily: "'M PLUS 1 Code', sans-serif",
+        fontSize: 13,
+        color: theme.inkDim,
+        padding: 16,
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/** 失敗・注意を朱色で伝える枠(取得失敗や部分的失敗を隠さずに出す)。 */
+export function ErrorNotice({ message }: { message: string }): React.JSX.Element {
+  const theme = useTheme();
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        alignItems: 'flex-start',
+        padding: 12,
+        borderRadius: 10,
+        background: theme.sealRedTagSoft,
+        border: `1px solid ${theme.line}`,
+        marginBottom: 28,
+      }}
+    >
+      <AlertTriangle size={15} color={theme.sealRed} style={{ flexShrink: 0, marginTop: 1 }} />
+      <span
+        style={{
+          fontFamily: "'M PLUS 1 Code', sans-serif",
+          fontSize: 12,
+          color: theme.warnText,
+          lineHeight: 1.6,
+        }}
+      >
+        {message}
+      </span>
+    </div>
   );
 }
 

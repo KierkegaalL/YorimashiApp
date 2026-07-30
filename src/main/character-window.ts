@@ -188,6 +188,32 @@ export class CharacterWindow {
   }
 
   /**
+   * `config.general.displaySize` の変更を実ウィンドウのサイズへ反映する(全体設定タブから呼ぶ)。
+   *
+   * **再読込はしない**。ウィンドウの物理サイズだけが変わり、描画対象のモデル(bootstrap)は
+   * 変わらないため、`applyActiveModel()` のような `loadURL()` は不要
+   * (Renderer 側は CSS/PixiJS がコンテナ基準で描くので、リサイズだけで追従する)。
+   *
+   * リサイズ後に位置のクランプをやり直す: サイズが大きくなると、左上を固定したままでは
+   * ウィンドウの右下が画面外へはみ出しうる。macOS は画面外座標を自動補正しないと
+   * 実測で分かっているため(character-window.md 論点1)、既存の
+   * `reapplyPositionOnDisplayChange()` と同じ経路で収め直す。
+   */
+  applyDisplaySize(): void {
+    const win = this.browserWindow;
+    if (!win) {
+      return;
+    }
+    const size = resolveWindowSize(this.deps.configStore.current);
+    const [width, height] = win.getSize();
+    if (size.width === width && size.height === height) {
+      return;
+    }
+    win.setSize(size.width, size.height);
+    this.reapplyPositionOnDisplayChange();
+  }
+
+  /**
    * 指定モデルが今このウィンドウへ読み込まれているなら、再読込してマッピングの変更を反映する。
    *
    * マッピング編集(第3段階)は manifest.json を書き換えるだけで解決モデルの id は変わらないため、
@@ -221,12 +247,18 @@ export class CharacterWindow {
     this.win = null;
   }
 
-  /** クリックスルーを切り替え、config へ保存する(メニューバーのチェックボックスから呼ぶ)。 */
-  setClickThrough(value: boolean): void {
+  /**
+   * クリックスルーを実ウィンドウへ適用する(ウィンドウが無ければ何もしない)。
+   *
+   * **config への保存はここでは行わない**。以前は保存も担っていたが、呼び出し側が
+   * `characterWindow?.setClickThrough(value)` の形になる以上、**モデル未導入で
+   * インスタンスがまだ無い間(オンボーディング中)は保存ごと落ちる**という取りこぼしが
+   * あった(`startCharacterWindow()` はモデルが無いとインスタンス生成前に return する)。
+   * 保存は index.ts の `setClickThrough()` が**ウィンドウの有無に関わらず**必ず行い、
+   * こちらは適用だけを持つ(利用者の意思を黙って捨てない = constraints.md)。
+   */
+  applyClickThroughSetting(value: boolean): void {
     this.applyClickThrough(value);
-    this.deps.configStore.update((draft) => {
-      draft.general.clickThrough = value;
-    });
   }
 
   /** 位置を初期配置(右下)へ戻す。自動クランプが効かなかった場合の最後の逃げ道(論点3)。 */

@@ -31,7 +31,6 @@
 
 import { useEffect, useState } from 'react';
 import {
-  AlertTriangle,
   ArrowLeftRight,
   Check,
   Circle,
@@ -45,7 +44,8 @@ import {
 } from 'lucide-react';
 
 import { useTheme } from './theme';
-import { Row, Section, Switch } from './panel-ui';
+import { ErrorNotice, Placeholder, Row, Section, Switch } from './panel-ui';
+import { formatModelDetail } from './catalog';
 import {
   MAX_MODEL_NAME_LENGTH,
   MAX_MODEL_SLOTS,
@@ -519,15 +519,8 @@ function ModelRow({
   const formatLabel = isLive2d ? 'Live2D' : 'スプライトセット';
   const formatColor = isLive2d ? theme.accent : theme.mint;
   const formatTag = isLive2d ? theme.accentTag : theme.mintTag;
-  // 形式の補足。Live2D は Cubism 版、スプライトセットは版の概念を持たないため出さない
-  // (両形式に同じものを無理に書かない。非対称だが形式の性質に由来する)。
-  const detail = isLive2d
-    ? slot.cubismVersion === 'cubism2'
-      ? 'Cubism 2'
-      : slot.cubismVersion === 'cubism4'
-        ? 'Cubism 4 / 5'
-        : 'Cubism 版不明'
-    : 'WebPクリップ';
+  // 形式の補足。ホームタブと同じ文言を出すため catalog.ts に集約している(理由はそちらに記載)。
+  const detail = formatModelDetail(slot);
 
   return (
     <Row
@@ -673,48 +666,4 @@ function ModelRow({
   );
 }
 
-function Placeholder({ text }: { text: string }): React.JSX.Element {
-  const theme = useTheme();
-  return (
-    <div
-      style={{
-        fontFamily: "'M PLUS 1 Code', sans-serif",
-        fontSize: 13,
-        color: theme.inkDim,
-        padding: 16,
-      }}
-    >
-      {text}
-    </div>
-  );
-}
 
-function ErrorNotice({ message }: { message: string }): React.JSX.Element {
-  const theme = useTheme();
-  return (
-    <div
-      style={{
-        display: 'flex',
-        gap: 8,
-        alignItems: 'flex-start',
-        padding: 12,
-        borderRadius: 10,
-        background: theme.sealRedTagSoft,
-        border: `1px solid ${theme.line}`,
-        marginBottom: 28,
-      }}
-    >
-      <AlertTriangle size={15} color={theme.sealRed} style={{ flexShrink: 0, marginTop: 1 }} />
-      <span
-        style={{
-          fontFamily: "'M PLUS 1 Code', sans-serif",
-          fontSize: 12,
-          color: theme.warnText,
-          lineHeight: 1.6,
-        }}
-      >
-        {message}
-      </span>
-    </div>
-  );
-}

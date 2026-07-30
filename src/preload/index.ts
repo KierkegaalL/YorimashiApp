@@ -17,6 +17,10 @@ import type {
   ChatStreamEvent,
 } from '../shared/chat';
 import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../shared/code-settings';
+import type {
+  GeneralSettingsPatch,
+  GeneralSettingsSnapshot,
+} from '../shared/general-settings';
 import type { RightsSnapshot } from '../shared/rights';
 import type { ModelManageSnapshot } from '../shared/model-manage';
 import type { Live2dEntryPatch, ModelMappingDetail } from '../shared/model-mapping';
@@ -172,6 +176,22 @@ const api = {
    */
   rights: {
     get: (): Promise<RightsSnapshot> => ipcRenderer.invoke(IPC.RightsGet),
+  },
+  /**
+   * 全体設定(FR-7/FR-10)。配色テーマ・表示サイズ・クリックスルー・自動起動。
+   * **クリックスルーはメニューバー(Tray)からも変わる**ため、変更通知の購読が要る
+   * (購読しないと全体設定タブのトグルだけが古い値のまま残る)。
+   */
+  general: {
+    getSettings: (): Promise<GeneralSettingsSnapshot> =>
+      ipcRenderer.invoke(IPC.GeneralSettingsGet),
+    setSettings: (patch: GeneralSettingsPatch): Promise<GeneralSettingsSnapshot> =>
+      ipcRenderer.invoke(IPC.GeneralSettingsSet, patch),
+    onChanged: (listener: (snapshot: GeneralSettingsSnapshot) => void): (() => void) => {
+      const handler = (_e: unknown, payload: GeneralSettingsSnapshot): void => listener(payload);
+      ipcRenderer.on(IPC.GeneralSettingsChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.GeneralSettingsChanged, handler);
+    },
   },
   /**
    * モデル管理(FR-5)のスロット操作 + 取り込み。Live2Dの**フォルダ取り込み(importLive2d)・

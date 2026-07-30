@@ -12,6 +12,7 @@ import { ControlPanelWindow } from './control-panel-window';
 import { ChatAdapter } from './chat-adapter/chat-adapter';
 import { CodeAdapter } from './code-adapter/code-adapter';
 import { CodeAdapterSettings, parseCodeSettingsPatch } from './code-adapter/code-settings';
+import { GeneralSettings, parseGeneralSettingsPatch } from './general-settings';
 import { ModelService, modelsRootOf, parseModelId, parseRenamePayload } from './model/model-service';
 import { ModelImporter } from './model/model-importer';
 import { SpritesetImporter, parseSpritesetClip, parseSpritesetImportPayload } from './model/spriteset-importer';
@@ -87,6 +88,7 @@ let controlPanelWindow: ControlPanelWindow | null = null;
 let chatAdapter: ChatAdapter | null = null;
 let codeAdapter: CodeAdapter | null = null;
 let codeSettings: CodeAdapterSettings | null = null;
+let generalSettings: GeneralSettings | null = null;
 let modelService: ModelService | null = null;
 let onboarding: OnboardingService | null = null;
 let hookEventLog: HookEventLog | null = null;
@@ -366,6 +368,87 @@ function registerCodeSettingsIpc(): void {
     }
     return codeSettings.removeProject(projectPath);
   });
+}
+
+/**
+ * 全体設定タブ(FR-7/FR-10)のIPCを配線する。
+ *
+ * `autostart` は **これまで config フィールドだけが存在してOSへの登録処理が無かった**ため、
+ * ここで `app.setLoginItemSettings()` / `app.getLoginItemSettings()` を注入して実際に効かせる
+ * (general-settings.ts 冒頭参照)。`app.isPackaged` が false の開発実行では登録しても
+ * 意味が無い(実行中バイナリ=node_modules 内の Electron が登録される)ため未対応として扱い、
+ * UI 側が断り書きを出す。
+ *
+ * クリックスルーは Tray と共有する唯一の入口(下記のモジュール関数 `setClickThrough()`)へ委譲する。
+ * 変更後は Renderer へ通知して、Tray 経由の変更にも全体設定タブが追従できるようにする。
+ */
+function registerGeneralSettingsIpc(): void {
+  if (!configStore) {
+    console.warn('[general-settings] config が未初期化のため配線をスキップします');
+    return;
+  }
+
+  generalSettings = new GeneralSettings({
+    configStore,
+    // クリックスルーの唯一の入口(Trayのチェックボックスと共有)。ウィンドウ未生成でも
+    // config への保存は必ず行われる(上記 setClickThrough のコメント参照)。
+    setClickThrough,
+    applyDisplaySize: () => characterWindow?.applyDisplaySize(),
+    getLoginItem: () => app.getLoginItemSettings().openAtLogin,
+    setLoginItem: (openAtLogin) => app.setLoginItemSettings({ openAtLogin }),
+    isAutostartSupported: () => app.isPackaged,
+  });
+
+  // 起動時に config の意思を OS のログイン項目へ揃える(前回が開発実行だった・システム設定から
+  // 直接外された等でずれうるため)。
+  generalSettings.syncAutostartOnStartup();
+
+  ipcMain.handle(IPC.GeneralSettingsGet, (event) => {
+    if (!isPanelSender(event.sender) || !generalSettings) {
+      throw new Error('この送信元からの取得は許可されていません');
+    }
+    return generalSettings.getSnapshot();
+  });
+
+  ipcMain.handle(IPC.GeneralSettingsSet, (event, patch: unknown) => {
+    if (!isPanelSender(event.sender) || !generalSettings) {
+      throw new Error('この送信元からの操作は許可されていません');
+    }
+    const next = generalSettings.updateSettings(parseGeneralSettingsPatch(patch));
+    // 送信元にも同じスナップショットが戻るが、**購読側(シェルの配色テーマ)にも届ける**必要が
+    // あるためブロードキャストする(同一ウィンドウ内の別コンポーネントが購読している)。
+    // クリックスルーを含むパッチでは上記 setClickThrough 内でも一度送っており2回になるが、
+    // **最後に届くのは必ず更新後の完全なスナップショット**なので害はない(自己修復する)。
+    broadcastGeneralSettings();
+    return next;
+  });
+}
+
+/**
+ * クリックスルーを切り替える**唯一の入口**(メニューバーのチェックボックスと全体設定タブが共有)。
+ *
+ * **config への保存を先に、ウィンドウへの適用を後に行う**。適用側(CharacterWindow)は
+ * モデル未導入の間はインスタンスすら無く(`startCharacterWindow()` が生成前に return する)、
+ * 以前のように `characterWindow?.setClickThrough()` へ保存まで委ねると、その間の操作が
+ * 黙って捨てられていた(利用者には保存されたように見えるのに次回起動で戻る)。
+ * 保存はウィンドウの有無に関わらず必ず行い、適用はウィンドウがあるときだけ行う。
+ * ウィンドウが後から生成されるときは `create()` が config を読んで適用する。
+ */
+function setClickThrough(value: boolean): void {
+  configStore?.update((draft) => {
+    draft.general.clickThrough = value;
+  });
+  characterWindow?.applyClickThroughSetting(value);
+  // 全体設定タブのトグルを実体に追従させる(購読しないとTray経由の変更で表示だけ古くなる)。
+  broadcastGeneralSettings();
+}
+
+/** 全体設定の現在値を Control Panel へ通知する(Tray からのクリックスルー変更でも呼ぶ)。 */
+function broadcastGeneralSettings(): void {
+  const win = controlPanelBrowserWindow();
+  if (win && !win.isDestroyed() && generalSettings) {
+    win.webContents.send(IPC.GeneralSettingsChanged, generalSettings.getSnapshot());
+  }
 }
 
 /**
@@ -867,7 +950,7 @@ function buildMenuDeps(): AppMenuDeps {
       broadcastChatConfig();
     },
     getClickThrough: () => configStore?.current.general.clickThrough ?? true,
-    setClickThrough: (value) => characterWindow?.setClickThrough(value),
+    setClickThrough,
     openControlPanel,
     resetCharacterPosition: () => characterWindow?.resetPosition(),
     quit: () => app.quit(),
@@ -938,6 +1021,7 @@ void app.whenReady().then(async () => {
   registerOnboardingIpc();
   registerLogsIpc();
   registerCodeSettingsIpc();
+  registerGeneralSettingsIpc();
   registerRightsIpc();
   registerModelIpc();
   startCharacterWindow();
@@ -980,6 +1064,9 @@ app.on('will-quit', () => {
   ipcMain.removeHandler(IPC.CodeSettingsChooseProject);
   ipcMain.removeHandler(IPC.CodeSettingsRemoveProject);
   codeSettings = null;
+  ipcMain.removeHandler(IPC.GeneralSettingsGet);
+  ipcMain.removeHandler(IPC.GeneralSettingsSet);
+  generalSettings = null;
   ipcMain.removeHandler(IPC.RightsGet);
   ipcMain.removeHandler(IPC.ModelGet);
   ipcMain.removeHandler(IPC.ModelDelete);

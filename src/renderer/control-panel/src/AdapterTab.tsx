@@ -31,7 +31,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ExternalLink, FolderPlus, Trash2 } from 'lucide-react';
 
 import { useTheme } from './theme';
-import { Row, Section, Switch, TextInput } from './panel-ui';
+import { ErrorNotice, Placeholder, Row, Section, Switch, TextInput } from './panel-ui';
 import { ANTHROPIC_CONSOLE_URL, API_KEY_STEPS, RESPONSE_MODELS } from './catalog';
 import type { ChatSettingsSnapshot } from '../../../shared/chat';
 import type { CodeSettingsPatch, CodeSettingsSnapshot } from '../../../shared/code-settings';
@@ -614,53 +614,5 @@ function ChatAdapterSection(): React.JSX.Element {
 
       {error !== null && <ErrorNotice message={error} />}
     </>
-  );
-}
-
-// ── 共通の小片 ─────────────────────────────────────────────────────────
-
-function Placeholder({ text }: { text: string }): React.JSX.Element {
-  const theme = useTheme();
-  return (
-    <div
-      style={{
-        fontFamily: "'M PLUS 1 Code', sans-serif",
-        fontSize: 13,
-        color: theme.inkDim,
-        padding: 16,
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-function ErrorNotice({ message }: { message: string }): React.JSX.Element {
-  const theme = useTheme();
-  return (
-    <div
-      style={{
-        display: 'flex',
-        gap: 8,
-        alignItems: 'flex-start',
-        padding: 12,
-        borderRadius: 10,
-        background: theme.sealRedTagSoft,
-        border: `1px solid ${theme.line}`,
-        marginBottom: 28,
-      }}
-    >
-      <AlertTriangle size={15} color={theme.sealRed} style={{ flexShrink: 0, marginTop: 1 }} />
-      <span
-        style={{
-          fontFamily: "'M PLUS 1 Code', sans-serif",
-          fontSize: 12,
-          color: theme.warnText,
-          lineHeight: 1.6,
-        }}
-      >
-        {message}
-      </span>
-    </div>
   );
 }
