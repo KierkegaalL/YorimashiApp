@@ -55,6 +55,10 @@ const AppConfigSchema = z.object({
   }),
 
   general: z.object({
+    // themeMode の選択肢と displaySize の範囲は、実装では `src/shared/general-settings.ts` の
+    // 定数(THEME_MODES / DISPLAY_SIZE_MIN / DISPLAY_SIZE_MAX)を単一の情報源とし、
+    // config-schema.ts がそれを import する(全体設定タブの入力検証と同じ値を使うため。
+    // MAX_MODEL_SLOTS と同じ「zod非依存モジュールを正とする」向き)。**値の仕様は下記のとおり**。
     themeMode: z.enum(['light', 'dark', 'system']).default('system'),
     displaySize: z.number().min(0.2).max(1).default(0.5), // 常駐マスコットが画面を占有しすぎず視認できる範囲(モックアップのスライダーmin=20/max=100と一致。未決事項C6として決着・2026-07-27)
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),

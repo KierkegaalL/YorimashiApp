@@ -33,12 +33,15 @@ import { Onboarding } from './Onboarding';
 import type { TabId } from './catalog';
 import type { AdapterMode, ChatMode } from './types';
 import type { MoodState } from '../../../shared/emotions';
+import type { ThemeMode } from '../../../shared/general-settings';
 
 export function App(): React.JSX.Element {
-  // テーマは当面 OS の配色設定に追従する(system)。ライト/ダークの**手動切替は FR-7 設定タブ**の
-  // 機能なので #6(FR-15) の範囲外。設定タブ移植時に config.general.themeMode を読んで
-  // resolvedThemeName を上書きできるようにする。
+  // 配色テーマ(要件定義書 C-15: light/dark/system の3モード)。
+  // **正本は config.general.themeMode**(全体設定タブがここを変える)。`system` のときだけ
+  // OS の `prefers-color-scheme` に追従する。全体設定タブは別コンポーネントなので、
+  // 変更は Main 経由の通知(general.onChanged)で受け取る。
   const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) {
@@ -51,7 +54,32 @@ export function App(): React.JSX.Element {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const theme = THEMES[systemPrefersDark ? 'dark' : 'light'];
+  useEffect(() => {
+    const api = window.yorimashi?.general;
+    if (!api) {
+      // preload が無い経路(ブラウザでの表示確認)では system のまま(OS追従)。
+      return;
+    }
+    let cancelled = false;
+    void api
+      .getSettings()
+      .then((s) => {
+        if (!cancelled) {
+          setThemeMode(s.themeMode);
+        }
+      })
+      .catch(() => {
+        // 読めなければ system のまま。ここで既定値を捏造しても配色以外に影響しない。
+      });
+    const unsubscribe = api.onChanged((s) => setThemeMode(s.themeMode));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  const resolvedThemeName = themeMode === 'system' ? (systemPrefersDark ? 'dark' : 'light') : themeMode;
+  const theme = THEMES[resolvedThemeName];
 
   // 折りたたみ状態(FR-15/C-21)。既定は展開(false)。
   // **ウィンドウ幅(976⇄576px)の実変更は Main が行う**(chat-pane.md 論点1: 内部レイアウトの
@@ -222,8 +250,16 @@ export function App(): React.JSX.Element {
           )}
         </button>
 
-        {/* ══ Control Panel(6タブ・FR-7)。既定で展開。タブバーの骨組みのみ。中身は後続タスクで移植 ══ */}
-        {!controlPanelCollapsed && <ControlPanelTabs tab={tab} onSelectTab={setTab} />}
+        {/* ══ Control Panel(6タブ・FR-7)。既定で展開 ══ */}
+        {!controlPanelCollapsed && (
+          <ControlPanelTabs
+            tab={tab}
+            onSelectTab={setTab}
+            // ホームタブのアダプタ切替は App が持つ写しを渡す(情報源を2つ作らない)。
+            adapterMode={adapterMode}
+            onSetAdapterMode={requestAdapterMode}
+          />
+        )}
       </div>
 
       {/* ══ オンボーディング(FR-14)。初回起動時のみウィンドウ全面に被せる ══ */}

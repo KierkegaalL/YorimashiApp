@@ -20,14 +20,14 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronRight, Play, RotateCcw, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Play, RotateCcw, Trash2, Upload } from 'lucide-react';
 
 import { useTheme } from './theme';
-import { Row, Section } from './panel-ui';
+import { ErrorNotice, Row, Section } from './panel-ui';
 import { decodeAndKeyVideo } from './spriteset/decode-video';
 import { ModelPreview, type ModelPreviewHandle } from './ModelPreview';
 import { FALLBACK_STATE, type EmotionState } from '../../../shared/emotions';
-import type { ModelSlotView } from '../../../shared/model-manage';
+import { MAX_MODEL_SLOTS, type ModelSlotView } from '../../../shared/model-manage';
 import type {
   Live2dMappingDetail,
   Live2dMappingEntry,
@@ -190,8 +190,8 @@ export function MappingEditor({ slots }: { slots: ModelSlotView[] }): React.JSX.
   return (
     <>
       <Section title="感情とモーションの対応" hint={detail !== null ? hint : undefined}>
-        {/* 2体セット時はどちらのモデルを編集するか選ぶ(モックアップ L1110-1130)。 */}
-        {slots.length === 2 && (
+        {/* 上限までセットしている時はどちらのモデルを編集するか選ぶ(モックアップ L1110-1130)。 */}
+        {slots.length === MAX_MODEL_SLOTS && (
           <div
             style={{
               display: 'flex',
@@ -797,32 +797,3 @@ function fullButtonStyle(bg: string, color: string, disabled: boolean): React.CS
   };
 }
 
-function ErrorNotice({ message }: { message: string }): React.JSX.Element {
-  const theme = useTheme();
-  return (
-    <div
-      style={{
-        display: 'flex',
-        gap: 8,
-        alignItems: 'flex-start',
-        padding: 12,
-        borderRadius: 10,
-        background: theme.sealRedTagSoft,
-        border: `1px solid ${theme.line}`,
-        marginBottom: 28,
-      }}
-    >
-      <AlertTriangle size={15} color={theme.sealRed} style={{ flexShrink: 0, marginTop: 1 }} />
-      <span
-        style={{
-          fontFamily: "'M PLUS 1 Code', sans-serif",
-          fontSize: 12,
-          color: theme.warnText,
-          lineHeight: 1.6,
-        }}
-      >
-        {message}
-      </span>
-    </div>
-  );
-}

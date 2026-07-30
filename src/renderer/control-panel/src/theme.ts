@@ -51,10 +51,15 @@ export interface Theme {
   moods: Record<MoodState, MoodStyle>;
 }
 
-/** 実装済みの配色テーマ名。 */
+/**
+ * 実装済みの配色テーマ名(= 実際に描ける2案)。
+ *
+ * ユーザーが選べるモードは `system` を含む3値で、それは **`shared/general-settings.ts` の
+ * `ThemeMode`** が持つ(config.general.themeMode の型であり、Main の検証もそこを使うため)。
+ * `system` は「OSに合わせる」という指示であって配色そのものではないので、ここには入れない。
+ * App が `ThemeMode` → `ThemeName` へ解決してから `THEMES` を引く。
+ */
 export type ThemeName = 'light' | 'dark';
-// NOTE: ユーザーが選べるテーマモード(ThemeName | 'system')は FR-7 設定タブで手動切替を
-// 実装する際に追加する。#6(FR-15) は OS 追従のみのため、未使用の型はここに置かない。
 
 export const THEMES: Record<ThemeName, Theme> = {
   light: {

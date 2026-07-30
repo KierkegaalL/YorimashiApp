@@ -14,6 +14,9 @@ import { z } from 'zod';
 // **この向きでimportする**。逆向きにすると Renderer がこの定数のために Zod 一式を
 // バンドルへ取り込む(model-manage.ts の注記参照)。
 import { MAX_MODEL_SLOTS } from './model-manage';
+// 表示サイズの範囲と配色テーマの選択肢も同じ理由で general-settings.ts(zod非依存)を正とする。
+// 全体設定タブ(Renderer)とMainの検証が同じ値を使うため、スキーマ側から取り込む向きにする。
+import { DISPLAY_SIZE_MAX, DISPLAY_SIZE_MIN, THEME_MODES } from './general-settings';
 
 export const ModelSlotSchema = z.object({
   id: z.string(),
@@ -64,10 +67,11 @@ export const AppConfigSchema = z.object({
   }).prefault({}),
 
   general: z.object({
-    themeMode: z.enum(['light', 'dark', 'system']).default('system'),
+    themeMode: z.enum(THEME_MODES).default('system'),
     // 常駐マスコットが画面を占有しすぎず視認できる範囲(モックアップのスライダーmin=20/max=100と
     // 一致させた。未決事項C6として決着・basic-design.md 6.1 = Notion正本に反映済み・2026-07-27)。
-    displaySize: z.number().min(0.2).max(1).default(0.5),
+    // 値は general-settings.ts の定数を使う(同じ範囲を全体設定タブの入力検証でも使うため)。
+    displaySize: z.number().min(DISPLAY_SIZE_MIN).max(DISPLAY_SIZE_MAX).default(0.5),
     windowPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
     clickThrough: z.boolean().default(true),
     autostart: z.boolean().default(true),

@@ -103,6 +103,22 @@ export const IPC = {
   CodeSettingsRemoveProject: 'code-settings:remove-project',
 
   /**
+   * 全体設定タブ(FR-7/FR-10)。config.general(配色テーマ・表示サイズ・クリックスルー・自動起動)と
+   * config.emotionEngine の表示値(リアクション持続・sleepyまでの時間)の取得と変更。
+   *
+   * **`GeneralSettingsChanged` が必要な理由**: クリックスルーは**メニューバー(Tray)からも
+   * 切り替えられる**(FR-6/C-19)。Renderer が自分の操作しか知らないと、Trayで切り替えた後に
+   * 全体設定タブのトグルだけが古い値のまま残る。配色テーマも同様に、この通知でシェル(App)が
+   * 追従する必要がある(タブとシェルは別コンポーネント)。
+   */
+  /** invoke: 全体設定の現在値(自動起動は config の意思と実際のOS登録状態の両方)。 */
+  GeneralSettingsGet: 'general-settings:get',
+  /** invoke: 全体設定の更新。更新後のスナップショットを返す。 */
+  GeneralSettingsSet: 'general-settings:set',
+  /** Main→Renderer: 全体設定の変化通知(Trayからのクリックスルー切替にも追従するため)。 */
+  GeneralSettingsChanged: 'general-settings:changed',
+
+  /**
    * 権利情報タブ(FR-12)。config に由来する動的な値だけを返す(Live2D の利用区分)。
    * OSS 一覧はビルド時生成の shared/oss-licenses.ts を Renderer が直接 import するため IPC を通さない。
    */

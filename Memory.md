@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-29（アプリ全体のバグ・未実装調査を実施。バグ5件修正・reviewer 2周目で0件確認）
+**最終更新**: 2026-07-30（Control Panel「ホーム」「全体設定」タブを実装。**6タブすべて移植完了**）
 
 ## 現在地
 
@@ -405,12 +405,19 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - `src/renderer/control-panel/src/ControlPanelTabs.tsx`のファイル冒頭コメントが「移植済みはログのみ」のまま陳腐化していた(実際はモード/権利情報/モデル管理も移植済み)ため実態に合わせて修正(ドキュメントの正確性の問題で、機能上のバグではない)
   - **検証**: `npm run typecheck`(node/web)・`npm run build`とも成功
   - **見つかったが対応しない既知ギャップ(下記リスト参照)**: Control Panelの「ホーム」「全体設定」タブが未実装(`TabPlaceholder`で正直に表示。基本設計書4.2で定義されているが実装タスクとして未着手。新規UI実装のためOpus 4.8で改めて着手すべき規模)
-- **未実装・実機確認・配布フェーズのリスト(2026-07-29調査で確認・再整理)**:
-  - **未実装(すぐ着手可能、既存ファイルへの追加なのでSonnet 5)**: Control Panel「ホーム」タブ(現在のアダプタ切替・接続状態・表示中モデルの一目確認)/「全体設定」タブ(テーマ・表示サイズ・クリックスルー・自動起動・EmotionEngineパラメータ)。いずれも`ControlPanelTabs.tsx`の`TabPlaceholder`のまま
-  - **実機確認待ち(Electron GUI必須)**: Live2Dプレビュー含む実描画・モーション再発火の実挙動確認(Cubismランタイム未同梱で検証不可)/メモリ実測(200MB目安)/オンボーディング完了演出の見た目/配色テーマ(light/dark)の画素レベル一致/クリックスルー・ドラッグ操作/折りたたみリサイズのアニメーション感
+- **完了 Control Panel「ホーム」「全体設定」タブ実装(2026-07-30。FR-7の6タブが全移植完了)** — `ControlPanelTabs.tsx`の`TabPlaceholder`のまま残っていた最後の2タブを実装し、**プレースホルダを削除**(6タブすべて実内容)。
+  - **新規**: `src/shared/general-settings.ts`(契約+検証。`THEME_MODES`/`DISPLAY_SIZE_MIN|MAX`)・`src/main/general-settings.ts`(`GeneralSettings`+`parseGeneralSettingsPatch`。Electron非依存で依存注入)・`HomeTab.tsx`・`GeneralTab.tsx`。IPCは`GeneralSettingsGet/Set/Changed`を追加
+  - **⚠️ `autostart`は「configフィールドだけ在って実装が皆無」だった**(`git grep setLoginItemSettings`が無所属。C0の`notion`/`obsidian`と同じ構図だが、こちらはモックアップ・要件に定義があるので**削除ではなく実装**が正解)。`app.setLoginItemSettings()`を実際に呼ぶようにし、さらに**config上の意思(`autostart`)と実際のOS登録状態(`autostartRegistered`)を別フィールドで持たせた**(システム設定から直接外された場合にUIが嘘をつかないため)。`app.isPackaged`がfalseの開発実行では登録が無意味(node_modules内のElectronが登録される)なので`autostartSupported:false`として登録を試みず、トグルを無効化して理由を明示する
+  - **`displaySize`の定数を`general-settings.ts`へ移し`config-schema.ts`がimportする向きにした**(`MAX_MODEL_SLOTS`と同じ「zod非依存モジュールを正とする」向き。逆向きだとRendererがZod一式≒700KBを取り込む)。**値の仕様(0.2〜1.0=C6の決着)は不変**なのでNotion更新は不要。`docs/data.md`(repo正本)にのみ出所を注記し、`basic-design.md`(Notionミラー)は触っていない
+  - **リファクタ**: `ErrorNotice`/`Placeholder`が`AdapterTab`/`ModelTab`/`MappingEditor`に**同一実装で3重複**していたため`panel-ui.tsx`へ集約(新タブで5個になるところだった)。`formatModelDetail()`も`ModelTab`との重複を`catalog.ts`へ集約
+  - **reviewerチェックループ3周**: 1周目6件(**重大1件**=`clickThrough`がモデル未導入時に`characterWindow`インスタンス未生成のためconfig保存ごと落ちて意思が消えていた。`startCharacterWindow()`がインスタンス生成前にreturnするため。→`CharacterWindow`側を`applyClickThroughSetting()`(適用のみ)に縮小し、config保存は`index.ts`の`setClickThrough()`が**ウィンドウの有無に関わらず必ず**行う設計へ変更。Tray経路も同時に修復された/**中1件**=自動切替ON時にホームタブ内のトグルでアダプタを変えても「表示中のモデル」が追従しなかった→`adapterMode`を`useEffect`依存に追加/他4件=`MAX_MODEL_SLOTS`ハードコード・`formatDetail`重複・ドラフト破棄条件・StrictMode下の副作用)→2周目2件(コメントが改名前のメソッド名を参照・`MappingEditor`にも同じハードコード)→**3周目0件**
+  - **検証**: `npm run typecheck`・`npm run build`通過に加え、**オフスクリーン80件pass**。うち24件は**jsdom+プロジェクト固定版React(19.2.7)での実描画テスト**で、モックアップの表記(「3.0秒」「5分」「2分前・PostToolUse」「:8765 ● 待受中」)・未対応環境の断り書き・config/OS登録状態のずれ表示・preload無し時に既定値を捏造しないこと・両形式のdetail・`activeModelId`優先の判定を確認。残り56件はロジック(検証/範囲/スキーマ/autostart実登録/syncAutostartOnStartup)と2件のバグ修正の回帰テスト。**GUI上の見た目確認は未実施**(ユーザー確認待ち)
+- **未実装・実機確認・配布フェーズのリスト(2026-07-29調査で確認・2026-07-30更新)**:
+  - **未実装**: **なし**(FR-1〜FR-15の主要機能はすべて実装済み。6タブ全移植完了)
+  - **実機確認待ち(Electron GUI必須)**: Live2Dプレビュー含む実描画・モーション再発火の実挙動確認(Cubismランタイム未同梱で検証不可)。**この項目がLive2D側にしか無いのは正当**で、スプライトセットは`<img>`でのアニメーションWebP再生＝外部ランタイムを要さず、生成パイプライン側はsharpでオフスクリーン実測済みのため「ランタイム未同梱で確認できない」に相当する残件を持たない(environments.md「PixiJSのバージョン方針」)。以下の項目は形式非依存で両形式に等しく効く/メモリ実測(200MB目安)/オンボーディング完了演出の見た目/配色テーマ(light/dark)の画素レベル一致/クリックスルー・ドラッグ操作/折りたたみリサイズのアニメーション感/**表示サイズスライダーの実リサイズ挙動(離した時の確定・位置クランプ)**/**自動起動の実登録(パッケージ済みビルドでのみ検証可能)**
   - **実データ・実使用待ち**: 否定スキャン窓(暫定10文字)のチューニング・辞書の実会話ログでの育成/境界連結判定の色距離閾値・膨張量のチューニング(実素材待ち)/`idleTimeoutMs`等の無通信タイムアウトのチューニング(実API使用待ち)/`MIN_VISIBLE`等の体感チューニング
   - **配布フェーズへ意図的に先送り(現時点で対応不要)**: electron-builderの`asarUnpack`設定(sharp/@img)/universal build(darwin-x64同梱)の要否/署名・notarize設定/alpha hit-testing・`app.dock.hide()`・キャラクター非表示メニュー項目/TTS化(C-12)に伴うスプライトセットlipsync再設計
-- **次**: 上記「未実装」のControl Panel「ホーム」「全体設定」タブ実装が次の主要候補。着手時のモデル方針は依頼内容で判断(新規UI作成=Opus/既存修整=Sonnet)
+- **次**: **未実装の機能は無くなった**(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)**ユーザーによる実機GUI確認**(上記リスト。Live2D実描画・メモリ実測・見た目)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
