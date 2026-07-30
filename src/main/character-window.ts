@@ -21,7 +21,7 @@ import { app, BrowserWindow, ipcMain, screen, type IpcMainEvent, type IpcMainInv
 import type { ConfigStore } from './config-store';
 import { resolveActiveModel } from './model/active-model';
 import type { AppConfig } from '../shared/config-schema';
-import { IPC, type WindowPoint } from '../shared/ipc';
+import { IPC, type Live2dSizeReport, type WindowPoint } from '../shared/ipc';
 import {
   resolvePosition,
   defaultPosition,
@@ -34,6 +34,46 @@ import { denyWindowOpen, guardNavigation } from './window-security';
 
 /** モデル未導入時の基準解像度。導入後は ModelSlot.baseResolution が使われる(onboarding #10/#5)。 */
 export const FALLBACK_BASE_RESOLUTION: Size = { width: 400, height: 400 };
+
+/**
+ * `baseResolution`正規化時、長辺の目標値(`FALLBACK_BASE_RESOLUTION`の最大値=400)に掛ける倍率
+ * (2026-07-30・ユーザー依頼)。
+ *
+ * 取り込み時プレースホルダー(正方形400×400)は、実際のCubismモデルのcanvas(一般に縦長で、かつ
+ * 可動域確保のため実際に見えるキャラクターの絵より大きめの余白を含む。Cubism Editorの制作習慣)と
+ * アスペクト比が食い違うため、`fitModel()`のcontain計算(canvas全体をウィンドウに収める)が
+ * キャラクター本体の実際の占有領域より小さく描画する結果になり、「表示サイズ100%でもキャラクターが
+ * 小さく見える」という実機報告につながった。
+ *
+ * `normalizeLive2dBaseResolution()`でアスペクト比を実測値に補正するだけでも「小さく見える」問題の
+ * 半分(無駄な余白)は解消するが、それだけでは`displaySize`(ウィンドウの物理サイズ)自体は変わらない
+ * ため、単純に「アスペクト比が正しくなった分だけ、今までより少し大きく見える」程度に留まる。
+ * ユーザー要望「現在100%の大きさを50%として作り直す」(=見た目のサイズを全域で2倍にしたい)を
+ * 満たすには、**ウィンドウの物理サイズ自体を2倍にする**必要がある(`fitModel()`はcontainのまま=
+ * どんな倍率でも必ずウィンドウ内に収まることを構造的に保証したいため、Renderer側の`scale`に
+ * 倍率を掛ける設計は採らない。実際にそれで「上下が枠外にはみ出す」不具合を実機で踏んだ)。
+ * `LIVE2D_IMPORT_FALLBACK_BASE_RESOLUTION`と同じ400を長辺の基準にしたうえで、ここで2倍しておけば、
+ * `displaySize`が線形にウィンドウ寸法を決めるため「新50%(=長辺200相当)の見た目」が
+ * 「旧100%(=長辺400相当、アスペクト比の補正のみ)」と一致し、要望どおりの関係になる。
+ */
+const LIVE2D_BASE_RESOLUTION_TARGET_MAX = Math.max(FALLBACK_BASE_RESOLUTION.width, FALLBACK_BASE_RESOLUTION.height) * 2;
+
+/**
+ * Live2Dの実測canvas寸法(`internalModel.width/height`)を、`baseResolution`として使える
+ * 大きさへ正規化する(IPC.CharacterReportLive2dSize参照)。アスペクト比は実測どおり保ちつつ、
+ * 長辺を`LIVE2D_BASE_RESOLUTION_TARGET_MAX`に合わせて縮小する(生のcanvas実寸をそのまま使うと
+ * 数千px級の巨大ウィンドウになりうるため)。
+ */
+function normalizeLive2dBaseResolution(width: number, height: number): Size {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return FALLBACK_BASE_RESOLUTION;
+  }
+  const scale = LIVE2D_BASE_RESOLUTION_TARGET_MAX / Math.max(width, height);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
 
 /** windowPosition のドラッグ終了時保存デバウンス(ms)。moved連発でconfig書き込みが頻発するのを防ぐ。 */
 const POSITION_SAVE_DEBOUNCE_MS = 500;
@@ -191,8 +231,12 @@ export class CharacterWindow {
    * `config.general.displaySize` の変更を実ウィンドウのサイズへ反映する(全体設定タブから呼ぶ)。
    *
    * **再読込はしない**。ウィンドウの物理サイズだけが変わり、描画対象のモデル(bootstrap)は
-   * 変わらないため、`applyActiveModel()` のような `loadURL()` は不要
-   * (Renderer 側は CSS/PixiJS がコンテナ基準で描くので、リサイズだけで追従する)。
+   * 変わらないため、`applyActiveModel()` のような `loadURL()` は不要。
+   * **⚠️ 訂正(2026-07-30・実機確認)**: 「Renderer側がリサイズだけで追従する」は
+   * SpriteSetRenderer(CSSのobject-fit:contain)には正しいが、Live2DRendererは
+   * canvasは`resizeTo`で追従してもモデル自体の拡大縮小は追従しなかった(実機で判明)。
+   * Live2DRenderer.ts側が`app.renderer`の`resize`イベントを購読して`fitModel()`を
+   * 再実行するよう対応済み(同ファイルの`handleResize`コメント参照)。
    *
    * リサイズ後に位置のクランプをやり直す: サイズが大きくなると、左上を固定したままでは
    * ウィンドウの右下が画面外へはみ出しうる。macOS は画面外座標を自動補正しないと
@@ -364,6 +408,41 @@ export class CharacterWindow {
         this.deps.onContextMenu?.(win);
       }
     });
+    ipcMain.on(IPC.CharacterReportLive2dSize, (event: IpcMainEvent, report: unknown) => {
+      const win = this.windowForSender(event.sender);
+      if (win && isLive2dSizeReport(report)) {
+        this.applyReportedLive2dSize(report);
+      }
+    });
+  }
+
+  /**
+   * `CharacterReportLive2dSize`の受け口(FALLBACK_BASE_RESOLUTION近くのdocコメント参照)。
+   * 報告id が**今このウィンドウに読み込まれているモデル**(`appliedModelId`)と一致し、
+   * かつ現在の`baseResolution`が正規化後の値と実際に異なるときだけ config を更新して
+   * `applyDisplaySize()`でウィンドウへ反映する(モデル切替直後の古い報告や、既に補正済みの
+   * 再報告で無用な書き込み・リサイズを起こさないため)。
+   */
+  private applyReportedLive2dSize(report: Live2dSizeReport): void {
+    if (report.id !== this.appliedModelId) {
+      return;
+    }
+    const config = this.deps.configStore.current;
+    const slot = config.model.slots.find((s) => s.id === report.id);
+    if (!slot || slot.renderType !== 'live2d') {
+      return;
+    }
+    const normalized = normalizeLive2dBaseResolution(report.width, report.height);
+    if (slot.baseResolution.width === normalized.width && slot.baseResolution.height === normalized.height) {
+      return;
+    }
+    this.deps.configStore.update((draft) => {
+      const target = draft.model.slots.find((s) => s.id === report.id);
+      if (target) {
+        target.baseResolution = normalized;
+      }
+    });
+    this.applyDisplaySize();
   }
 
   /** IPCの送信元がこのキャラクターウィンドウのときだけ操作を許可する(Control Panelからの誤配線を弾く)。 */
@@ -413,6 +492,7 @@ export class CharacterWindow {
     ipcMain.removeAllListeners(IPC.CharacterDragMove);
     ipcMain.removeAllListeners(IPC.CharacterEndDrag);
     ipcMain.removeAllListeners(IPC.CharacterContextMenu);
+    ipcMain.removeAllListeners(IPC.CharacterReportLive2dSize);
   }
 }
 
@@ -427,5 +507,24 @@ function isWindowPoint(v: unknown): v is WindowPoint {
     v !== null &&
     typeof (v as WindowPoint).x === 'number' &&
     typeof (v as WindowPoint).y === 'number'
+  );
+}
+
+/**
+ * `width`/`height`は有限の正数のみ許可する(単なる`typeof === 'number'`だと`NaN`/`0`/負数が
+ * 素通りする。reviewer指摘: それらは`normalizeLive2dBaseResolution()`側で正方形フォールバックへ
+ * 落ちるが、これを「実測に基づく正規の報告」と区別せず適用すると、既に正しく補正済みの
+ * `baseResolution`を壊れた報告で正方形へ巻き戻しかねない。ここで弾いて`applyReportedLive2dSize`に
+ * 届かせない=フォールバック値がconfigへ書き込まれる経路自体を作らない)。
+ */
+function isLive2dSizeReport(v: unknown): v is Live2dSizeReport {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as Live2dSizeReport).id === 'string' &&
+    Number.isFinite((v as Live2dSizeReport).width) &&
+    (v as Live2dSizeReport).width > 0 &&
+    Number.isFinite((v as Live2dSizeReport).height) &&
+    (v as Live2dSizeReport).height > 0
   );
 }

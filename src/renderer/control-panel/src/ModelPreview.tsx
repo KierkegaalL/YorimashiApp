@@ -120,6 +120,7 @@ export const ModelPreview = forwardRef<ModelPreviewHandle, ModelPreviewProps>(fu
         }
         renderer = await createRenderer(manifest, {
           assetBaseUrl,
+          modelId: installedDir,
           token,
           onReady: () => {
             if (!cancelled) {

@@ -41,10 +41,15 @@ import { extractZipSafely } from './zip-archive';
  * 持たず**、moc3 から正確に読むには Cubism Core ランタイム(`csmReadCanvasInfo`)が要る。
  * Core は npm に無く現状バンドルもしていないため、**取り込み時に正確なサイズを得られない**。
  * 推測でオフセットを決め打ちしない(constraints.md「推測で書かない」)ため、当面は
- * FALLBACK_BASE_RESOLUTION と同じ 400×400 を入れる。正確なサイズの取得(Renderer が初回ロード後に
- * 実サイズを報告する、または Cubism Core を導入する)は別タスクで詰める。character-window.ts の
+ * FALLBACK_BASE_RESOLUTION と同じ 400×400 を入れる。character-window.ts の
  * FALLBACK_BASE_RESOLUTION と同値だが、あちらは electron 依存ファイルにあるため(Electron非依存を
  * 保つ都合で)ここで別途定義する。
+ *
+ * **決着(2026-07-30)**: 「Renderer が初回ロード後に実サイズを報告する」案で実装した(Cubism Core
+ * 導入は見送り。取り込み=このファイルの処理はElectron非依存に保つ都合上、Coreをここへ持ち込みたく
+ * ない)。`Live2DRenderer.loadModel()`がIPC(`CharacterReportLive2dSize`)で実測値を送り、
+ * `character-window.ts`の`normalizeLive2dBaseResolution()`がこの暫定値を実測ベースの値へ書き換える。
+ * この暫定値自体は変更不要(初回描画までの一時的なプレースホルダーとして機能し続ける)。
  */
 export const LIVE2D_IMPORT_FALLBACK_BASE_RESOLUTION = { width: 400, height: 400 };
 

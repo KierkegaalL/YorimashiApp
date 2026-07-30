@@ -82,7 +82,7 @@
 | POST /hook | hooksイベント受信 | 必須(`X-App-Token`ヘッダ) | dispatch.shから呼ばれる |
 | GET /panel | Control PanelのHTML配信 | 不要 | トークンはHTML内`<script>`にサーバー側で埋め込み |
 | GET /character | キャラ表示用HTML配信 | 不要 | 同上 |
-| GET /models/* | モデルアセット配信(画像・moc3等) | 必須 + パス検証 | パストラバーサル対策必須(security.md参照) |
+| GET /models/* | モデルアセット配信(画像・moc3等) | 必須(ヘッダ or クエリ) + パス検証 | パストラバーサル対策必須。Live2Dのテクスチャ読込(`<img src>`相当)はヘッダを送れないためクエリも受け付ける(security.md参照) |
 | WS /ws?token=... | Mood/Reaction配信、viewer制御 | 必須(クエリでトークン付与) | upgrade時に検証 |
 
 ### 2.1 認証ミドルウェアの考え方

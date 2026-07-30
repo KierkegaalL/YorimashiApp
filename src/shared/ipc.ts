@@ -16,6 +16,19 @@ export const IPC = {
   CharacterEndDrag: 'character:end-drag',
   /** send: クリックスルーOFF時の右クリック。Mainが共通メニューをカーソル位置に表示する。 */
   CharacterContextMenu: 'character:context-menu',
+  /**
+   * send: Live2Dモデルの実サイズ報告(引数は`{id, width, height}`。`id`は`ModelSlot.installedDir`
+   * =モデルid)。**Live2D限定**(model-importer.ts参照): 取り込み時点ではCubism Coreが無く
+   * モデルのcanvas実寸を読めないため、`baseResolution`は暫定的に400×400(正方形)の
+   * プレースホルダーで登録される。実際のcanvasは正方形でないことが多く、ウィンドウの
+   * アスペクト比が実モデルと食い違うと`fitModel()`(contain)が余白を生む・逆に拡大時に
+   * 上下や左右が枠外へはみ出す原因になる(2026-07-30・実機確認)。Live2DRendererは初回モデル
+   * ロード直後に`internalModel.width/height`(実測値)をこれで報告し、Mainが`baseResolution`を
+   * 実アスペクト比へ補正して差分があればウィンドウを再サイズする(既存の`applyDisplaySize()`と
+   * 同じ経路)。スプライトセット側は取り込み時点で実寸(idleクリップの実際のピクセル寸法)を
+   * 直接読めるため、この経路自体が不要(対称性チェック: 正当な非対称)。
+   */
+  CharacterReportLive2dSize: 'character:report-live2d-size',
 
   /**
    * send: 折りたたみの切替要求。Mainが BrowserWindow の幅を 976⇄576 に変更し config へ保存する。
@@ -266,4 +279,14 @@ export const ONBOARDING_PENDING_ARG = '--yorimashi-onboarding-pending=';
 export interface WindowPoint {
   x: number;
   y: number;
+}
+
+/** character:report-live2d-size で運ぶ実測サイズ(CharacterReportLive2dSize参照)。 */
+export interface Live2dSizeReport {
+  /** `ModelSlot.installedDir`(=モデルid)。 */
+  id: string;
+  /** `internalModel.width`(Cubismモデルの内在canvas幅・px)。 */
+  width: number;
+  /** `internalModel.height`(同・高さ)。 */
+  height: number;
 }

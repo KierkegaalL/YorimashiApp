@@ -8,6 +8,15 @@ release/
 dev-assets/*
 !dev-assets/README.md
 
+# Cubism外部ランタイム(live2dcubismcore.js / live2d.min.js)。Live2D公式配布でnpmに無く、
+# ライセンス上リポジトリへコミットしない(dev-assets/live2d/ と同じ理由)。開発者が各自
+# Cubism SDK for Web から取得して配置する(src/renderer/public/cubism-runtime/README.md 参照)。
+# **dev-assets と違い、このディレクトリは Vite の public 資産として npm run build の
+# 成果物(out/renderer/)へ物理的にコピーされる**。配布ビルドへ同梱するかどうか(ライセンス上の
+# 再配布条件の確認を含む)は electron-builder 設定と同じく配布フェーズで検討する未決事項。
+src/renderer/public/cubism-runtime/*
+!src/renderer/public/cubism-runtime/README.md
+
 .DS_Store
 *.log
 .env

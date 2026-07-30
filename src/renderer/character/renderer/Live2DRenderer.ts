@@ -3,19 +3,26 @@
  *
  * ⚠️ 実行前提と本環境での検証限界(constraints.md「動作確認済みと自己申告しない」):
  * - **Cubism外部ランタイムが window に必要**。cubism4(=Cubism 5含む)は `window.Live2DCubismCore`、
- *   cubism2 は `window.Live2D`(live2dcubismcore.js / live2d.min.js。Live2D公式から取得、npmに無い。
- *   environments.md)。**未ロードだと `pixi-live2d-display` は import 時点で例外を投げる**ため、この
- *   モジュールは createRenderer が**ランタイム存在を確認した後に動的 import** する(静的 import しない)。
+ *   cubism2 は `window.Live2D`(それぞれ`live2dcubismcore.min.js` / `live2d.min.js`。Live2D公式から
+ *   取得、npmに無い)。**このモジュール自身は `pixi-live2d-display` の値を一切importしない**
+ *   (`Live2DModel`/`MotionPriority`は型のみ参照する)。実体は `load-live2d-module.ts` が
+ *   **モデルの版に対応するサブパス**(`pixi-live2d-display/cubism4` または `/cubism2`)を
+ *   動的importして`live2d`として注入する。裸の`'pixi-live2d-display'`(cubism2/cubism4両方を
+ *   同梱した単一バンドル)を使うと、実際に使わない側のランタイムまで要求される実機バグを
+ *   過去に踏んだため(load-live2d-module.ts の経緯コメント参照)、版別サブパスに限定している。
+ *   createRenderer が**対応する版のランタイム存在を確認した後に** `loadLive2DModule` → 本モジュールの
+ *   動的 import、の順で呼ぶ(静的 import しない)。
  * - PixiJSは**v6のAPIで書く**(v8のContainerとは別クラス。environments.md)。`Ticker`を登録する。
  * - 実際の描画・モーション駆動はWebGL+GUIを要し、本サンドボックスでは実行できない。ロジック構造は
  *   ライブラリAPI/実測(A2: dev-assetsのHaru/Shizuku定義)に基づくが、**実描画の最終確認は実機で行う**。
  *
- * アセット認証の未決(実装時TODO): `GET /models/*` は `X-App-Token` ヘッダ認証(security.md)。
- * pixi-live2d-display はモデル定義(model3.json/model.json)とその参照アセット(moc3/テクスチャ/
- * motion/expression)を**自前のローダで相対URL解決して取得する**ため、Rendererからヘッダを載せる経路が
- * 素直に無い。スプライトセット側(fetch→Blob)と同じ手は使えない。ローダへのヘッダ注入 or /models の
- * 認証方式見直し(WSと同じ ?token= 許容等)を**実機で切り分けて決める**。ここでは素のURLで組み立て、
- * この認証経路は未解決として残す(推測でローダ差し替えを書かない)。
+ * アセット認証(2026-07-30・実機検証で決着): `GET /models/*` はヘッダ or クエリトークンで認証する
+ * (security.md 3章)。pixi-live2d-display はモデル定義・moc3・motion/physics/poseを自前のXHRローダで、
+ * **テクスチャはPixiJSが`<img src>`相当で**取得するため、いずれもRendererからヘッダを載せる経路が
+ * 無い(スプライトセット側のfetch→Blobと同じ制約でヘッダが使えない)。**クエリトークン方式(WSと同じ)を
+ * 採用**し、`load-live2d-module.ts`が`ModelSettings.resolveURL()`を1箇所だけ上書きして全アセット種別へ
+ * 一括で付与する。この本モジュールが自前で組み立てる最初のモデル定義ファイルURLだけは
+ * (resolveURLを経由しないため)`loadModel()`内で直接クエリを付ける。
  *
  * 持続と再発火(lipsync.md ③・決着済み): Live2Dは `loop` の概念を持たず、モーションが尽きると idle
  * グループへ自動フォールバックする。`thinking` 等を寿命ぶん持続させるため、**本Rendererが
@@ -52,7 +59,7 @@
  */
 
 import { Application, Ticker } from 'pixi.js';
-import { Live2DModel, MotionPriority } from 'pixi-live2d-display';
+import type { Live2DModel } from 'pixi-live2d-display';
 
 import {
   type CharacterRenderer,
@@ -67,15 +74,14 @@ import {
 } from '../../../shared/manifest';
 import { MotionRefirer } from './motion-refire';
 import { FALLBACK_STATE, type EmotionState } from '../../../shared/emotions';
-
-// PixiJSのTickerを登録する(モーション更新に必要。ライブラリの要求)。
-// ランタイム判定は cubism-runtime.ts(pixiを一切importしない)に置き、createRendererが本モジュールを
-// 動的importする前に確認する。ここに置くとimport時点でランタイム不在だと落ちるため分離している。
-Live2DModel.registerTicker(Ticker);
+import { TOKEN_QUERY_KEY } from '../../../shared/ws-messages';
+import type { Live2DModule } from './load-live2d-module';
 
 export class Live2DRenderer implements CharacterRenderer {
   private readonly manifest: Live2dManifest;
   private readonly ctx: RendererContext;
+  /** createRenderer が版別サブパスから解決して渡す実体(冒頭コメント参照)。 */
+  private readonly live2d: Live2DModule;
 
   private app: Application | null = null;
   private model: Live2DModel | null = null;
@@ -87,10 +93,30 @@ export class Live2DRenderer implements CharacterRenderer {
   private readonly refirer: MotionRefirer;
   /** motionFinish の購読解除に使う(destroy でリスナを残さない)。 */
   private motionFinishHandler: (() => void) | null = null;
+  /**
+   * `app.renderer`の`resize`購読解除に使う(実機確認で判明した要望への対応。fitModelのdocコメント参照)。
+   *
+   * **`resizeTo`の実際の検知手段(実測: `node_modules/@pixi/app/dist/cjs/app.js` ResizePlugin)**:
+   * `ResizeObserver`ではなく、`globalThis.addEventListener('resize', ...)`(`window`のネイティブ
+   * resizeイベント)だけを見て、発火時に`container.clientWidth/clientHeight`を読み直しているだけ。
+   * この機構がキャラクター表示ウィンドウで機能する(= `win.setSize()`だけで`renderer.resize()`が
+   * 呼ばれ`'resize'`が発火する)のは、コンテナがビューポート全面を占めていて`window`のリサイズと
+   * コンテナのリサイズが一致するためで、汎用的な要素サイズ監視ではない。この前提が実機で
+   * 成立するかは**Electron GUIでのみ確認できる**(constraints.md「実機能確認の制約」)。
+   *
+   * 発火したら`fitModel()`を再実行し、モデル自体の拡大縮小・再配置を追従させる
+   * (SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するが、Live2Dはcanvas内の
+   * Pixiオブジェクトなのでこの手当てが要る。対称性チェック: 正当な非対称)。
+   */
+  private handleResize: (() => void) | null = null;
 
-  constructor(manifest: Live2dManifest, ctx: RendererContext) {
+  constructor(manifest: Live2dManifest, ctx: RendererContext, live2d: Live2DModule) {
     this.manifest = manifest;
     this.ctx = ctx;
+    this.live2d = live2d;
+    // PixiJSのTickerを登録する(モーション更新に必要。ライブラリの要求)。生成のたびに呼んでも
+    // 副作用は無い(内部は単なる参照の再代入。registerTicker実装で確認済み)ため冪等性ガードは不要。
+    this.live2d.Live2DModel.registerTicker(Ticker);
     this.refirer = new MotionRefirer({
       // 自前の割当を持つ状態だけ再発火する。idle へフォールバックした状態(割当なし)は、映っているのが
       // idle のモーションなので撃ち直さない(ライブラリのidleローテーションに委ねる。manifest.ts参照)。
@@ -101,7 +127,7 @@ export class Live2DRenderer implements CharacterRenderer {
       // FORCE で撃つ理由: reserve() は priority>=FORCE のとき優先度チェックをスキップするため、
       // その間にライブラリが開始した idle モーションを競合状態に依存せず上書きできる(ヘッダの実測2)。
       fireMotion: (motion) => {
-        void this.model?.motion(motion, undefined, MotionPriority.FORCE).catch((err: unknown) => {
+        void this.model?.motion(motion, undefined, this.live2d.MotionPriority.FORCE).catch((err: unknown) => {
           console.error(`[live2d] motion の再発火に失敗しました(${this.currentState}/${motion}):`, err);
         });
       },
@@ -119,6 +145,16 @@ export class Live2DRenderer implements CharacterRenderer {
       resolution: window.devicePixelRatio || 1,
     });
     container.appendChild(this.app.view as unknown as HTMLCanvasElement);
+    // ウィンドウリサイズ(全体設定タブの「キャラのサイズ」等)のたびにモデルを再フィットする
+    // (fitModelのdocコメント参照)。モデル未ロード中(this.modelがnull)の発火は無視してよい
+    // (loadModel完了時にfitModelを一度呼ぶため取りこぼさない)。
+    const handleResize = (): void => {
+      if (this.model) {
+        this.fitModel(this.model);
+      }
+    };
+    this.handleResize = handleResize;
+    this.app.renderer.on('resize', handleResize);
     void this.loadModel();
   }
 
@@ -145,6 +181,10 @@ export class Live2DRenderer implements CharacterRenderer {
       this.model = null;
     }
     if (this.app) {
+      if (this.handleResize) {
+        this.app.renderer.off('resize', this.handleResize);
+        this.handleResize = null;
+      }
       // view(canvas)ごと破棄してWebGLコンテキストを解放する。
       this.app.destroy(true, { children: true, texture: true, baseTexture: true });
       this.app = null;
@@ -156,8 +196,9 @@ export class Live2DRenderer implements CharacterRenderer {
 
   private async loadModel(): Promise<void> {
     try {
-      const url = `${this.ctx.assetBaseUrl}/${this.manifest.modelFile}`;
-      const model = await Live2DModel.from(url);
+      // resolveURL を経由しない最初の1本だけ、ここで直接クエリトークンを付ける(冒頭コメント参照)。
+      const url = `${this.ctx.assetBaseUrl}/${this.manifest.modelFile}?${TOKEN_QUERY_KEY}=${encodeURIComponent(this.ctx.token)}`;
+      const model = await this.live2d.Live2DModel.from(url);
       if (this.destroyed || !this.app) {
         model.destroy();
         return;
@@ -170,6 +211,19 @@ export class Live2DRenderer implements CharacterRenderer {
       this.motionFinishHandler = handler;
       this.app.stage.addChild(model);
       this.fitModel(model);
+      // baseResolution補正(2026-07-30・実機確認。ipc.ts の CharacterReportLive2dSize /
+      // character-window.ts の normalizeLive2dBaseResolution 参照): 取り込み時点ではCubism Coreが
+      // 無く実canvas寸法を読めないため、baseResolutionは暫定的に正方形のプレースホルダーになって
+      // いる。実測できた今、Mainへ報告してアスペクト比の補正(と「表示サイズ100%でもキャラクターが
+      // 小さく見える」というユーザー要望に応える倍率)の両方をMain側で計算してもらう。**このRenderer
+      // 側では倍率を掛けない**(`fitModel()`は常に純粋なcontain=はみ出さないことを構造的に保証する。
+      // 倍率をここに置くと`containScale`を超えて必ずどこかの辺がはみ出す=ユーザー実機確認で再現した
+      // 不具合)。preload不在の経路(ブラウザ直開き)では`window.yorimashi`がundefinedなので何もしない。
+      window.yorimashi?.character?.reportLive2dSize({
+        id: this.ctx.modelId,
+        width: model.internalModel.width,
+        height: model.internalModel.height,
+      });
       this.applyState(this.currentState);
       this.ctx.onReady?.();
     } catch (err) {
@@ -180,24 +234,33 @@ export class Live2DRenderer implements CharacterRenderer {
   /**
    * モデルをコンテナに収まる最大スケールで中央配置する(contain相当)。
    *
-   * `loadModel()`内で一度だけ呼ぶ(`app.renderer`のresizeイベントは購読しない)。
-   * ウィンドウサイズは`baseResolution × displaySize`で決まり、キャラクター表示ウィンドウは
-   * アクティブモデルが変わるたびに`character-window.ts`の`applyActiveModel()`が
-   * `setSize()`→`loadURL()`で丸ごと再読込する(=Live2DRendererごと作り直す)ため、
-   * 実行中にコンテナだけがリサイズされる経路が現状無い(対称性チェック:
-   * SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するが、これは
-   * コンテナリサイズ非対応=Live2D側の実装漏れではなく、現状そのリサイズ自体が
-   * 起こらないための対称性チェック対象外)。将来`general.displaySize`のライブ編集
-   * (再読込を伴わない動的リサイズ)を実装する場合は、ここで`resize`購読を追加すること。
+   * `loadModel()`完了時に一度呼ぶほか、`mount()`が`app.renderer`の`resize`イベントを購読して
+   * **ウィンドウリサイズのたびに呼び直す**(2026-07-30・実機確認で「全体設定タブのキャラのサイズを
+   * 変えてもモデルの表示範囲=canvasは変わるがモデル自体は拡大縮小されない」と判明したため追加)。
+   * `character-window.ts`の`applyDisplaySize()`は`setSize()`のみで`loadURL()`(再読込)を伴わない
+   * ため、Live2DRendererのインスタンスは生きたまま=このハンドラで追従する必要がある
+   * (対称性チェック: SpriteSetRendererの`<img>`はCSSのobject-fit:containで自動追従するため
+   * このようなJS側の再計算が要らない。非対称は正当=Live2Dはcanvas内のPixiオブジェクトとして
+   * 自前でスケール計算する形式だから)。
    */
   private fitModel(model: Live2DModel): void {
     if (!this.container) {
       return;
     }
-    const cw = this.container.clientWidth || model.width;
-    const ch = this.container.clientHeight || model.height;
-    const scale = Math.min(cw / model.width, ch / model.height);
-    model.scale.set(scale);
+    // **`model.width`/`model.height`ではなく`model.internalModel.width`/`.height`を使う**。
+    // 前者(PixiJSの`Container.width`ゲッター)は`this.scale.x * getLocalBounds().width`という
+    // **現在のscaleを含んだ**値を返す。初回(scale=1のまま)だけはこれで正しく計算できるが、
+    // 2回目以降(このメソッドを再度呼ぶたび。resize購読で追加)は「前回セットしたscaleを含んだ
+    // width」を分母に使うことになり、計算結果が前回のscaleに依存して発散する
+    // (実機確認: キャラのサイズスライダーを動かすと縮尺が壊れる形で再現)。
+    // `internalModel.width`/`.height`はCubismモデルの内在サイズで、`setupLayout()`で一度だけ
+    // 決まり`model.scale`に一切左右されないため、何度呼んでも安全な基準値になる。
+    const iw = model.internalModel.width;
+    const ih = model.internalModel.height;
+    const cw = this.container.clientWidth || iw;
+    const ch = this.container.clientHeight || ih;
+    const containScale = Math.min(cw / iw, ch / ih);
+    model.scale.set(containScale);
     model.anchor.set(0.5, 0.5);
     model.position.set(cw / 2, ch / 2);
   }

@@ -46,6 +46,10 @@ function isAuthorized(req: http.IncomingMessage): boolean {
 - `/panel`・`/character`はトークン確認**なし**で読める(HTMLの入れ物を返すだけ)。ただしそのHTML内に`<script>window.__TOKEN__="...";</script>`のようにサーバー側で埋め込み、以降の実データ取得(WS/fetch)はこのトークン付きで行う。
 - 外部サイトが`<iframe src="http://localhost:8765/panel">`を仕込んでも、**別オリジンなのでiframe内のJS変数(トークン)は読み取れない**(同一オリジンポリシー)。表示はできても中身を盗めない。
 - WebSocketのハンドシェイクにも同じトークン認証を適用する(`ws://localhost:8765/ws?token=...`、upgrade時に検証)。
+- `GET /models/*`はヘッダ**またはクエリ**(`?token=...`、WSと同じキー)のどちらでも認証を通す
+  (2026-07-30決定)。SpriteSetRendererはfetch→Blobでヘッダを送れるが、Live2Dレンダラは
+  pixi-live2d-displayの内部ローダ(テクスチャは`<img src>`相当で取得)がヘッダを送れないため、
+  クエリ方式を追加した(実測で確認・detailed-design/character-window.mdには無い実装判断のためここに記録)。
 
 ## 4. 対策3: クリックジャッキング対策(CSP)
 

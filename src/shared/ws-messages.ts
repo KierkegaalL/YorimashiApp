@@ -21,5 +21,12 @@ export type ServerToClientMessage = EmotionStateMessage;
 /** WSのパス。security.md/api.mdの `ws://localhost:<port>/ws?token=...`。 */
 export const WS_PATH = '/ws';
 
-/** 認証トークンを載せるクエリキー(WSはヘッダを付けられないためクエリで渡す)。 */
-export const WS_TOKEN_QUERY_KEY = 'token';
+/**
+ * 認証トークンを載せるクエリキー(ヘッダを付けられない読み込み経路向け)。
+ *
+ * 当初はWS専用の定数だったが、`GET /models/*` でも同じ理由(PixiJSのテクスチャ読み込みが
+ * `<img src>` 相当でヘッダを送れない。SpriteSetRendererがfetch→Blobにする制約と同じ)で
+ * クエリトークンが要るようになったため、`local-server.ts`が両方の認証チェックで共有する
+ * (security.md 3章)。
+ */
+export const TOKEN_QUERY_KEY = 'token';

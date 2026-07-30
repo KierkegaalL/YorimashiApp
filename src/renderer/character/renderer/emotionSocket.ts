@@ -12,7 +12,7 @@
 
 import {
   WS_PATH,
-  WS_TOKEN_QUERY_KEY,
+  TOKEN_QUERY_KEY,
   type ServerToClientMessage,
 } from '../../../shared/ws-messages';
 import type { EmotionSnapshot } from '../../../shared/emotions';
@@ -73,7 +73,7 @@ export class EmotionSocket {
     if (this.ws || this.closedByUser) {
       return;
     }
-    const url = `${this.opts.wsBaseUrl}${WS_PATH}?${WS_TOKEN_QUERY_KEY}=${encodeURIComponent(
+    const url = `${this.opts.wsBaseUrl}${WS_PATH}?${TOKEN_QUERY_KEY}=${encodeURIComponent(
       this.opts.token,
     )}`;
     const ws = new this.opts.webSocketCtor(url);
