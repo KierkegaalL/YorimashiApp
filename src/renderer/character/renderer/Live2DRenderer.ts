@@ -234,9 +234,19 @@ export class Live2DRenderer implements CharacterRenderer {
     if (!this.container) {
       return;
     }
-    const cw = this.container.clientWidth || model.width;
-    const ch = this.container.clientHeight || model.height;
-    const scale = Math.min(cw / model.width, ch / model.height);
+    // **`model.width`/`model.height`ではなく`model.internalModel.width`/`.height`を使う**。
+    // 前者(PixiJSの`Container.width`ゲッター)は`this.scale.x * getLocalBounds().width`という
+    // **現在のscaleを含んだ**値を返す。初回(scale=1のまま)だけはこれで正しく計算できるが、
+    // 2回目以降(このメソッドを再度呼ぶたび。resize購読で追加)は「前回セットしたscaleを含んだ
+    // width」を分母に使うことになり、計算結果が前回のscaleに依存して発散する
+    // (実機確認: キャラのサイズスライダーを動かすと縮尺が壊れる形で再現)。
+    // `internalModel.width`/`.height`はCubismモデルの内在サイズで、`setupLayout()`で一度だけ
+    // 決まり`model.scale`に一切左右されないため、何度呼んでも安全な基準値になる。
+    const iw = model.internalModel.width;
+    const ih = model.internalModel.height;
+    const cw = this.container.clientWidth || iw;
+    const ch = this.container.clientHeight || ih;
+    const scale = Math.min(cw / iw, ch / ih);
     model.scale.set(scale);
     model.anchor.set(0.5, 0.5);
     model.position.set(cw / 2, ch / 2);

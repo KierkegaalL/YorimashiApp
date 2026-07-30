@@ -2,7 +2,7 @@
 
 > セッションをまたいだ引き継ぎ用。`TaskCreate`/`TaskUpdate` がセッション内の再開用、本ファイルはセッション間の引き継ぎ用（次回セッション冒頭でも状況を把握できるようにする）。チェックポイント（.claude/rules/build-commands.md）ごとに更新する。
 
-**最終更新**: 2026-07-30（Live2D全身描画に成功。キャラのサイズ変更にモデルが追従するようresize対応を追加。目・リボンの表示不正は調査中）
+**最終更新**: 2026-07-30（Live2Dのfit計算バグを修正。目・リボンの表示不正は調査中・ユーザー回答待ち）
 
 ## 現在地
 
@@ -463,9 +463,16 @@ A1・A2・B1〜B6は解消済み（**A2は2026-07-18に完了**、上記参照�
   - `Live2DRenderer.ts`の`mount()`で`app.renderer`の`'resize'`イベントを購読し、発火のたびに`fitModel()`を呼び直すよう変更。`destroy()`で購読解除(既存の`motionFinishHandler`と同じパターン)
   - **reviewer 1周目で「`resizeTo`は`ResizeObserver`で検知している」というコメントの誤りを指摘**(`node_modules/@pixi/app/dist/cjs/app.js`の実ソースを読んで検証)。実際は`ResizeObserver`ではなく`window`のネイティブresizeイベントのみを見て`container.clientWidth/clientHeight`を読み直す仕組みで、この機構がキャラクター表示ウィンドウで機能するのは「コンテナがビューポート全面を占めていて`window`のリサイズと一致するため」という前提に依存することが判明。コメントを訂正し、`character-window.ts`の`applyDisplaySize()`側にあった同種の誤り(「Renderer側はリサイズだけで追従する」という記述。SpriteSetRendererには正しいがLive2DRendererには誤りだった)も合わせて訂正した→**2周目0件**
   - **検証**: `npm run typecheck`・`npm run build`通過。**PixiJSの実WebGLコンテキストを要するためscratchpadでのオフスクリーン実行検証はできず**、ロジックはコードレビューでの妥当性判断に留めた(Live2DRenderer.tsは元々実描画確認がサンドボックス不可と明記されているファイル)
-  - **未検証(ユーザー確認待ち)**: 実際にキャラのサイズスライダーでモデルが追従するかの確認
+  - **続報(下記参照)**: この修正自体が新しいバグを踏んでいた。ユーザーが実機確認したところ「キャラのサイズを動かすとモデルが極端に拡大され一部だけが見える」形で表示が壊れた
+- **完了 続報7: `fitModel()`のスケール計算バグを修正(2026-07-30)** — 「キャラのサイズ変更でモデル表示が壊れる」症状を追加調査した。
+  - **根本原因**: `fitModel()`は`model.width`/`model.height`(PixiJSの`Container.width`/`height`ゲッター)で縮尺を計算していたが、このゲッターの実装(`@pixi/display`)は`this.scale.x * getLocalBounds().width`と**現在のscaleを含んだ値**を返す。1回目の呼び出し(`model.scale`がデフォルトの1)では偶然正しく計算できるが、**2回目以降**(続報6のresize購読により追加で呼ばれる)は「前回セットしたscaleを含んだ値」を分母に使うことになり、計算結果が前回のscaleに依存して発散していた
+  - **実際のPixiJS `Container`クラス(`@pixi/display`)をimportし、Live2DModelと同じ`_calculateBounds`オーバーライドを再現したテストクラスで数式を検証**: 旧式は1回目こそ正しいが2回目(cw=300指定)で意図したサイズから大きく外れることを再現。新式(`model.internalModel.width`/`.height`を使う。`setupLayout()`で一度だけ決まり`model.scale`に一切左右されない値)は複数回サイズ変更しても毎回正確なことを確認してから実装した
+  - `fitModel()`を`model.width`/`model.height`→`model.internalModel.width`/`model.internalModel.height`へ変更
+  - **reviewer 1周目で0件**(`internalModel.width`/`.height`が`setupLayout()`以外で書き換えられないこと、`anchor`/`position`計算との整合、Cubism2/4間で同一実装であることを`node_modules`の実ソースで裏取り)
+  - **検証**: `npm run typecheck`・`npm run build`通過。scratchpadの検証スクリプトで実測: 旧式は200px指定に対し2回目(300px指定)で桁違いのサイズになることを再現。新式は200→300→68→500→132という連続変更すべてで正確なサイズになることを確認
+  - **未検証(ユーザー確認待ち)**: 実際にキャラのサイズスライダーで正しく追従するかの最終確認
 - **調査中・未解決: 目とリボンの表示不正(2026-07-30)** — ユーザー報告(Live2D公式サンプル「momose-hiyori」使用)。`multiplyColors`/`screenColors`(Cubism 4.2+のマルチプライ/スクリーンカラー機能。`pixi-live2d-display@0.4.0`は未対応と`grep`で確認済み)を疑い実データを確認したが、全パーツがデフォルト値で該当せず**この仮説は棄却済み**。マスクを使うdrawableは83件中4件のみでIDが汎用的(`ArtMeshN`)なため目/リボンとの対応が特定できていない。**ユーザーにズームしたスクリーンショットを依頼し、回答待ちの状態でセッション終了**。次回セッションでの引き継ぎ事項
-- **次**: 上記「目とリボンの表示不正」の原因調査を継続(ユーザーからの詳細情報待ち)。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等。「キャラのサイズ」追従の確認を含む)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイムの同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
+- **次**: 上記「目とリボンの表示不正」の原因調査を継続(ユーザーからの詳細情報待ち)。それ以外の未実装機能は無い(FR-1〜FR-15の主要機能・Control Panel 6タブすべて実装済み)。残るのは(1)実機GUI確認(メモリ実測・見た目等。「キャラのサイズ」追従の最終確認を含む)、(2)実データ待ちのチューニング、(3)配布フェーズ(electron-builder設定・署名/notarize・Cubismランタイムの同梱方法)。**次の大きな区切りは配布フェーズの設計判断**になるため、着手前に方針をユーザーへ確認する。着手時のモデル方針は依頼内容で判断(新規=Opus/既存修整=Sonnet)
 - **正本同期の棚卸し実施(2026-07-24)**: reviewer調査で、`emotion-classification.md`(classifier schema)・`lipsync.md`(sustain/release)の「要決着」マーカーが**実装・Notion反映済みにもかかわらず未チェックのまま**だったことが判明→両ドキュメントを「決着済み」に更新。`chat-adapter-errors.md`の権利情報タブOSS一覧チェックボックスも、`generate-oss-licenses.mjs`の自動走査で実際には反映済みと確認し更新。**本行(「次」節)自体も陳腐化していた**(real接続を「#12未実装」と誤記、FR-13完了後も更新されていなかった)ため合わせて修正
 
 **CI整備を実施（2026-07-21・ユーザー依頼）**: それまでCI/CDが一切存在しなかった（`.github/`なし）。`.github/workflows/ci.yml`を新設し、`develop`/`main`へのPR・pushでtypecheck・build・OSSライセンス生成物（`src/shared/oss-licenses.ts`）の鮮度チェックを実行する。ランナーは`macos-latest`固定（対応OSがmacOSのみ=C-01であることに加え、OSSライセンス生成が実インストール依存を走査するため別OSだと結果がずれる）。Node版数は`.nvmrc`（26・メジャーのみ固定）を単一の情報源にした。**CD（パッケージング/リリース）は意図的に未整備のまま**（electron-builderの配布設定・署名/notarizeが未決のため、動かないCDを置かない判断）。
