@@ -109,14 +109,26 @@ function ensureTokenizedResolveURL(modelSettings: Live2DModule['ModelSettings'],
 interface CubismModelClass {
   prototype: {
     getDrawableRenderOrders: () => Int32Array | undefined;
-    _model: { drawables: { renderOrders?: Int32Array; drawOrders?: Int32Array } };
+    _model: {
+      drawables: { renderOrders?: Int32Array; drawOrders?: Int32Array; parentPartIndices?: Int32Array };
+    };
   };
 }
 
 /**
  * `drawOrders`(まばらなZ値)を、値の昇順でソートした順位(0〜N-1の連番)へ変換する。
- * 同値は安定ソートでdrawableの元index昇順にする(Array.prototype.sortはES2019+で安定)。
  * 冒頭コメント「単純なリネームではなく意味も変わっていた」参照。
+ *
+ * **同値の同点判定に`parentPartIndices`を使う(2026-07-30・実機検証で判明)**: 当初は同値の場合
+ * drawableの元index昇順(定義順)で同点判定していたが、これは**視覚的に誤った重なり順を生む
+ * ケースがある**ことが実機モデル(`hiyori_free_t08`)で判明した。マスクを使う瞳メッシュ(Cubism
+ * Part 14、`drawOrders`タイ値650)が、そのマスク元となる白目メッシュ(Cubism Part 3、同じくタイ値
+ * 650)より元index上で先(=ランクも先)になっており、結果**白目が瞳より後に描画されて瞳を覆い隠し
+ * "目が閉じているように見える"**症状を再現した。`parentPartIndices`(Cubism Partツリー上の
+ * インデックス)を先に比較すると、白目(Part 3)が瞳(Part 14)より先にランクされ、正しい重なり順
+ * (白目→瞳の順で描画。後に描画される方が手前に出る)になることをCore実データで検証済み
+ * (scratchpadの検証スクリプトで83/83の完全な順列を維持したまま順序が入れ替わることを確認)。
+ * `parentPartIndices`が無い(cubism2など)場合は元index比較のみにフォールバックする。
  *
  * **呼び出し側(`getDrawableRenderOrdersCompat`)から毎フレーム呼ばれるが、意図的にキャッシュしない**。
  * `doDrawModel()`(`node_modules/pixi-live2d-display/dist/cubism4.es.js`)自身が
@@ -126,10 +138,15 @@ interface CubismModelClass {
  * ここで結果をキャッシュすると、この機能を使うモデルで描画順が固定される回帰を招きうる
  * (reviewer指摘。将来ここを「無駄なので毎フレームソートをやめよう」と最適化しないこと)。
  */
-function computeRankFromDrawOrders(drawOrders: Int32Array): Int32Array {
+function computeRankFromDrawOrders(drawOrders: Int32Array, parentPartIndices?: Int32Array): Int32Array {
   const n = drawOrders.length;
   const indices = Array.from({ length: n }, (_, i) => i);
-  indices.sort((a, b) => drawOrders[a]! - drawOrders[b]! || a - b);
+  indices.sort(
+    (a, b) =>
+      drawOrders[a]! - drawOrders[b]! ||
+      (parentPartIndices ? parentPartIndices[a]! - parentPartIndices[b]! : 0) ||
+      a - b,
+  );
   const rank = new Int32Array(n);
   for (let r = 0; r < n; r++) {
     rank[indices[r]!] = r;
@@ -158,7 +175,10 @@ function ensureDrawOrdersCompat(mod: typeof import('pixi-live2d-display/cubism4'
       return result;
     }
     const drawOrders = this._model.drawables.drawOrders;
-    return drawOrders !== undefined ? computeRankFromDrawOrders(drawOrders) : undefined;
+    if (drawOrders === undefined) {
+      return undefined;
+    }
+    return computeRankFromDrawOrders(drawOrders, this._model.drawables.parentPartIndices);
   };
 }
 
