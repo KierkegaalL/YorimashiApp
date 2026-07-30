@@ -15,10 +15,13 @@
  * その計算=`resolveWindowSize()` は `baseResolution × displaySize` で**両形式共通**
  * (character-window.md 論点2の決着))。よって対称性チェック(CLAUDE.md原則4)の対象外。
  *
- * **⚠️ ウィンドウ寸法は共通だが、その中でのキャラクターの見た目の占有率はLive2D限定で異なる
- * (2026-07-30)**: `Live2DRenderer.ts`の`LIVE2D_SIZE_BOOST`が`fitModel()`のスケールに定数倍
- * (2倍)を掛けるため、同じ`displaySize`値でもLive2Dはスプライトセットよりキャラクターが
- * 大きく見える。下記`DISPLAY_SIZE_MAX`のdocコメント参照。
+ * **⚠️ `baseResolution × displaySize`という計算式は共通だが、`baseResolution`自体の値の
+ * 決め方はLive2D限定で異なる(2026-07-30)**: Live2Dは取り込み時に正確な値を読めない
+ * (`model-importer.ts`)ため暫定値で登録され、初回描画時にRendererが実測してMainへ報告し、
+ * Mainがアスペクト比の補正と2倍の底上げを行って`baseResolution`を書き換える
+ * (`character-window.ts`の`normalizeLive2dBaseResolution`/`LIVE2D_BASE_RESOLUTION_TARGET_MAX`)。
+ * 結果、Live2Dは同じ`displaySize`値でもスプライトセット(取り込み時に実寸をそのまま使う)より
+ * キャラクターが大きく見える。下記`DISPLAY_SIZE_MAX`のdocコメント参照。
  */
 
 /** 配色テーマの選択肢(要件定義書 C-15: light/dark/system の3モード)。 */
@@ -35,10 +38,11 @@ export type ThemeMode = (typeof THEME_MODES)[number];
  *
  * **⚠️ C6の「画面を占有しすぎない」判断の前提がLive2D限定で崩れている(2026-07-30)**:
  * C6決着時点では「同じ`displaySize`値なら見た目の占有率も両形式で同じ」という前提だったが、
- * ユーザー要望によりLive2Dのみ`fitModel()`の実描画スケールを`LIVE2D_SIZE_BOOST`(2倍。
- * `Live2DRenderer.ts`)で底上げした。結果、Live2Dは同じ`displaySize`値でもスプライトセットの
- * 約2倍の面積を占有しうる。C6自体を再決着させる変更ではない(`DISPLAY_SIZE_MIN`/`MAX`の値は
- * 不変)が、「画面を占有しすぎない」根拠として参照する場合はこの非対称を踏まえること。
+ * ユーザー要望によりLive2Dの`baseResolution`は実測後にMainが2倍へ底上げする
+ * (`character-window.ts`の`LIVE2D_BASE_RESOLUTION_TARGET_MAX`)。結果、Live2Dは同じ
+ * `displaySize`値でもスプライトセットより大きな物理ウィンドウ・大きな面積を占有しうる。
+ * C6自体を再決着させる変更ではない(`DISPLAY_SIZE_MIN`/`MAX`の値は不変)が、「画面を占有
+ * しすぎない」根拠として参照する場合はこの非対称を踏まえること。
  */
 export const DISPLAY_SIZE_MIN = 0.2;
 export const DISPLAY_SIZE_MAX = 1;

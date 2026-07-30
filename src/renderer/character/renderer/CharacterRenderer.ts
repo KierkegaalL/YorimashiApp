@@ -36,6 +36,8 @@ export interface RendererContext {
    * 例: `http://127.0.0.1:8765/models/<installedDir>`。ローカルサーバーの `GET /models/*`。
    */
   assetBaseUrl: string;
+  /** モデルid(`ModelSlot.installedDir`)。Live2DRendererが実サイズ報告(IPC)で使う。 */
+  modelId: string;
   /**
    * `/models/*` 認証トークン(security.md 3章)。載せ方は形式ごとに異なる:
    * SpriteSetRendererはfetch→Blobでヘッダに載せる。Live2DRendererはpixi-live2d-displayの

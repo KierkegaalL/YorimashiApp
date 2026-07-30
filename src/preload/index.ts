@@ -4,6 +4,7 @@ import {
   IPC,
   CONTROL_PANEL_COLLAPSED_ARG,
   ONBOARDING_PENDING_ARG,
+  type Live2dSizeReport,
   type WindowPoint,
 } from '../shared/ipc';
 import type {
@@ -84,6 +85,12 @@ const api = {
     endDrag: (): void => ipcRenderer.send(IPC.CharacterEndDrag),
     /** クリックスルーOFF時の右クリックで共通メニューを表示するよう要求する。 */
     requestContextMenu: (): void => ipcRenderer.send(IPC.CharacterContextMenu),
+    /**
+     * Live2Dモデルの実サイズ報告(Live2DRendererが初回ロード直後に1回送る。ipc.tsの
+     * CharacterReportLive2dSize参照)。Mainがbaseresolutionのアスペクト比を補正する。
+     */
+    reportLive2dSize: (report: Live2dSizeReport): void =>
+      ipcRenderer.send(IPC.CharacterReportLive2dSize, report),
   },
   /**
    * Control Panel の折りたたみ(FR-15/C-21)。折りたたみは BrowserWindow の幅そのものを

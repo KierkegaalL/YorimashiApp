@@ -14,7 +14,7 @@ const ModelSlotSchema = z.object({
   name: z.string(),
   renderType: z.enum(['live2d', 'spriteset']),
   cubismVersion: z.enum(['cubism2', 'cubism4']).optional(),      // live2dのみ。'cubism4'はCubism 5モデル(model3.json形式)も含む
-  baseResolution: z.object({ width: z.number(), height: z.number() }), // 形式共通・必須。spritesetはmanifest.jsonから読む。live2dは取り込み時に暫定でフォールバック(400×400)を入れる(model3.jsonにキャンバス寸法が無く、正確な寸法はmoc3+Cubism Coreが要ると実測で判明。character-window.md論点2の注記参照。正確な取得は未決)
+  baseResolution: z.object({ width: z.number(), height: z.number() }), // 形式共通・必須。spritesetはmanifest.jsonから読む。live2dは取り込み時に暫定でフォールバック(400×400)を入れ、初回描画後にRendererの実測報告(IPC)でMainがアスペクト比を補正して書き換える(character-window.md論点2の注記参照。2026-07-30決着)
   installedDir: z.string(),                                       // userData/models/<uuid> の相対パス
   mappingFile: z.string().default('manifest.json'),
   assignedAdapter: z.enum(['code', 'chat']).nullable().default(null),

@@ -77,29 +77,6 @@ import { FALLBACK_STATE, type EmotionState } from '../../../shared/emotions';
 import { TOKEN_QUERY_KEY } from '../../../shared/ws-messages';
 import type { Live2DModule } from './load-live2d-module';
 
-/**
- * `fitModel()`のcontain計算結果に掛ける倍率(2026-07-30・ユーザー依頼)。
- *
- * `internalModel.width`/`.height`(=moc3の`canvasinfo`が定義するCubismモデルの内在canvasサイズ)は
- * 一般に、動きの可動域を確保するため**実際に見えるキャラクターの絵より大きめの余白を含めて
- * 作られる**(Cubism Editorの制作習慣)。そのため`fitModel()`のcontain計算(canvas全体をウィンドウに
- * 収める)は、キャラクター本体が実際に占める領域よりウィンドウを大きく余らせてしまい、結果として
- * 「表示サイズ100%でもキャラクターが小さく見える」という実機報告につながった。
- *
- * ユーザー要望「現在100%の大きさを50%として大きさ表示を作り直す」を、`displaySize`
- * (`config.general.displaySize`。ウィンドウの物理サイズ=`baseResolution × displaySize`を決める
- * 形式共通のフィールド)自体を変えずに満たす。`displaySize`は線形にウィンドウの`cw`/`ch`を決め、
- * `containScale`はその`cw`/`ch`に線形比例するため、この定数を2倍にするだけで「同じ%設定における
- * 実際の見た目のサイズ」が全域で2倍になり、要望どおり「今の100%相当の見た目が50%で得られる」
- * 状態になる(`displaySize`の意味・範囲・UIラベルは変更不要)。
- *
- * **Live2D限定(ユーザー明示指定・対称性チェックで正当)**: `SpriteSetRenderer`の`<img>`は素材の
- * ピクセルがそのまま見えるキャラクター範囲であり、Live2Dのような「内在canvasの余白」概念が
- * 存在しない(=`containScale`が既に見た目の実サイズと一致している)。よってこの倍率は
- * `SpriteSetRenderer`側に対応物を持たず、Live2D側だけに適用する。
- */
-const LIVE2D_SIZE_BOOST = 2;
-
 export class Live2DRenderer implements CharacterRenderer {
   private readonly manifest: Live2dManifest;
   private readonly ctx: RendererContext;
@@ -234,6 +211,19 @@ export class Live2DRenderer implements CharacterRenderer {
       this.motionFinishHandler = handler;
       this.app.stage.addChild(model);
       this.fitModel(model);
+      // baseResolution補正(2026-07-30・実機確認。ipc.ts の CharacterReportLive2dSize /
+      // character-window.ts の normalizeLive2dBaseResolution 参照): 取り込み時点ではCubism Coreが
+      // 無く実canvas寸法を読めないため、baseResolutionは暫定的に正方形のプレースホルダーになって
+      // いる。実測できた今、Mainへ報告してアスペクト比の補正(と「表示サイズ100%でもキャラクターが
+      // 小さく見える」というユーザー要望に応える倍率)の両方をMain側で計算してもらう。**このRenderer
+      // 側では倍率を掛けない**(`fitModel()`は常に純粋なcontain=はみ出さないことを構造的に保証する。
+      // 倍率をここに置くと`containScale`を超えて必ずどこかの辺がはみ出す=ユーザー実機確認で再現した
+      // 不具合)。preload不在の経路(ブラウザ直開き)では`window.yorimashi`がundefinedなので何もしない。
+      window.yorimashi?.character?.reportLive2dSize({
+        id: this.ctx.modelId,
+        width: model.internalModel.width,
+        height: model.internalModel.height,
+      });
       this.applyState(this.currentState);
       this.ctx.onReady?.();
     } catch (err) {
@@ -270,7 +260,7 @@ export class Live2DRenderer implements CharacterRenderer {
     const cw = this.container.clientWidth || iw;
     const ch = this.container.clientHeight || ih;
     const containScale = Math.min(cw / iw, ch / ih);
-    model.scale.set(containScale * LIVE2D_SIZE_BOOST);
+    model.scale.set(containScale);
     model.anchor.set(0.5, 0.5);
     model.position.set(cw / 2, ch / 2);
   }

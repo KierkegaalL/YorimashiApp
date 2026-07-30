@@ -47,6 +47,7 @@ export function useCharacterScene(containerRef: RefObject<HTMLElement | null>): 
         }
         renderer = await createRenderer(manifest, {
           assetBaseUrl,
+          modelId: model.installedDir,
           token,
           onReady: () => {
             if (!cancelled) {
