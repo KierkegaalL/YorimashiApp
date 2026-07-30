@@ -18,6 +18,19 @@
  * これにより、cubism4専用モデルしか使わない開発者は`live2dcubismcore.min.js`だけを配置すればよく、
  * cubism2の`live2d.min.js`は不要になる(その逆も同様)。
  *
+ * **⚠️ Cubism Coreの`drawables.renderOrders`→`drawOrders`リネーム対応(2026-07-30・実機検証で判明)**:
+ * `pixi-live2d-display@0.4.0`の`CubismModel.getDrawableRenderOrders()`は
+ * `this._model.drawables.renderOrders`を読むが、**最新のCubism Core(公式サイトから新規取得した
+ * バージョン6.0.1で実機確認)ではこのプロパティ名が`drawOrders`に変わっている**(実際にCoreへ
+ * `Core.Model.fromMoc(moc)`した戻り値のキー一覧を列挙して確認した。`renderOrders`はどこにも存在しない)。
+ * 結果`renderOrders`が`undefined`のまま`doDrawModel()`の`renderOrder[0]`アクセスで
+ * `TypeError: Cannot read properties of undefined`となり、モデルが一切描画されなかった
+ * (エラーは起きず`ready`にはなる=設定・moc3・テクスチャの取得自体は全部成功しているため気づきにくい)。
+ * `CubismModel.prototype.getDrawableRenderOrders`を上書きし、`renderOrders`が無ければ`drawOrders`へ
+ * フォールバックする(古いCore=`renderOrders`が生きている場合はそのまま使うため後方互換も保つ)。
+ * **cubism2には対応物が無い**(`CubismModel`クラス自体がCubism4専用のCore実装ラッパーで、
+ * cubism2.es.jsはこのクラスを持たない=exportsにも無い。よってこのパッチはcubism4限定で正当な非対称)。
+ *
  * **⚠️ アセット認証(2026-07-30・実機検証で解決)**: `GET /models/*` はトークン認証必須(security.md)。
  * `pixi-live2d-display`はモデル定義・moc3・motion・physics/poseを自前のXHRローダで、**テクスチャは
  * PixiJSが`<img src>`相当で**取得するため、いずれもRendererからヘッダを付ける経路が無い
@@ -43,11 +56,13 @@ export type Live2DModule = Pick<
 >;
 
 /**
- * `resolveURL`を二重に上書きしないためのガード。動的importは同一specifierで
+ * prototypeメソッドを二重に上書きしないためのガード。動的importは同一specifierで
  * モジュールインスタンスがキャッシュされるため、同じ版のモデルを2体目セットした際に
- * `loadLive2DModule`が再度呼ばれても、prototypeへの上書きは1回で済ませる
- * (二重に包むと`?token=`が付いた後の文字列へさらに`new URL()`するだけなので実害は無いが、
+ * `loadLive2DModule`が再度呼ばれても、上書きは1回で済ませる(二重に包んでも実害は無いが、
  * 呼ぶたびに関数が1段ずつ深くラップされていくのは無駄なため避ける)。
+ * `ensureTokenizedResolveURL`(`ModelSettings.prototype`)と`ensureDrawOrdersCompat`
+ * (`CubismModel.prototype`)の**両方**がこの1つの`WeakSet`を共用する。プロトタイプ
+ * オブジェクトそのものをキーにするためキーの衝突は起きない。
  */
 const patchedPrototypes = new WeakSet<object>();
 
@@ -70,11 +85,49 @@ function ensureTokenizedResolveURL(modelSettings: Live2DModule['ModelSettings'],
   };
 }
 
+/**
+ * `CubismModel`のprototype面。`pixi-live2d-display`の型宣言(`types/index.d.ts`)は
+ * `declare class CubismModel { ... }`と`export`無しで宣言しており、**JS側の実際のexport
+ * (`export { ..., CubismModel, ... }`。実測で確認済み)と型宣言が食い違っている**(ライブラリの
+ * 型定義側の不備)。そのため`typeof import('pixi-live2d-display/cubism4')`経由では`CubismModel`に
+ * 型付きでアクセスできず、ここだけ実行時形状を手書きしてキャストする。
+ */
+interface CubismModelClass {
+  prototype: {
+    getDrawableRenderOrders: () => Int32Array | undefined;
+    _model: { drawables: { renderOrders?: Int32Array; drawOrders?: Int32Array } };
+  };
+}
+
+/**
+ * `CubismModel.getDrawableRenderOrders()`を上書きし、`drawables.renderOrders`が無ければ
+ * `drawables.drawOrders`へフォールバックする(冒頭コメントの経緯参照)。cubism4専用。
+ */
+function ensureDrawOrdersCompat(mod: typeof import('pixi-live2d-display/cubism4')): void {
+  const CubismModel = (mod as unknown as { CubismModel: CubismModelClass }).CubismModel;
+  const proto = CubismModel.prototype;
+  if (patchedPrototypes.has(proto)) {
+    return;
+  }
+  patchedPrototypes.add(proto);
+  const original = proto.getDrawableRenderOrders;
+  proto.getDrawableRenderOrders = function getDrawableRenderOrdersCompat(
+    this: typeof proto,
+  ): Int32Array | undefined {
+    const result = original.call(this);
+    return result !== undefined ? result : this._model.drawables.drawOrders;
+  };
+}
+
 /** 指定バージョンのモジュールを動的importし、アセットURLへ認証トークンが付くよう配線する。 */
 export async function loadLive2DModule(version: CubismVersion, token: string): Promise<Live2DModule> {
-  const mod = version === 'cubism4'
-    ? await import('pixi-live2d-display/cubism4')
-    : await import('pixi-live2d-display/cubism2');
+  if (version === 'cubism4') {
+    const mod = await import('pixi-live2d-display/cubism4');
+    ensureTokenizedResolveURL(mod.ModelSettings, token);
+    ensureDrawOrdersCompat(mod);
+    return mod;
+  }
+  const mod = await import('pixi-live2d-display/cubism2');
   ensureTokenizedResolveURL(mod.ModelSettings, token);
   return mod;
 }
