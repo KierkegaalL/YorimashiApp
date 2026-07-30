@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, ChevronRight, Copy, FolderOpen, TriangleAlert } from 'lucide-react';
 
+import { ErrorNotice } from './panel-ui';
 import { useTheme, type Theme } from './theme';
 import type { AdapterMode } from './types';
 import type { DispatchInstallResult, OnboardingSnapshot } from '../../../shared/onboarding';
@@ -594,6 +595,8 @@ function HooksSetup({
   const [copied, setCopied] = useState(false);
   /** プロジェクトごとの直近の配置結果(成功も失敗もそのまま出す)。 */
   const [installResults, setInstallResults] = useState<Record<string, DispatchInstallResult>>({});
+  /** IPC失敗の表示(AdapterTab.tsx の chooseProject と同じパターン)。 */
+  const [error, setError] = useState<string | null>(null);
 
   const api = window.yorimashi?.onboarding;
   const projects = snapshot?.hooks ?? [];
@@ -606,6 +609,9 @@ function HooksSetup({
     try {
       await api.chooseProject();
       await onRefresh();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'フォルダを追加できませんでした。');
     } finally {
       setBusy(false);
     }
@@ -620,6 +626,9 @@ function HooksSetup({
       const result = await api.installDispatchScript(projectPath, overwrite);
       setInstallResults((prev) => ({ ...prev, [projectPath]: result }));
       await onRefresh();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'dispatch.sh の配置に失敗しました。');
     } finally {
       setBusy(false);
     }
@@ -629,9 +638,14 @@ function HooksSetup({
     if (!api) {
       return;
     }
-    await api.copySettingsSnippet();
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    try {
+      await api.copySettingsSnippet();
+      setCopied(true);
+      setError(null);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'クリップボードへコピーできませんでした。');
+    }
   };
 
   return (
@@ -799,6 +813,8 @@ function HooksSetup({
           {copied ? 'コピーしました' : 'コピーする'}
         </button>
       </SetupSection>
+
+      {error !== null && <ErrorNotice message={error} />}
     </div>
   );
 }

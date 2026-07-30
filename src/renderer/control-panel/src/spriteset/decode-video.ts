@@ -154,14 +154,22 @@ async function resolveDuration(video: HTMLVideoElement): Promise<number> {
     return video.duration;
   }
   await new Promise<void>((resolve) => {
-    const done = (): void => resolve();
+    // waitForMetadata と同様にタイマーIDを保持し、先に解決した側が確実にもう一方をクリアする
+    // (無くても resolve の二重呼び出し自体は無害だが、書き方をこのファイル内で統一する)。
+    // 宣言順序も waitForMetadata に揃える(done定義 → timer設定 → イベントハンドラ登録)。
+    // 逆順(イベントハンドラ登録が先)だと、仕様上は無いはずの同期発火が万一起きた場合に
+    // timer が TDZ で未初期化のまま参照され例外になりうる(reviewer指摘・2026-07-30)。
+    const done = (): void => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(done, SEEK_TIMEOUT_MS);
     video.ondurationchange = () => {
       if (Number.isFinite(video.duration)) {
         done();
       }
     };
     video.currentTime = 1e101;
-    setTimeout(done, SEEK_TIMEOUT_MS);
   });
   video.ondurationchange = null;
   if (!Number.isFinite(video.duration) || video.duration <= 0) {

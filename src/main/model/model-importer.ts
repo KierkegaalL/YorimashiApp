@@ -31,7 +31,7 @@ import {
   enumerateLive2d,
   findLive2dModelRoot,
 } from './live2d-import';
-import { extractZipSafely } from './zip-archive';
+import { extractZipSafely, inspectExtracted, MAX_UNCOMPRESSED_BYTES } from './zip-archive';
 
 /**
  * Live2D の基準解像度の暫定既定値。
@@ -123,7 +123,10 @@ export class ModelImporter {
     try {
       await extractZipSafely(zipPath, tmpDir);
       const modelRoot = findLive2dModelRoot(tmpDir);
-      return this.importLive2dFromFolder(modelRoot, zipDisplayName(zipPath));
+      // extractZipSafely が展開直後(tmpDir全体)に既にシンボリックリンク・サイズ検査を
+      // 済ませているため、importLive2dFromFolder 側での再検査は省略する(同じツリーの二重走査を
+      // 避ける。reviewer指摘・2026-07-30)。
+      return this.importLive2dFromFolder(modelRoot, zipDisplayName(zipPath), { skipSymlinkCheck: true });
     } finally {
       // 成否によらず一時ディレクトリを消す(userData ではなく OS の temp だが、残す理由が無い)。
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -136,11 +139,33 @@ export class ModelImporter {
    *
    * @param displayName スロット名の上書き。省略時はフォルダ名。zip 取り込みでは
    *   一時ディレクトリ名が入らないよう zip のファイル名を渡す。
+   * @param options.skipSymlinkCheck 呼び出し元(zip取り込み)が展開直後に既に
+   *   シンボリックリンク・サイズ検査を済ませている場合に true。フォルダ取り込みの直接呼び出し
+   *   (ダイアログ経由)では常に false(検査する)。
    */
-  importLive2dFromFolder(srcDir: string, displayName?: string): ImportResult {
+  importLive2dFromFolder(
+    srcDir: string,
+    displayName?: string,
+    options?: { skipSymlinkCheck?: boolean },
+  ): ImportResult {
     // 上限チェックを最初に行う(コピーしてから弾かない)。
     if (this.deps.configStore.current.model.slots.length >= MAX_MODEL_SLOTS) {
       throw new Error(`モデルは最大 ${MAX_MODEL_SLOTS} 体までです。追加するには、どれかを削除してください。`);
+    }
+
+    if (!options?.skipSymlinkCheck) {
+      // シンボリックリンク対策(zip-archive.ts の inspectExtracted を共用。security.md 6章)。
+      // 「フォルダ」取り込みは fs.cpSync で複製するだけの経路のため、この検査が無いと外部を指す
+      // シンボリックリンクがそのまま複製され、複製後に /models/* 配信(stat() がリンクを辿る)
+      // 経由で外部ファイルが読まれうる(zip取り込みとの非対称・reviewer指摘で発覚。2026-07-30)。
+      // UnsafeArchiveError は Error のサブクラスなので、そのまま呼び出し元(IPCハンドラ)へ
+      // 素通しして問題ない(message はそのままUIへ出せる日本語)。
+      const srcBytes = inspectExtracted(srcDir);
+      if (srcBytes > MAX_UNCOMPRESSED_BYTES) {
+        throw new Error(
+          `モデルのサイズが大きすぎます(${Math.round(srcBytes / 1024 / 1024)}MB)。取り込みを中止しました。`,
+        );
+      }
     }
 
     // 列挙(パス逸脱の検証を含む)→ 自動マッピング → manifest。

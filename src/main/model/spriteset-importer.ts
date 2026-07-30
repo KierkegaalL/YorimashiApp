@@ -199,26 +199,42 @@ export class SpritesetImporter {
     // idle 必須・型を満たすことを書き出し前に確認する。
     ManifestSchema.parse(manifest);
 
-    // ここから書き込み。
-    fs.mkdirSync(destDir, { recursive: true });
-    for (const { file, buffer } of files) {
-      fs.writeFileSync(path.join(destDir, file), buffer);
+    // 冒頭の上限チェックから、時間のかかる非同期エンコード(上のループ)を挟んでいるため、
+    // その間に別の取り込みが先に上限へ到達しうる(TOCTOU)。書き込み直前に再チェックする。
+    // (Live2Dのzip取り込みも extractZipSafely 内で非同期のunzip呼び出しを挟むため、TOCTOUの窓が
+    // 無いわけではない。Live2D側が安全なのは「同期処理しか挟まないから」ではなく、合流先の
+    // importLive2dFromFolder が呼び出しのたびに無条件で上限を再チェックするため。ここも同じ
+    // 「書き込み直前に必ず再チェックする」という方針を明示的に踏襲する。reviewer指摘・2026-07-30)。
+    if (this.deps.configStore.current.model.slots.length >= MAX_MODEL_SLOTS) {
+      throw new Error(`モデルは最大 ${MAX_MODEL_SLOTS} 体までです。追加するには、どれかを削除してください。`);
     }
-    fs.writeFileSync(path.join(destDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 
-    const slot: ModelSlot = {
-      id,
-      name,
-      renderType: 'spriteset',
-      // cubismVersion は Live2D 専用のため付けない(スキーマ上 optional)。
-      baseResolution,
-      installedDir: id,
-      mappingFile: 'manifest.json',
-      assignedAdapter: null,
-    };
-    this.deps.configStore.update((draft) => {
-      draft.model.slots.push(slot);
-    });
+    // ここから書き込み。configStore.update が失敗した場合(上限再チェック含む)は destDir を
+    // 掃除してから例外を投げ直す(config未参照の孤児ディレクトリを残さない)。
+    fs.mkdirSync(destDir, { recursive: true });
+    try {
+      for (const { file, buffer } of files) {
+        fs.writeFileSync(path.join(destDir, file), buffer);
+      }
+      fs.writeFileSync(path.join(destDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+
+      const slot: ModelSlot = {
+        id,
+        name,
+        renderType: 'spriteset',
+        // cubismVersion は Live2D 専用のため付けない(スキーマ上 optional)。
+        baseResolution,
+        installedDir: id,
+        mappingFile: 'manifest.json',
+        assignedAdapter: null,
+      };
+      this.deps.configStore.update((draft) => {
+        draft.model.slots.push(slot);
+      });
+    } catch (err) {
+      fs.rmSync(destDir, { recursive: true, force: true });
+      throw err;
+    }
 
     return { imported: true, warning: null };
   }

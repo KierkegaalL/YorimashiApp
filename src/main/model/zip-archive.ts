@@ -106,10 +106,11 @@ export async function extractZipSafely(zipPath: string, destDir: string): Promis
   }
 
   // ① 展開前の検査: 1件でも base の外に出るなら、1バイトも書かずに拒否する。
+  // __MACOSX/・.DS_Store もこの検査からは除外しない(実害は無い前提だが、パス逸脱検査自体を
+  // 特定のエントリ名だけ素通りさせる理由が無い。以前あった isIgnorableEntry によるスキップは
+  // 削除済み。②③のどちらの判定にも「無視してよいエントリ」という特別扱いは無く、
+  // シンボリックリンク・パス逸脱・サイズ上限のすべてを全エントリ一律で検査する)。
   for (const name of names) {
-    if (isIgnorableEntry(name)) {
-      continue;
-    }
     if (resolveWithinBase(destDir, name) === null) {
       throw new UnsafeArchiveError(
         `安全でないパスを含むzipのため取り込みを中止しました(${name})。`,
@@ -145,25 +146,25 @@ export async function extractZipSafely(zipPath: string, destDir: string): Promis
 }
 
 /**
- * `__MACOSX/` 配下と `.DS_Store` は macOS が付けるメタデータで、モデルの実体ではない。
- * 検査対象からも展開結果からも無視してよい(不正パスの判定でノイズにしない)。
- */
-function isIgnorableEntry(name: string): boolean {
-  return name.startsWith('__MACOSX/') || path.basename(name) === '.DS_Store';
-}
-
-/**
- * 展開結果を再帰的に走査し、**シンボリックリンクがあれば拒否**しつつ**実バイト数を合計**する。
+ * 指定ディレクトリを再帰的に走査し、**シンボリックリンクがあれば拒否**しつつ**実バイト数を合計**する。
  * `readdirSync(withFileTypes)` は `lstat` 相当でリンク自体を見るため、リンクを辿らない
  * (辿るとリンク先の実体サイズを数えたり、リンク先を検査対象にしてしまう)。
+ *
+ * zip展開後(このファイル内)だけでなく、**Live2Dの「フォルダ」取り込み**(model-importer.ts の
+ * `importLive2dFromFolder`、`fs.cpSync` でユーザーが選んだフォルダをそのまま複製する経路)からも
+ * 呼ばれる共用関数。フォルダ取り込みは zip を経由しないため zip-slip 自体のリスクは無いが、
+ * `fs.cpSync` は既定でシンボリックリンクを解決せず**リンクそのもの**を複製するため、複製元フォルダに
+ * 外部を指すリンクが混ざっていると `/models/*` 配信(`stat()` がリンクを辿る)経由で外部ファイルが
+ * 読まれうる。zip取り込みだけこの検査を持ち、フォルダ取り込みが持たないのは「片方だけ直した」対称性
+ * 事故そのものだったため(reviewer指摘・2026-07-30)、export してフォルダ取り込みでも同じ検査を通す。
  */
-function inspectExtracted(dir: string, baseDir: string): number {
+export function inspectExtracted(dir: string, baseDir: string = dir): number {
   let total = 0;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isSymbolicLink()) {
       throw new UnsafeArchiveError(
-        `シンボリックリンクを含むzipのため取り込みを中止しました(${path.relative(baseDir, full)})。`,
+        `シンボリックリンクを含むため取り込みを中止しました(${path.relative(baseDir, full)})。`,
       );
     }
     if (entry.isDirectory()) {

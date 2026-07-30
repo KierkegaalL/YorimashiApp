@@ -155,6 +155,20 @@ export class LocalServer {
       });
     });
 
+    // 恒久的なerrorハンドラ(listenOn()内のonceハンドラとは別)。Node の EventEmitter は
+    // 'error' にリスナーが1つも無い状態で emit されると同期的に throw する仕様があり、
+    // 起動成功後(listenOnのonceが外れた後)にソケットレベルの異常(EMFILE等)が起きると
+    // このリスナーが無いままだと Main プロセス全体が捕捉不能な例外で落ちる。
+    // boundPort===null の間(start()のポート走査中)は、EADDRINUSEによる正常なフォールバックでも
+    // 同じ'error'イベントが飛んでくる(このリスナーとlistenOn内のonceの両方が呼ばれる)ため、
+    // ここではログを出さない(start()側でEADDRINUSE以外は例外として呼び出し元へ伝播する)。
+    // 起動完了後(boundPort!==null)の異常だけを「想定外」としてログに残す(reviewer指摘・2026-07-30)。
+    this.server.on('error', (err) => {
+      if (this.boundPort !== null) {
+        console.error('[local-server] unexpected server error:', err);
+      }
+    });
+
     this.wss = new WebSocketServer({ noServer: true });
     this.wss.on('connection', (ws) => {
       // 接続直後に現在の状態を1回送る(クライアントが初期表示を即決められるように)。
@@ -297,10 +311,13 @@ export class LocalServer {
     }
 
     if (aborted) {
-      // 残りのボディを読み切らないままレスポンスするとkeep-alive接続が宙に浮くため、
-      // リクエストを破棄してソケットを片付ける(可用性NFR)。
+      // req/res は同一ソケットを共有するため、先に req.destroy() するとソケット自体が壊れ、
+      // 直後の res.writeHead/end が送達されず「socket hang up」で終わる(実測で確認)。
+      // 先に413応答を送り切ってから、残りのボディを読み切らないぶんソケットを片付ける
+      // (keep-alive接続が宙に浮かないようにする。可用性NFR)。
+      sendText(res, 413, 'Payload Too Large');
       req.destroy();
-      return sendText(res, 413, 'Payload Too Large');
+      return;
     }
 
     let payload: HookEventPayload;

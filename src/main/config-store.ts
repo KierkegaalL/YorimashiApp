@@ -95,9 +95,17 @@ export class ConfigStore {
     try {
       contents = fs.readFileSync(filePath, 'utf-8');
     } catch {
-      // 未作成 → 既定値を書き出して起動する。
+      // 未作成 → 既定値を書き出して起動する。書き出し自体の失敗(ディスクフル・パーミッション等)は
+      // 致命的にしない(下の正規化書き戻しと同じ方針。メモリ上の既定値で起動を継続する)。
       const store = new ConfigStore(filePath, createDefaultConfig());
-      store.persist();
+      try {
+        store.persist();
+      } catch (persistErr) {
+        console.error(
+          '[config] 既定値の書き出しに失敗しました(メモリ上の既定値で起動を継続します):',
+          persistErr,
+        );
+      }
       return store;
     }
 
@@ -127,8 +135,16 @@ export class ConfigStore {
       } catch (renameErr) {
         console.error('[config] 破損した config.json の退避に失敗しました:', renameErr);
       }
+      // 既定値の書き出し自体の失敗は致命的にしない(上の未作成パスと同じ方針)。
       const store = new ConfigStore(filePath, createDefaultConfig());
-      store.persist();
+      try {
+        store.persist();
+      } catch (persistErr) {
+        console.error(
+          '[config] 既定値の書き出しに失敗しました(メモリ上の既定値で起動を継続します):',
+          persistErr,
+        );
+      }
       return store;
     }
 
