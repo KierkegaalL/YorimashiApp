@@ -8,13 +8,20 @@
  * あり、動的importは非同期だから。スプライトセットは重い依存が無いので同期生成できるが、戻り値の型を
  * 揃えるため両分岐とも Promise で返す。
  *
+ * **⚠️ 実機検証で判明した訂正(2026-07-30)**: `pixi-live2d-display`(裸import)は cubism2/cubism4
+ * 両サブモジュールを同梱した単一バンドルで、**どちらのサブモジュールもモジュール評価時点で
+ * 自分のランタイムグローバルが無いと即例外を投げる**(cubism-runtime.ts参照)。つまり
+ * **今から描画するモデルの`cubismVersion`に関わらず、importするには両方のランタイムが必要**。
+ * よってここでは`manifest.cubismVersion`単体ではなく`isAnyCubismRuntimeUsable()`(両方確認)で
+ * importの可否を判定し、両方をロードしてから初めて動的importする。
+ *
  * 対称性(CLAUDE.md原則4): 両 renderType に対して必ず対応する実装を返す。live2dのランタイム事前判定は
  * Live2D固有の正当な非対称(cubism-runtime.ts 参照)。
  */
 
 import type { CharacterRenderer, RendererContext } from './CharacterRenderer';
 import { SpriteSetRenderer } from './SpriteSetRenderer';
-import { isCubismRuntimeAvailable } from './cubism-runtime';
+import { isAnyCubismRuntimeUsable } from './cubism-runtime';
 import { loadCubismRuntime } from './load-cubism-runtime';
 import type { Manifest } from '../../../shared/manifest';
 
@@ -24,12 +31,15 @@ export async function createRenderer(
 ): Promise<CharacterRenderer> {
   if (manifest.renderType === 'live2d') {
     // 開発者が配置していれば読み込む(load-cubism-runtime.ts参照)。未配置でも例外にはならず、
-    // 直後の isCubismRuntimeAvailable が false のままなので、正直な「未導入」エラーへ落ちる。
-    await loadCubismRuntime(manifest.cubismVersion);
-    if (!isCubismRuntimeAvailable(manifest.cubismVersion)) {
-      const label = manifest.cubismVersion === 'cubism4' ? 'Cubism 4/5' : 'Cubism 2';
+    // 直後の isAnyCubismRuntimeUsable が false のままなので、正直な「未導入」エラーへ落ちる。
+    // **描画するモデルの版に関わらず両方読み込みを試みる**(pixi-live2d-displayの単一バンドルは
+    // importするだけで両方のランタイムグローバルを要求するため。cubism-runtime.tsの訂正参照)。
+    await Promise.all([loadCubismRuntime('cubism4'), loadCubismRuntime('cubism2')]);
+    if (!isAnyCubismRuntimeUsable()) {
       throw new Error(
-        `${label} ランタイムが未導入のため Live2D モデルを描画できません(live2dcubismcore.min.js / live2d.min.js の同梱が必要)`,
+        'Cubism ランタイムが未導入のため Live2D モデルを描画できません' +
+          '(live2dcubismcore.min.js と live2d.min.js の両方の同梱が必要。' +
+          'モデルの版に関わらずどちらも要求されます)',
       );
     }
     // ランタイム確認後にのみ import(pixi-live2d-display はランタイム未ロードだと import で落ちる)。

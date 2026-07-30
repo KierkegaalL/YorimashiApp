@@ -2,10 +2,13 @@
  * Live2D形式の CharacterRenderer(FR-5)。pixi-live2d-display(v0.4.0)+ PixiJS v6 で描画する。
  *
  * ⚠️ 実行前提と本環境での検証限界(constraints.md「動作確認済みと自己申告しない」):
- * - **Cubism外部ランタイムが window に必要**。cubism4(=Cubism 5含む)は `window.Live2DCubismCore`、
- *   cubism2 は `window.Live2D`(live2dcubismcore.js / live2d.min.js。Live2D公式から取得、npmに無い。
- *   environments.md)。**未ロードだと `pixi-live2d-display` は import 時点で例外を投げる**ため、この
- *   モジュールは createRenderer が**ランタイム存在を確認した後に動的 import** する(静的 import しない)。
+ * - **Cubism外部ランタイムが window に、しかも版に関わらず両方必要**。`pixi-live2d-display`(裸import)
+ *   は cubism2/cubism4 両サブモジュールを同梱した単一バンドルで、どちらも import された時点で
+ *   自分のランタイムグローバル(cubism4=`window.Live2DCubismCore`、cubism2=`window.Live2D`。
+ *   `live2dcubismcore.min.js` / `live2d.min.js`。Live2D公式から取得、npmに無い)が無いと即例外を投げる
+ *   (実機検証で判明。cubism-runtime.tsの訂正コメント参照)。**このモデルがCubism 4/5専用でも、
+ *   Cubism 2ランタイムが無いとimportで落ちる**。createRenderer が**両方の存在を確認した後に
+ *   動的 import** する(静的 import しない)。
  * - PixiJSは**v6のAPIで書く**(v8のContainerとは別クラス。environments.md)。`Ticker`を登録する。
  * - 実際の描画・モーション駆動はWebGL+GUIを要し、本サンドボックスでは実行できない。ロジック構造は
  *   ライブラリAPI/実測(A2: dev-assetsのHaru/Shizuku定義)に基づくが、**実描画の最終確認は実機で行う**。

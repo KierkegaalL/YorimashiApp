@@ -6,17 +6,25 @@
 ## 何を置くか
 
 [Cubism SDK for Web](https://www.live2d.com/sdk/download/web/)(Live2D公式)を取得し、ライセンスに
-同意のうえ、使うバージョンに応じて次のファイルをこのディレクトリ直下に配置する。
+同意のうえ、次の**両方**をこのディレクトリ直下に配置する。
 
-| モデルの `cubismVersion` | 配置するファイル | SDK内の場所の目安 |
-|---|---|---|
-| `cubism4`(Cubism 5 の `model3.json` 形式を含む) | `live2dcubismcore.min.js` | `Core/live2dcubismcore.min.js` |
-| `cubism2` | `live2d.min.js` | Cubism 2.1 SDK の配布物内 |
+| ファイル | SDK内の場所の目安 |
+|---|---|
+| `live2dcubismcore.min.js` | `Core/live2dcubismcore.min.js`(Cubism 4/5 SDK) |
+| `live2d.min.js` | Cubism 2.1 SDK の配布物内 |
+
+**⚠️ 使うモデルがCubism 4/5だけであっても、`live2d.min.js`も必要**(実機検証で判明)。
+`pixi-live2d-display`(裸import)は cubism2/cubism4 両方のサブモジュールを同梱した単一バンドルで、
+どちらのサブモジュールも**importされた時点**で自分のランタイムグローバル(`window.Live2D` /
+`window.Live2DCubismCore`)が無いと即座に例外を投げる。実際に描画するモデルの版とは無関係に、
+**このアプリでLive2Dを1体でも使うには両方のファイルが要る**。片方だけ置くと
+`Could not find Cubism 2 runtime`(または逆)という`pixi-live2d-display`自身のエラーで
+描画が止まる(`cubism-runtime.ts`の訂正コメント参照)。
 
 ## 仕組み
 
-`src/renderer/character/renderer/load-cubism-runtime.ts` が、モデルの `cubismVersion` に応じて
-上記ファイルを `<script>` タグで動的に読み込む。読み込み元パスはサイトルート直下
+`src/renderer/character/renderer/load-cubism-runtime.ts` が、モデルの`cubismVersion`に関わらず
+**上記ファイルの両方**を `<script>` タグで動的に読み込む。読み込み元パスはサイトルート直下
 (`/cubism-runtime/<ファイル名>`)に固定しており、これは Vite の `public` ディレクトリ規約により
 **開発時(`npm run dev`。Vite dev server が `public/` をサイトルート直下で配信する)・
 ビルド後(`npm run build && npm run preview`。ローカルサーバーが `out/renderer/` を静的配信する)
@@ -30,7 +38,7 @@
 届かないため描画までは辿り着かない)。
 
 ファイルを置かなければ `<script>` は 404 になるだけで、アプリは「ランタイム未導入」の
-正直なエラー表示に留まる(`cubism-runtime.ts` の `isCubismRuntimeAvailable`)。
+正直なエラー表示に留まる(`cubism-runtime.ts` の `isAnyCubismRuntimeUsable`)。
 
 ## 配布ビルドへの同梱について
 
